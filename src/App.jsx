@@ -8,7 +8,7 @@ const TMDB_API_KEY = "09ca3ca71692ba80b848d268502d24ed";
 const BASE_URL = "https://api.themoviedb.org/3";
 const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
 const IMAGE_ORIGINAL_URL = "https://image.tmdb.org/t/p/original";
-const VIDSRC_BASE = "https://vidsrc.su";
+const MAPPLE_BASE = "https://mapple.uk";
 const LIVESPORT_BASE = "https://livesport.su";
 
 // STRICT PRIME FILTERS
@@ -417,11 +417,6 @@ const SportsPlayer = () => {
         fetch(`${LIVESPORT_BASE}/api/matches/${id}/detail`)
             .then(res => res.json())
             .then(data => {
-                // The API structure in the prompt implies we fetch matches then detail.
-                // Assuming detail contains the match info too or we just show streams.
-                // The structure for detail is { sources: [...] }
-                // Let's also fetch the match info again or pass it via state to get the title,
-                // but for now, we'll just load streams.
                 if (data.sources && data.sources.length > 0) {
                     setStreams(data.sources);
                     setActiveStream(data.sources[0]);
@@ -433,14 +428,12 @@ const SportsPlayer = () => {
                 setLoading(false);
             });
         
-        // Fetch match info purely for the title display
-        fetch(`${LIVESPORT_BASE}/api/matches/live`) // We might not find it here if not live, but good try
+        fetch(`${LIVESPORT_BASE}/api/matches/live`) 
             .then(res => res.json())
             .then(matches => {
                 const found = matches.find(m => m.id === id);
                 if (found) setMatchTitle(found.title);
                 else {
-                     // Try finding in general popular
                      fetch(`${LIVESPORT_BASE}/api/matches/popular`).then(r=>r.json()).then(pop => {
                          const pFound = pop.find(m => m.id === id);
                          if (pFound) setMatchTitle(pFound.title);
@@ -490,7 +483,6 @@ const SportsPlayer = () => {
                     </div>
                 )}
 
-                {/* Stream Switcher Overlay */}
                 {showStreamList && (
                     <div className="absolute top-4 right-4 w-72 bg-[#19222b]/95 backdrop-blur-md border border-gray-700 rounded-lg shadow-2xl overflow-hidden animate-in fade-in slide-in-from-right-10 z-[60]">
                         <div className="p-3 border-b border-white/10 flex justify-between items-center">
@@ -907,34 +899,28 @@ const Player = () => {
     }
   }, [type, id, season]);
 
-  // Handle watch progress syncing
+  // Handle watch progress syncing with Mapple Player
   useEffect(() => {
-    const handleMessage = (event) => {
-      if (event.data?.type === 'MEDIA_DATA') {
-        const mediaData = event.data.data;
-        if (mediaData.id && (mediaData.type === 'movie' || mediaData.type === 'tv')) {
-            const STORAGE_KEY = 'watch_progress';
-            const currentProgress = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-            currentProgress[mediaData.id] = {
-                ...currentProgress[mediaData.id],
-                ...mediaData,
-                last_updated: Date.now()
-            };
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(currentProgress));
-            console.log('Progress updated:', mediaData);
-        }
+    const handleMessage = ({ origin, data }) => {
+      if (origin !== MAPPLE_BASE || !data) {
+        return;
+      }
+      if (data.type === 'MEDIA_DATA') {
+        localStorage.setItem('mapplePlayerProgress', JSON.stringify(data.data));
       }
     };
-
+    
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
   const getSourceUrl = () => {
-      const baseParams = "autoplay=true&colour=00A8E1"; // 00A8E1 is Prime Blue
-      return type === 'tv' 
-        ? `${VIDSRC_BASE}/tv/${id}/${season}/${episode}?${baseParams}&autonextepisode=true` 
-        : `${VIDSRC_BASE}/movie/${id}?${baseParams}`;
+      const commonParams = "autoPlay=true&theme=00A8E1&server=2"; // Force server 2
+      
+      if (type === 'tv') {
+        return `${MAPPLE_BASE}/watch/tv/${id}-${season}-${episode}?${commonParams}&nextButton=true&autoNext=true`;
+      }
+      return `${MAPPLE_BASE}/watch/movie/${id}?${commonParams}`;
   };
 
   return (
