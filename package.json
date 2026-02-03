@@ -11,12 +11,14 @@
   },
   "dependencies": {
     "@consumet/extensions": "^1.8.8",
+    "@sparticuz/chromium": "^143.0.4",
     "axios": "^1.13.4",
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "hls.js": "^1.6.15",
     "lucide-react": "^0.344.0",
     "plyr": "^3.8.4",
+    "puppeteer-core": "^24.36.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.22.3"

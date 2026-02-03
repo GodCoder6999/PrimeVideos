@@ -1,96 +1,138 @@
-import { MOVIES } from '@consumet/extensions';
-import axios from 'axios';
+import chromium from '@sparticuz/chromium';
+import puppeteer from 'puppeteer-core';
 
-// Initialize the provider directly on the backend
-const flixhq = new MOVIES.FlixHQ();
+// --- CONFIGURATION ---
+const HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Cache-Control': 's-maxage=10, stale-while-revalidate',
+};
 
+// In-memory cache (resets on serverless cold start)
+const streamCache = new Map();
+
+// --- HEADLESS RESOLVER ---
+async function resolveHLS(embedUrl) {
+  let browser = null;
+  try {
+    // Launch Vercel-optimized Chrome
+    browser = await puppeteer.launch({
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath: await chromium.executablePath(),
+      headless: chromium.headless,
+      ignoreHTTPSErrors: true,
+    });
+
+    const page = await browser.newPage();
+    
+    // Optimize: Block images, fonts, and stylesheets to speed up scraping
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+      if (['image', 'stylesheet', 'font'].includes(req.resourceType())) {
+        req.abort();
+      } else {
+        req.continue();
+      }
+    });
+
+    // Capture the first .m3u8 URL that isn't an ad
+    let hlsUrl = null;
+    const hlsPromise = new Promise((resolve) => {
+        page.on('response', (response) => {
+            const url = response.url();
+            // Filter logic: Must be m3u8 and not a known ad domain
+            if (url.includes('.m3u8') && !url.includes('google') && !url.includes('doubleclick')) { 
+                hlsUrl = url;
+                resolve(url);
+            }
+        });
+    });
+
+    // Navigate to the embed URL
+    // standard 15s timeout for page load
+    await page.goto(embedUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    
+    // Race: Wait for either the HLS url to be found OR a timeout
+    const result = await Promise.race([
+        hlsPromise,
+        new Promise(r => setTimeout(() => r(null), 8000)) // 8s scraping timeout
+    ]);
+
+    return result;
+
+  } catch (error) {
+    console.error("Resolver Error:", error);
+    return null;
+  } finally {
+    if (browser) await browser.close();
+  }
+}
+
+// --- PROVIDERS (Source Rotator) ---
+const providers = [
+    {
+        name: 'Vidsrc',
+        search: async (id, type, season, episode) => {
+            // Logic to construct the embed URL for Vidsrc
+            if (type === 'movie') {
+                return `https://vidsrc.to/embed/movie/${id}`;
+            } else {
+                return `https://vidsrc.to/embed/tv/${id}/${season}/${episode}`;
+            }
+        }
+    },
+    // Add more providers here (e.g., SuperStream, VidLink, etc.)
+];
+
+// --- MAIN API HANDLER ---
 export default async function handler(req, res) {
-  // --- CORS HEADERS ---
-  res.setHeader('Access-Control-Allow-Credentials', true);
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
-
+  // CORS Preflight
   if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
+    Object.entries(HEADERS).forEach(([k, v]) => res.setHeader(k, v));
+    return res.status(200).end();
   }
 
-  const { id, type, season = 1, episode = 1 } = req.query;
+  // Set Headers
+  Object.entries(HEADERS).forEach(([k, v]) => res.setHeader(k, v));
 
-  if (!id || !type) {
-    return res.status(400).json({ error: "Missing id or type" });
+  const { id, type = 'movie', season, episode } = req.query;
+
+  if (!id) return res.status(400).json({ error: "Missing ID" });
+
+  const cacheKey = `${type}-${id}-${season || ''}-${episode || ''}`;
+
+  // 1. Check Cache
+  if (streamCache.has(cacheKey)) {
+    return res.status(200).json({ streamUrl: streamCache.get(cacheKey), source: 'cache' });
   }
 
   try {
-    // 1. Get Accurate Metadata from TMDB
-    const tmdbUrl = `https://api.themoviedb.org/3/${type}/${id}?api_key=09ca3ca71692ba80b848d268502d24ed`;
-    const tmdbRes = await axios.get(tmdbUrl);
-    
-    // Use original title for better matching
-    const title = tmdbRes.data.original_title || tmdbRes.data.original_name || tmdbRes.data.title || tmdbRes.data.name;
-    const releaseYear = (tmdbRes.data.release_date || tmdbRes.data.first_air_date || "").split("-")[0];
+    // 2. Loop through providers until a stream is found
+    for (const provider of providers) {
+        console.log(`Checking provider: ${provider.name}`);
+        
+        const embedUrl = await provider.search(id, type, season, episode);
+        if (!embedUrl) continue;
 
-    console.log(`Searching for: ${title} (${releaseYear})`);
+        // 3. Resolve HLS using Headless Browser
+        const hls = await resolveHLS(embedUrl);
 
-    // 2. Search using Consumet Library (Running locally)
-    const searchResults = await flixhq.search(title);
+        if (hls) {
+            // Success! Cache and return
+            streamCache.set(cacheKey, hls);
+            // Clear cache entry after 1 hour to prevent stale links
+            setTimeout(() => streamCache.delete(cacheKey), 1000 * 60 * 60);
 
-    if (!searchResults.results || searchResults.results.length === 0) {
-      throw new Error(`No results found for ${title}`);
+            return res.status(200).json({ streamUrl: hls, source: provider.name });
+        }
     }
 
-    // Filter results to find the best match
-    let media = searchResults.results.find(m => 
-      (m.title.toLowerCase() === title.toLowerCase()) && 
-      (m.releaseDate === releaseYear || m.type === (type === 'movie' ? 'Movie' : 'TV Series'))
-    );
-
-    if (!media) media = searchResults.results[0];
-
-    console.log(`Found Match: ${media.title} (ID: ${media.id})`);
-
-    // 3. Fetch Media Info (Episodes)
-    const mediaInfo = await flixhq.fetchMediaInfo(media.id);
-
-    if (!mediaInfo.episodes || mediaInfo.episodes.length === 0) {
-      throw new Error("No episodes found for this media");
-    }
-
-    // 4. Locate the Specific Episode ID
-    let episodeId = null;
-
-    if (type === 'movie') {
-      episodeId = mediaInfo.episodes[0].id;
-    } else {
-      const foundEp = mediaInfo.episodes.find(
-        e => e.season === Number(season) && e.number === Number(episode)
-      );
-      if (foundEp) episodeId = foundEp.id;
-      else throw new Error(`Season ${season} Episode ${episode} not found`);
-    }
-
-    // 5. Fetch Actual Stream Sources
-    let sourcesData = null;
-    try {
-        sourcesData = await flixhq.fetchEpisodeSources(episodeId, media.id, 'vidcloud');
-    } catch (err) {
-        sourcesData = await flixhq.fetchEpisodeSources(episodeId, media.id, 'upcloud');
-    }
-
-    if (!sourcesData || !sourcesData.sources || sourcesData.sources.length === 0) {
-      throw new Error("No stream sources returned");
-    }
-
-    const bestSource = sourcesData.sources.find(s => s.quality === 'auto') || sourcesData.sources[0];
-
-    return res.status(200).json({ 
-      streamUrl: bestSource.url,
-      referer: sourcesData.headers?.Referer || null
-    });
+    return res.status(404).json({ error: "No stream found across all providers" });
 
   } catch (error) {
-    console.error("Stream Error:", error.message);
-    return res.status(500).json({ error: "Failed to generate stream", details: error.message });
+    console.error("Stream API Error:", error);
+    return res.status(500).json({ error: "Internal Server Error", details: error.message });
   }
 }
