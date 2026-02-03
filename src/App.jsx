@@ -928,8 +928,33 @@ const Player = () => {
   // Parse query parameters to get the specific season/episode if clicked from Detail page
   // Default to 1 if not present
   const queryParams = new URLSearchParams(location.search);
-  const initialSeason = queryParams.get('season') || 1;
-  const initialEpisode = queryParams.get('episode') || 1;
+  
+  // State for playback
+  const [season, setSeason] = useState(Number(queryParams.get('season')) || 1);
+  const [episode, setEpisode] = useState(Number(queryParams.get('episode')) || 1);
+  
+  // State for UI
+  const [showEpisodes, setShowEpisodes] = useState(false);
+  const [seasonData, setSeasonData] = useState(null);
+  const [totalSeasons, setTotalSeasons] = useState(1);
+
+  // Fetch Total Seasons
+  useEffect(() => {
+    if (type === 'tv') {
+        fetch(`${BASE_URL}/tv/${id}?api_key=${TMDB_API_KEY}`)
+          .then(res => res.json())
+          .then(data => { if(data.number_of_seasons) setTotalSeasons(data.number_of_seasons); });
+    }
+  }, [type, id]);
+
+  // Fetch Season Data
+  useEffect(() => {
+    if (type === 'tv') {
+        fetch(`${BASE_URL}/tv/${id}/season/${season}?api_key=${TMDB_API_KEY}`)
+          .then(res => res.json())
+          .then(data => setSeasonData(data));
+    }
+  }, [type, id, season]);
 
   // Handle watch progress syncing (Updated for VIDFAST format)
   useEffect(() => {
@@ -985,7 +1010,7 @@ const Player = () => {
     
     if (type === 'tv') {
       // Structure: https://vidfast.pro/tv/{id}/{season}/{episode}?autoPlay=true&theme=...&nextButton=true&autoNext=true
-      return `${VIDFAST_BASE}/tv/${id}/${initialSeason}/${initialEpisode}?autoPlay=true&${themeParam}&nextButton=true&autoNext=true`;
+      return `${VIDFAST_BASE}/tv/${id}/${season}/${episode}?autoPlay=true&${themeParam}&nextButton=true&autoNext=true`;
     } else {
       // Structure: https://vidfast.pro/movie/{id}?autoPlay=true&theme=...
       return `${VIDFAST_BASE}/movie/${id}?autoPlay=true&${themeParam}`;
@@ -1004,6 +1029,15 @@ const Player = () => {
         </button>
       </div>
 
+      {/* Episode List Toggle */}
+      {type === 'tv' && (
+        <div className="absolute top-6 right-6 z-[120]">
+            <button onClick={() => setShowEpisodes(!showEpisodes)} className={`p-3 rounded-full backdrop-blur-md border border-white/10 transition-all ${showEpisodes ? 'bg-[#00A8E1] text-white' : 'bg-black/50 hover:bg-[#333c46] text-gray-200'}`}>
+                <List size={24} />
+            </button>
+        </div>
+      )}
+
       {/* Video Player Iframe */}
       <div className="flex-1 relative w-full h-full bg-black">
         <iframe
@@ -1014,6 +1048,36 @@ const Player = () => {
           title="Player"
         ></iframe>
       </div>
+
+      {/* Episode Sidebar */}
+      {type === 'tv' && (
+        <div className={`fixed right-0 top-0 h-full bg-[#00050D]/95 backdrop-blur-xl border-l border-white/10 transition-all duration-500 ease-in-out z-[110] flex flex-col ${showEpisodes ? 'w-[350px] translate-x-0 shadow-2xl' : 'w-[350px] translate-x-full shadow-none'}`}>
+            <div className="p-6 border-b border-white/10 flex items-center justify-between bg-[#1a242f]/50">
+                <h2 className="font-bold text-white text-lg">Episodes</h2>
+                <div className="relative">
+                    <select value={season} onChange={(e) => setSeason(Number(e.target.value))} className="appearance-none bg-[#00A8E1] text-white font-bold py-1.5 pl-3 pr-8 rounded cursor-pointer text-sm outline-none hover:bg-[#008ebf] transition">
+                        {Array.from({length: totalSeasons}, (_, i) => i + 1).map(s => (<option key={s} value={s} className="bg-[#1a242f]">Season {s}</option>))}
+                    </select>
+                    <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-white pointer-events-none" />
+                </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-hide">
+                {seasonData?.episodes ? (seasonData.episodes.map(ep => (
+                        <div key={ep.id} onClick={() => setEpisode(ep.episode_number)} className={`flex gap-3 p-2 rounded-lg cursor-pointer transition-all group ${episode === ep.episode_number ? 'bg-[#333c46] border border-[#00A8E1]' : 'hover:bg-[#333c46] border border-transparent'}`}>
+                            <div className="relative w-28 h-16 flex-shrink-0 bg-black rounded overflow-hidden">
+                                {ep.still_path ? (<img src={`${IMAGE_BASE_URL}${ep.still_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" />) : (<div className="w-full h-full flex items-center justify-center text-gray-600 text-xs">No Img</div>)}
+                                {episode === ep.episode_number && (<div className="absolute inset-0 bg-black/40 flex items-center justify-center"><Play size={16} fill="white" className="text-white" /></div>)}
+                            </div>
+                            <div className="flex flex-col justify-center min-w-0">
+                                <span className={`text-xs font-bold mb-0.5 ${episode === ep.episode_number ? 'text-[#00A8E1]' : 'text-gray-400'}`}>Episode {ep.episode_number}</span>
+                                <h4 className={`text-sm font-medium truncate leading-tight ${episode === ep.episode_number ? 'text-white' : 'text-gray-300 group-hover:text-white'}`}>{ep.name}</h4>
+                                <span className="text-[10px] text-gray-500 mt-1">{ep.runtime ? `${ep.runtime}m` : ''}</span>
+                            </div>
+                        </div>
+                ))) : (<div className="text-center text-gray-500 mt-10 flex flex-col items-center"><Loader className="animate-spin mb-2" /><span>Loading Season {season}...</span></div>)}
+            </div>
+        </div>
+      )}
     </div>
   );
 };
