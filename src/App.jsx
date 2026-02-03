@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useLocation, useParams, Link } from 'react-router-dom';
-import { Search, User, Play, Info, Plus, ChevronRight, ChevronLeft, Download, Share2, CheckCircle2, Calendar, Clock, ThumbsUp, Ban, ChevronDown, Grip, Loader, List, ArrowLeft, X, Volume2, VolumeX, Trophy, Radio, Signal } from 'lucide-react';
+import { Search, Play, Info, Plus, ChevronRight, ChevronLeft, Download, Share2, CheckCircle2, ThumbsUp, ChevronDown, Grip, Loader, List, ArrowLeft, X, Volume2, VolumeX, Trophy, Signal, Clock, Ban } from 'lucide-react';
 import './App.css';
 
 // --- CONFIGURATION ---
@@ -8,8 +8,8 @@ const TMDB_API_KEY = "09ca3ca71692ba80b848d268502d24ed";
 const BASE_URL = "https://api.themoviedb.org/3";
 const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
 const IMAGE_ORIGINAL_URL = "https://image.tmdb.org/t/p/original";
-const VIDSRC_BASE = "https://vidsrc.su";
-// CHANGE: Set to empty string to use local/vercel proxy
+const VIDSRC_BASE = "https://vidsrc.su"; 
+// IMPORTANT: Leave empty to use the vite.config.js / vercel.json proxy
 const LIVESPORT_BASE = ""; 
 
 // STRICT PRIME FILTERS
@@ -293,12 +293,12 @@ const Navbar = ({ isPrimeOnly }) => {
 const SportsPage = () => {
     const [sports, setSports] = useState([]);
     const [matches, setMatches] = useState([]);
-    const [activeCategory, setActiveCategory] = useState('live'); // 'live', 'popular', or sportId
+    const [activeCategory, setActiveCategory] = useState('live'); 
     const [loading, setLoading] = useState(true);
     const navigate = useNavigate();
 
+    // Fetch Sports
     useEffect(() => {
-        // Fetch sports with safety check
         fetch(`${LIVESPORT_BASE}/api/sports`)
             .then(res => {
                 if (!res.ok) throw new Error("Network response was not ok");
@@ -306,14 +306,15 @@ const SportsPage = () => {
             })
             .then(data => {
                 if (Array.isArray(data)) setSports(data);
-                else console.warn("Sports data is not an array:", data);
+                else setSports([]);
             })
             .catch(e => console.error("Error fetching sports:", e));
     }, []);
 
+    // Fetch Matches based on Category
     useEffect(() => {
         setLoading(true);
-        setMatches([]); // Clear previous matches
+        setMatches([]); 
         let endpoint = "";
         if (activeCategory === 'live') endpoint = "/api/matches/live";
         else if (activeCategory === 'popular') endpoint = "/api/matches/popular";
@@ -325,12 +326,11 @@ const SportsPage = () => {
                 return res.json();
             })
             .then(data => {
-                // IMPORTANT: Ensure data is an array to prevent crashes
                 if (Array.isArray(data)) {
                     setMatches(data);
                 } else {
-                    console.warn("Matches data is not an array:", data);
-                    setMatches([]); 
+                    console.warn("API returned non-array for matches:", data);
+                    setMatches([]);
                 }
                 setLoading(false);
             })
@@ -343,12 +343,14 @@ const SportsPage = () => {
 
     const formatTime = (timestamp) => {
         if (!timestamp) return "TBD";
-        return new Date(timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        // API says timestamp is in milliseconds, so direct Date() works
+        return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     };
 
     const isLive = (date) => {
-        const now = Date.now() / 1000;
-        return activeCategory === 'live' || (date && date < now && date + 7200 > now); 
+        const now = Date.now();
+        // Assume match lasts 2 hours (7200000 ms)
+        return activeCategory === 'live' || (date && date < now && date + 7200000 > now); 
     };
 
     return (
@@ -431,7 +433,7 @@ const SportsPlayer = () => {
     const [showStreamList, setShowStreamList] = useState(false);
 
     useEffect(() => {
-        // Fetch detail with proxy
+        // Fetch detail using proxy
         fetch(`${LIVESPORT_BASE}/api/matches/${id}/detail`)
             .then(res => {
                 if (!res.ok) throw new Error("Match not found");
@@ -449,8 +451,7 @@ const SportsPlayer = () => {
                 setLoading(false);
             });
         
-        // Fetch title info
-        // Try getting it from live list first
+        // Fetch Title Info (Optional backup if detail doesn't have it)
         fetch(`${LIVESPORT_BASE}/api/matches/live`)
             .then(res => res.json())
             .then(matches => {
@@ -458,7 +459,6 @@ const SportsPlayer = () => {
                     const found = matches.find(m => m.id === id);
                     if (found) setMatchTitle(found.title);
                     else {
-                         // Fallback to popular
                          fetch(`${LIVESPORT_BASE}/api/matches/popular`).then(r=>r.json()).then(pop => {
                              if(Array.isArray(pop)) {
                                  const pFound = pop.find(m => m.id === id);
