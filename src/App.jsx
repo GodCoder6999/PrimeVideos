@@ -8,7 +8,7 @@ const TMDB_API_KEY = "09ca3ca71692ba80b848d268502d24ed";
 const BASE_URL = "https://api.themoviedb.org/3";
 const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
 const IMAGE_ORIGINAL_URL = "https://image.tmdb.org/t/p/original";
-const MAPPLE_BASE = "https://mapple.uk";
+const VIDSRC_BASE = "https://vidsrc.su";
 
 // STRICT PRIME FILTERS
 const PRIME_PROVIDER_IDS = "9|119"; 
@@ -667,10 +667,34 @@ const Player = () => {
     }
   }, [type, id, season]);
 
+  // Handle watch progress syncing
+  useEffect(() => {
+    const handleMessage = (event) => {
+      if (event.data?.type === 'MEDIA_DATA') {
+        const mediaData = event.data.data;
+        if (mediaData.id && (mediaData.type === 'movie' || mediaData.type === 'tv')) {
+            const STORAGE_KEY = 'watch_progress';
+            const currentProgress = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+            currentProgress[mediaData.id] = {
+                ...currentProgress[mediaData.id],
+                ...mediaData,
+                last_updated: Date.now()
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(currentProgress));
+            console.log('Progress updated:', mediaData);
+        }
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+
   const getSourceUrl = () => {
+      const baseParams = "autoplay=true&colour=00A8E1"; // 00A8E1 is Prime Blue
       return type === 'tv' 
-        ? `${MAPPLE_BASE}/watch/tv/${id}-${season}-${episode}` 
-        : `${MAPPLE_BASE}/watch/movie/${id}`;
+        ? `${VIDSRC_BASE}/tv/${id}/${season}/${episode}?${baseParams}&autonextepisode=true` 
+        : `${VIDSRC_BASE}/movie/${id}?${baseParams}`;
   };
 
   return (
