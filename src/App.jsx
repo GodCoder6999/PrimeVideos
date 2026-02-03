@@ -8,7 +8,7 @@ const TMDB_API_KEY = "09ca3ca71692ba80b848d268502d24ed";
 const BASE_URL = "https://api.themoviedb.org/3";
 const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
 const IMAGE_ORIGINAL_URL = "https://image.tmdb.org/t/p/original";
-const VIDUP_BASE = "https://vidup.to";
+const MAPPLE_BASE = "https://mapple.uk";
 
 // STRICT PRIME FILTERS
 const PRIME_PROVIDER_IDS = "9|119"; 
@@ -669,8 +669,8 @@ const Player = () => {
 
   const getSourceUrl = () => {
       return type === 'tv' 
-        ? `${VIDUP_BASE}/tv/${id}/${season}/${episode}` 
-        : `${VIDUP_BASE}/movie/${id}`;
+        ? `${MAPPLE_BASE}/watch/tv/${id}-${season}-${episode}` 
+        : `${MAPPLE_BASE}/watch/movie/${id}`;
   };
 
   return (
