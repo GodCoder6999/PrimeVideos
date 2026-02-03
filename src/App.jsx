@@ -8,8 +8,9 @@ const TMDB_API_KEY = "09ca3ca71692ba80b848d268502d24ed";
 const BASE_URL = "https://api.themoviedb.org/3";
 const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
 const IMAGE_ORIGINAL_URL = "https://image.tmdb.org/t/p/original";
-const MAPPLE_BASE = "https://mapple.uk";
-const LIVESPORT_BASE = "https://livesport.su";
+const VIDSRC_BASE = "https://vidsrc.su";
+// CHANGE: Set to empty string to use local/vercel proxy
+const LIVESPORT_BASE = ""; 
 
 // STRICT PRIME FILTERS
 const PRIME_PROVIDER_IDS = "9|119"; 
@@ -297,41 +298,57 @@ const SportsPage = () => {
     const navigate = useNavigate();
 
     useEffect(() => {
+        // Fetch sports with safety check
         fetch(`${LIVESPORT_BASE}/api/sports`)
-            .then(res => res.json())
-            .then(data => setSports(data))
+            .then(res => {
+                if (!res.ok) throw new Error("Network response was not ok");
+                return res.json();
+            })
+            .then(data => {
+                if (Array.isArray(data)) setSports(data);
+                else console.warn("Sports data is not an array:", data);
+            })
             .catch(e => console.error("Error fetching sports:", e));
     }, []);
 
     useEffect(() => {
         setLoading(true);
+        setMatches([]); // Clear previous matches
         let endpoint = "";
         if (activeCategory === 'live') endpoint = "/api/matches/live";
         else if (activeCategory === 'popular') endpoint = "/api/matches/popular";
         else endpoint = `/api/matches/${activeCategory}`;
 
         fetch(`${LIVESPORT_BASE}${endpoint}`)
-            .then(res => res.json())
+            .then(res => {
+                if (!res.ok) throw new Error("Network response was not ok");
+                return res.json();
+            })
             .then(data => {
-                setMatches(data);
+                // IMPORTANT: Ensure data is an array to prevent crashes
+                if (Array.isArray(data)) {
+                    setMatches(data);
+                } else {
+                    console.warn("Matches data is not an array:", data);
+                    setMatches([]); 
+                }
                 setLoading(false);
             })
             .catch(e => {
                 console.error("Error fetching matches:", e);
+                setMatches([]);
                 setLoading(false);
             });
     }, [activeCategory]);
 
     const formatTime = (timestamp) => {
+        if (!timestamp) return "TBD";
         return new Date(timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     };
 
     const isLive = (date) => {
-        // Simple check if match is happening now (assuming API returns live matches correctly)
-        // or we can assume if we are in "live" tab they are live.
-        // If it's a timestamp in the future, it's upcoming.
         const now = Date.now() / 1000;
-        return activeCategory === 'live' || (date < now && date + 7200 > now); // approx 2 hours
+        return activeCategory === 'live' || (date && date < now && date + 7200 > now); 
     };
 
     return (
@@ -365,12 +382,12 @@ const SportsPage = () => {
                 </div>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                    {matches.map(match => (
-                        <div key={match.id} onClick={() => navigate(`/watch/sport/${match.id}`)} className="bg-[#19222b] hover:bg-[#232d38] rounded-xl p-0 overflow-hidden cursor-pointer transition-all duration-300 group hover:-translate-y-1 hover:shadow-2xl border border-transparent hover:border-[#00A8E1]/30">
+                    {matches.map((match, idx) => (
+                        <div key={match.id || idx} onClick={() => navigate(`/watch/sport/${match.id}`)} className="bg-[#19222b] hover:bg-[#232d38] rounded-xl p-0 overflow-hidden cursor-pointer transition-all duration-300 group hover:-translate-y-1 hover:shadow-2xl border border-transparent hover:border-[#00A8E1]/30">
                             <div className="h-32 bg-gradient-to-br from-[#0f171e] to-[#1a242f] relative p-4 flex items-center justify-between">
                                 <div className="flex flex-col items-center gap-2 w-[40%] text-center">
                                     <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center p-2 backdrop-blur-sm">
-                                        {match.teams?.home?.badge ? <img src={match.teams.home.badge} className="w-full h-full object-contain" alt="" /> : <span className="text-xs font-bold">{match.teams?.home?.name?.[0]}</span>}
+                                        {match.teams?.home?.badge ? <img src={match.teams.home.badge} className="w-full h-full object-contain" alt="" /> : <span className="text-xs font-bold">{match.teams?.home?.name?.[0] || 'H'}</span>}
                                     </div>
                                     <span className="text-xs font-bold text-gray-300 line-clamp-1">{match.teams?.home?.name || "Home"}</span>
                                 </div>
@@ -379,7 +396,7 @@ const SportsPage = () => {
                                 </div>
                                 <div className="flex flex-col items-center gap-2 w-[40%] text-center">
                                     <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center p-2 backdrop-blur-sm">
-                                        {match.teams?.away?.badge ? <img src={match.teams.away.badge} className="w-full h-full object-contain" alt="" /> : <span className="text-xs font-bold">{match.teams?.away?.name?.[0]}</span>}
+                                        {match.teams?.away?.badge ? <img src={match.teams.away.badge} className="w-full h-full object-contain" alt="" /> : <span className="text-xs font-bold">{match.teams?.away?.name?.[0] || 'A'}</span>}
                                     </div>
                                     <span className="text-xs font-bold text-gray-300 line-clamp-1">{match.teams?.away?.name || "Away"}</span>
                                 </div>
@@ -390,9 +407,9 @@ const SportsPage = () => {
                                 )}
                             </div>
                             <div className="p-4 border-t border-white/5">
-                                <h3 className="font-bold text-white text-sm mb-2 line-clamp-1 group-hover:text-[#00A8E1] transition">{match.title}</h3>
+                                <h3 className="font-bold text-white text-sm mb-2 line-clamp-1 group-hover:text-[#00A8E1] transition">{match.title || "Unknown Match"}</h3>
                                 <div className="flex items-center justify-between text-xs text-[#8197a4] font-medium">
-                                    <span className="capitalize flex items-center gap-1"><Trophy size={12} /> {match.category}</span>
+                                    <span className="capitalize flex items-center gap-1"><Trophy size={12} /> {match.category || "Sport"}</span>
                                     <span className="flex items-center gap-1"><Clock size={12} /> {formatTime(match.date)}</span>
                                 </div>
                             </div>
@@ -414,10 +431,14 @@ const SportsPlayer = () => {
     const [showStreamList, setShowStreamList] = useState(false);
 
     useEffect(() => {
+        // Fetch detail with proxy
         fetch(`${LIVESPORT_BASE}/api/matches/${id}/detail`)
-            .then(res => res.json())
+            .then(res => {
+                if (!res.ok) throw new Error("Match not found");
+                return res.json();
+            })
             .then(data => {
-                if (data.sources && data.sources.length > 0) {
+                if (data.sources && Array.isArray(data.sources) && data.sources.length > 0) {
                     setStreams(data.sources);
                     setActiveStream(data.sources[0]);
                 }
@@ -428,19 +449,28 @@ const SportsPlayer = () => {
                 setLoading(false);
             });
         
-        fetch(`${LIVESPORT_BASE}/api/matches/live`) 
+        // Fetch title info
+        // Try getting it from live list first
+        fetch(`${LIVESPORT_BASE}/api/matches/live`)
             .then(res => res.json())
             .then(matches => {
-                const found = matches.find(m => m.id === id);
-                if (found) setMatchTitle(found.title);
-                else {
-                     fetch(`${LIVESPORT_BASE}/api/matches/popular`).then(r=>r.json()).then(pop => {
-                         const pFound = pop.find(m => m.id === id);
-                         if (pFound) setMatchTitle(pFound.title);
-                         else setMatchTitle("Live Sport Stream");
-                     })
+                if(Array.isArray(matches)) {
+                    const found = matches.find(m => m.id === id);
+                    if (found) setMatchTitle(found.title);
+                    else {
+                         // Fallback to popular
+                         fetch(`${LIVESPORT_BASE}/api/matches/popular`).then(r=>r.json()).then(pop => {
+                             if(Array.isArray(pop)) {
+                                 const pFound = pop.find(m => m.id === id);
+                                 if (pFound) setMatchTitle(pFound.title);
+                                 else setMatchTitle("Live Sport Stream");
+                             }
+                         });
+                    }
                 }
-            });
+            })
+            .catch(() => setMatchTitle("Live Sport Stream"));
+
     }, [id]);
 
     return (
@@ -483,6 +513,7 @@ const SportsPlayer = () => {
                     </div>
                 )}
 
+                {/* Stream Switcher Overlay */}
                 {showStreamList && (
                     <div className="absolute top-4 right-4 w-72 bg-[#19222b]/95 backdrop-blur-md border border-gray-700 rounded-lg shadow-2xl overflow-hidden animate-in fade-in slide-in-from-right-10 z-[60]">
                         <div className="p-3 border-b border-white/10 flex justify-between items-center">
@@ -899,28 +930,34 @@ const Player = () => {
     }
   }, [type, id, season]);
 
-  // Handle watch progress syncing with Mapple Player
+  // Handle watch progress syncing
   useEffect(() => {
-    const handleMessage = ({ origin, data }) => {
-      if (origin !== MAPPLE_BASE || !data) {
-        return;
-      }
-      if (data.type === 'MEDIA_DATA') {
-        localStorage.setItem('mapplePlayerProgress', JSON.stringify(data.data));
+    const handleMessage = (event) => {
+      if (event.data?.type === 'MEDIA_DATA') {
+        const mediaData = event.data.data;
+        if (mediaData.id && (mediaData.type === 'movie' || mediaData.type === 'tv')) {
+            const STORAGE_KEY = 'watch_progress';
+            const currentProgress = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+            currentProgress[mediaData.id] = {
+                ...currentProgress[mediaData.id],
+                ...mediaData,
+                last_updated: Date.now()
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(currentProgress));
+            console.log('Progress updated:', mediaData);
+        }
       }
     };
-    
+
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
   const getSourceUrl = () => {
-      const commonParams = "autoPlay=true&theme=00A8E1&server=2"; // Force server 2
-      
-      if (type === 'tv') {
-        return `${MAPPLE_BASE}/watch/tv/${id}-${season}-${episode}?${commonParams}&nextButton=true&autoNext=true`;
-      }
-      return `${MAPPLE_BASE}/watch/movie/${id}?${commonParams}`;
+      const baseParams = "autoplay=true&colour=00A8E1"; // 00A8E1 is Prime Blue
+      return type === 'tv' 
+        ? `${VIDSRC_BASE}/tv/${id}/${season}/${episode}?${baseParams}&autonextepisode=true` 
+        : `${VIDSRC_BASE}/movie/${id}?${baseParams}`;
   };
 
   return (
