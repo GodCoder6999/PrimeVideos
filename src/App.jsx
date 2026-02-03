@@ -1,14 +1,29 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useLocation, useParams, Link } from 'react-router-dom';
 import { Search, Play, Info, Plus, ChevronRight, ChevronLeft, Download, Share2, CheckCircle2, ThumbsUp, ChevronDown, Grip, Loader, List, ArrowLeft, X, Volume2, VolumeX, Trophy, Signal, Clock, Ban } from 'lucide-react';
-import './App.css';
+
+// --- CSS STYLES ---
+const GlobalStyles = () => (
+  <style>{`
+    .scrollbar-hide::-webkit-scrollbar { display: none; }
+    .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+    .nav-gradient { background: linear-gradient(180deg, rgba(0,5,13,0.7) 10%, transparent); }
+    .row-container { display: flex; overflow-y: hidden; overflow-x: scroll; padding: 20px 0 20px 0; gap: 10px; }
+    .rank-number { position: absolute; left: -70px; bottom: 0; font-size: 100px; font-weight: 900; color: #19222b; -webkit-text-stroke: 2px #5a6069; z-index: 10; font-family: sans-serif; letter-spacing: -5px; line-height: 0.8; }
+    .glow-hover:hover { box-shadow: 0 0 20px rgba(255, 255, 255, 0.1); }
+    @keyframes row-enter { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    .animate-row-enter { animation: row-enter 0.6s ease-out forwards; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .animate-in { animation: fadeIn 0.3s ease-out forwards; }
+  `}</style>
+);
 
 // --- CONFIGURATION ---
 const TMDB_API_KEY = "09ca3ca71692ba80b848d268502d24ed";
 const BASE_URL = "https://api.themoviedb.org/3";
 const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
 const IMAGE_ORIGINAL_URL = "https://image.tmdb.org/t/p/original";
-const VIDEASY_BASE = "https://player.videasy.net";
+const VIDFAST_BASE = "https://vidfast.pro";
 // IMPORTANT: Leave empty to use the vite.config.js / vercel.json proxy
 const LIVESPORT_BASE = ""; 
 
@@ -916,34 +931,47 @@ const Player = () => {
   const initialSeason = queryParams.get('season') || 1;
   const initialEpisode = queryParams.get('episode') || 1;
 
-  // Handle watch progress syncing (Updated for VIDEASY format)
+  // Handle watch progress syncing (Updated for VIDFAST format)
   useEffect(() => {
-    const handleMessage = (event) => {
-      try {
-        // VIDEASY sends data as a JSON string
-        if (typeof event.data === "string") {
-          const mediaData = JSON.parse(event.data);
+    const vidfastOrigins = [
+        'https://vidfast.pro',
+        'https://vidfast.in',
+        'https://vidfast.io',
+        'https://vidfast.me',
+        'https://vidfast.net',
+        'https://vidfast.pm',
+        'https://vidfast.xyz'
+    ];
 
-          // Check if valid progress data exists
-          if (mediaData && mediaData.progress) {
-            const STORAGE_KEY = 'watch_progress';
-            const currentProgress = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-            
-            // Use the ID from params or the one sent by player
-            const contentId = mediaData.id || id;
-            
-            currentProgress[contentId] = {
-              ...currentProgress[contentId],
-              ...mediaData,
-              last_updated: Date.now()
-            };
-            
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(currentProgress));
-            // Optional: console.log('Progress updated:', mediaData);
+    const handleMessage = (event) => {
+      // Validate origin
+      if (!vidfastOrigins.includes(event.origin) || !event.data) {
+          return;
+      }
+      
+      // Handle MEDIA_DATA event for progress saving (per docs)
+      if (event.data.type === 'MEDIA_DATA') {
+          // Store data exactly as received from VidFast
+          localStorage.setItem('vidFastProgress', JSON.stringify(event.data.data));
+          
+          // Optional: Sync to our internal format 'watch_progress' if needed for other app features
+          try {
+             const STORAGE_KEY = 'watch_progress';
+             const currentProgress = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+             const contentId = event.data.data[Object.keys(event.data.data)[0]].id || id; // extracting ID from the nested structure
+             
+             // Simple fallback to ensure at least some ID matches
+             if(contentId) {
+                currentProgress[contentId] = {
+                   ...currentProgress[contentId],
+                   ...event.data.data,
+                   last_updated: Date.now()
+                };
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(currentProgress));
+             }
+          } catch(e) {
+             // fail silently if internal sync fails
           }
-        }
-      } catch (err) {
-        // Ignore errors from other extensions or non-JSON messages
       }
     };
 
@@ -952,17 +980,15 @@ const Player = () => {
   }, [id]);
 
   const getSourceUrl = () => {
-    // Prime Blue Hex: 00A8E1
-    const colorParam = "color=00A8E1";
+    // Prime Blue Hex for VidFast theme (no #)
+    const themeParam = "theme=00A8E1";
     
     if (type === 'tv') {
-      // Structure: /tv/show_id/season/episode
-      // Params: nextEpisode, autoplayNextEpisode, episodeSelector, color
-      return `${VIDEASY_BASE}/tv/${id}/${initialSeason}/${initialEpisode}?${colorParam}&nextEpisode=true&autoplayNextEpisode=true&episodeSelector=true`;
+      // Structure: https://vidfast.pro/tv/{id}/{season}/{episode}?autoPlay=true&theme=...&nextButton=true&autoNext=true
+      return `${VIDFAST_BASE}/tv/${id}/${initialSeason}/${initialEpisode}?autoPlay=true&${themeParam}&nextButton=true&autoNext=true`;
     } else {
-      // Structure: /movie/movie_id
-      // Params: color
-      return `${VIDEASY_BASE}/movie/${id}?${colorParam}`;
+      // Structure: https://vidfast.pro/movie/{id}?autoPlay=true&theme=...
+      return `${VIDFAST_BASE}/movie/${id}?autoPlay=true&${themeParam}`;
     }
   };
 
@@ -1002,6 +1028,7 @@ const StorePage = () => <div className="pt-32 px-12 text-white">Store</div>;
 function App() {
   return (
     <BrowserRouter>
+      <GlobalStyles />
       <ScrollToTop />
       <div className="bg-[#00050D] min-h-screen text-white font-sans selection:bg-[#00A8E1] selection:text-white">
         <Routes>
