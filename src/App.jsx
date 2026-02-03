@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useLocation, useParams, Link } from 'react-router-dom';
-import { Search, User, Play, Info, Plus, ChevronRight, ChevronLeft, Download, Share2, CheckCircle2, Calendar, Clock, ThumbsUp, Ban, ChevronDown, Grip, Loader, List, ArrowLeft, X, Volume2, VolumeX } from 'lucide-react';
+import { Search, User, Play, Info, Plus, ChevronRight, ChevronLeft, Download, Share2, CheckCircle2, Calendar, Clock, ThumbsUp, Ban, ChevronDown, Grip, Loader, List, ArrowLeft, X, Volume2, VolumeX, Trophy, Radio, Signal } from 'lucide-react';
 import './App.css';
 
 // --- CONFIGURATION ---
@@ -9,6 +9,7 @@ const BASE_URL = "https://api.themoviedb.org/3";
 const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
 const IMAGE_ORIGINAL_URL = "https://image.tmdb.org/t/p/original";
 const VIDSRC_BASE = "https://vidsrc.su";
+const LIVESPORT_BASE = "https://livesport.su";
 
 // STRICT PRIME FILTERS
 const PRIME_PROVIDER_IDS = "9|119"; 
@@ -158,6 +159,7 @@ const Navbar = ({ isPrimeOnly }) => {
   const dropdownRef = useRef(null);
   const searchRef = useRef(null);
   const theme = getTheme(isPrimeOnly);
+  const location = useLocation();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 10);
@@ -227,6 +229,11 @@ const Navbar = ({ isPrimeOnly }) => {
 
   const handleClear = () => { setQuery(""); setShowSuggestions(false); };
 
+  const getLinkClass = (path) => {
+    const isActive = location.pathname === path;
+    return isActive ? "text-white font-extrabold" : "hover:text-white transition";
+  };
+
   return (
     <nav className={`fixed top-0 w-full z-[100] transition-all duration-300 border-b border-transparent ${scrolled ? 'bg-[#00050D] border-[#1f2a33]' : 'nav-gradient'}`}>
       <div className="flex items-center justify-between px-4 md:px-10 h-[72px]">
@@ -234,10 +241,11 @@ const Navbar = ({ isPrimeOnly }) => {
           <Link to={isPrimeOnly ? "/" : "/everything"} className={`font-extrabold text-xl tracking-tighter transition-colors ${theme.color} hover:text-white`}>
               {theme.logoText}
           </Link>
-          <div className="hidden lg:flex gap-4 h-full font-bold text-[#8197a4] text-sm">
-            <Link to={isPrimeOnly ? "/" : "/everything"} className="hover:text-white transition">Home</Link>
-            <Link to={isPrimeOnly ? "/movies" : "/everything/movies"} className="hover:text-white transition">Movies</Link>
-            <Link to={isPrimeOnly ? "/tv" : "/everything/tv"} className="hover:text-white transition">TV Shows</Link>
+          <div className="hidden lg:flex gap-6 h-full font-bold text-[#8197a4] text-[15px]">
+            <Link to={isPrimeOnly ? "/" : "/everything"} className={getLinkClass(isPrimeOnly ? "/" : "/everything")}>Home</Link>
+            <Link to={isPrimeOnly ? "/movies" : "/everything/movies"} className={getLinkClass(isPrimeOnly ? "/movies" : "/everything/movies")}>Movies</Link>
+            <Link to={isPrimeOnly ? "/tv" : "/everything/tv"} className={getLinkClass(isPrimeOnly ? "/tv" : "/everything/tv")}>TV Shows</Link>
+            <Link to="/sports" className={`${getLinkClass("/sports")} flex items-center gap-1.5`}><Trophy size={16} className={location.pathname === "/sports" ? "text-[#00A8E1]" : ""} /> Live Sports</Link>
           </div>
         </div>
         <div className="flex items-center gap-6 relative">
@@ -277,6 +285,238 @@ const Navbar = ({ isPrimeOnly }) => {
       </div>
     </nav>
   );
+};
+
+// --- SPORTS COMPONENTS ---
+
+const SportsPage = () => {
+    const [sports, setSports] = useState([]);
+    const [matches, setMatches] = useState([]);
+    const [activeCategory, setActiveCategory] = useState('live'); // 'live', 'popular', or sportId
+    const [loading, setLoading] = useState(true);
+    const navigate = useNavigate();
+
+    useEffect(() => {
+        fetch(`${LIVESPORT_BASE}/api/sports`)
+            .then(res => res.json())
+            .then(data => setSports(data))
+            .catch(e => console.error("Error fetching sports:", e));
+    }, []);
+
+    useEffect(() => {
+        setLoading(true);
+        let endpoint = "";
+        if (activeCategory === 'live') endpoint = "/api/matches/live";
+        else if (activeCategory === 'popular') endpoint = "/api/matches/popular";
+        else endpoint = `/api/matches/${activeCategory}`;
+
+        fetch(`${LIVESPORT_BASE}${endpoint}`)
+            .then(res => res.json())
+            .then(data => {
+                setMatches(data);
+                setLoading(false);
+            })
+            .catch(e => {
+                console.error("Error fetching matches:", e);
+                setLoading(false);
+            });
+    }, [activeCategory]);
+
+    const formatTime = (timestamp) => {
+        return new Date(timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    };
+
+    const isLive = (date) => {
+        // Simple check if match is happening now (assuming API returns live matches correctly)
+        // or we can assume if we are in "live" tab they are live.
+        // If it's a timestamp in the future, it's upcoming.
+        const now = Date.now() / 1000;
+        return activeCategory === 'live' || (date < now && date + 7200 > now); // approx 2 hours
+    };
+
+    return (
+        <div className="pt-24 px-4 md:px-12 min-h-screen pb-20">
+            <div className="flex items-center gap-4 mb-8 overflow-x-auto scrollbar-hide pb-2">
+                <button onClick={() => setActiveCategory('live')} className={`flex items-center gap-2 px-5 py-2.5 rounded-full font-bold text-sm transition-all whitespace-nowrap ${activeCategory === 'live' ? 'bg-[#E50914] text-white shadow-lg shadow-red-900/40' : 'bg-[#19222b] text-gray-300 hover:bg-[#333c46] hover:text-white'}`}>
+                    <Signal size={16} className={activeCategory === 'live' ? "animate-pulse" : ""} /> Live Now
+                </button>
+                <button onClick={() => setActiveCategory('popular')} className={`flex items-center gap-2 px-5 py-2.5 rounded-full font-bold text-sm transition-all whitespace-nowrap ${activeCategory === 'popular' ? 'bg-[#00A8E1] text-white shadow-lg shadow-blue-900/40' : 'bg-[#19222b] text-gray-300 hover:bg-[#333c46] hover:text-white'}`}>
+                    <Trophy size={16} /> Popular
+                </button>
+                <div className="w-px h-6 bg-gray-700 mx-2"></div>
+                {sports.map(sport => (
+                    <button key={sport.id} onClick={() => setActiveCategory(sport.id)} className={`px-5 py-2.5 rounded-full font-bold text-sm transition-all whitespace-nowrap capitalize ${activeCategory === sport.id ? 'bg-white text-black' : 'bg-[#19222b] text-gray-300 hover:bg-[#333c46] hover:text-white'}`}>
+                        {sport.name}
+                    </button>
+                ))}
+            </div>
+
+            <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
+                {activeCategory === 'live' ? "Live Matches" : activeCategory === 'popular' ? "Trending Matches" : `${sports.find(s=>s.id === activeCategory)?.name || 'Sport'} Matches`}
+                {loading && <Loader className="animate-spin ml-3 text-[#00A8E1]" size={20} />}
+            </h2>
+
+            {loading ? (
+                <div className="h-60 flex items-center justify-center text-gray-500">Loading matches...</div>
+            ) : matches.length === 0 ? (
+                <div className="h-60 flex items-center justify-center text-gray-500 flex-col gap-2">
+                    <Trophy size={48} className="opacity-20" />
+                    <p>No matches found in this category.</p>
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    {matches.map(match => (
+                        <div key={match.id} onClick={() => navigate(`/watch/sport/${match.id}`)} className="bg-[#19222b] hover:bg-[#232d38] rounded-xl p-0 overflow-hidden cursor-pointer transition-all duration-300 group hover:-translate-y-1 hover:shadow-2xl border border-transparent hover:border-[#00A8E1]/30">
+                            <div className="h-32 bg-gradient-to-br from-[#0f171e] to-[#1a242f] relative p-4 flex items-center justify-between">
+                                <div className="flex flex-col items-center gap-2 w-[40%] text-center">
+                                    <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center p-2 backdrop-blur-sm">
+                                        {match.teams?.home?.badge ? <img src={match.teams.home.badge} className="w-full h-full object-contain" alt="" /> : <span className="text-xs font-bold">{match.teams?.home?.name?.[0]}</span>}
+                                    </div>
+                                    <span className="text-xs font-bold text-gray-300 line-clamp-1">{match.teams?.home?.name || "Home"}</span>
+                                </div>
+                                <div className="flex flex-col items-center justify-center gap-1 w-[20%]">
+                                    <span className="text-xs font-black text-[#5a6b7c]">VS</span>
+                                </div>
+                                <div className="flex flex-col items-center gap-2 w-[40%] text-center">
+                                    <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center p-2 backdrop-blur-sm">
+                                        {match.teams?.away?.badge ? <img src={match.teams.away.badge} className="w-full h-full object-contain" alt="" /> : <span className="text-xs font-bold">{match.teams?.away?.name?.[0]}</span>}
+                                    </div>
+                                    <span className="text-xs font-bold text-gray-300 line-clamp-1">{match.teams?.away?.name || "Away"}</span>
+                                </div>
+                                {isLive(match.date) && (
+                                    <div className="absolute top-2 right-2 flex items-center gap-1 bg-[#E50914] text-white text-[9px] font-black px-1.5 py-0.5 rounded tracking-widest animate-pulse">
+                                        LIVE
+                                    </div>
+                                )}
+                            </div>
+                            <div className="p-4 border-t border-white/5">
+                                <h3 className="font-bold text-white text-sm mb-2 line-clamp-1 group-hover:text-[#00A8E1] transition">{match.title}</h3>
+                                <div className="flex items-center justify-between text-xs text-[#8197a4] font-medium">
+                                    <span className="capitalize flex items-center gap-1"><Trophy size={12} /> {match.category}</span>
+                                    <span className="flex items-center gap-1"><Clock size={12} /> {formatTime(match.date)}</span>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
+const SportsPlayer = () => {
+    const { id } = useParams();
+    const navigate = useNavigate();
+    const [streams, setStreams] = useState([]);
+    const [activeStream, setActiveStream] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [matchTitle, setMatchTitle] = useState("Loading Match...");
+    const [showStreamList, setShowStreamList] = useState(false);
+
+    useEffect(() => {
+        fetch(`${LIVESPORT_BASE}/api/matches/${id}/detail`)
+            .then(res => res.json())
+            .then(data => {
+                // The API structure in the prompt implies we fetch matches then detail.
+                // Assuming detail contains the match info too or we just show streams.
+                // The structure for detail is { sources: [...] }
+                // Let's also fetch the match info again or pass it via state to get the title,
+                // but for now, we'll just load streams.
+                if (data.sources && data.sources.length > 0) {
+                    setStreams(data.sources);
+                    setActiveStream(data.sources[0]);
+                }
+                setLoading(false);
+            })
+            .catch(e => {
+                console.error("Error loading stream:", e);
+                setLoading(false);
+            });
+        
+        // Fetch match info purely for the title display
+        fetch(`${LIVESPORT_BASE}/api/matches/live`) // We might not find it here if not live, but good try
+            .then(res => res.json())
+            .then(matches => {
+                const found = matches.find(m => m.id === id);
+                if (found) setMatchTitle(found.title);
+                else {
+                     // Try finding in general popular
+                     fetch(`${LIVESPORT_BASE}/api/matches/popular`).then(r=>r.json()).then(pop => {
+                         const pFound = pop.find(m => m.id === id);
+                         if (pFound) setMatchTitle(pFound.title);
+                         else setMatchTitle("Live Sport Stream");
+                     })
+                }
+            });
+    }, [id]);
+
+    return (
+        <div className="fixed inset-0 bg-black z-[200] flex flex-col">
+            <div className="h-16 bg-[#19222b] flex items-center px-4 justify-between shrink-0 border-b border-white/10 relative z-50">
+                <div className="flex items-center gap-4">
+                    <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-white transition"><ArrowLeft size={24} /></button>
+                    <div>
+                        <h1 className="text-white font-bold text-lg leading-tight">{matchTitle}</h1>
+                        <div className="text-[#00A8E1] text-xs font-bold flex items-center gap-1">LIVE BROADCAST</div>
+                    </div>
+                </div>
+                
+                {streams.length > 1 && (
+                    <button onClick={() => setShowStreamList(!showStreamList)} className="flex items-center gap-2 bg-[#00A8E1] hover:bg-[#008ebf] text-white px-4 py-2 rounded-md text-sm font-bold transition">
+                        <Signal size={16} /> Switch Stream
+                    </button>
+                )}
+            </div>
+
+            <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden">
+                {loading ? (
+                    <div className="text-white flex flex-col items-center gap-3">
+                        <Loader className="animate-spin text-[#00A8E1]" size={40} />
+                        <p className="text-sm text-gray-400">Locating secure stream...</p>
+                    </div>
+                ) : activeStream ? (
+                    <iframe 
+                        src={activeStream.embedUrl} 
+                        className="w-full h-full border-0" 
+                        allowFullScreen 
+                        allow="autoplay; encrypted-media"
+                        title="Sports Player"
+                    />
+                ) : (
+                    <div className="text-center text-gray-500">
+                        <Ban size={48} className="mx-auto mb-4 opacity-50" />
+                        <p>No active streams found for this match.</p>
+                        <button onClick={() => navigate(-1)} className="mt-4 text-[#00A8E1] hover:underline">Go Back</button>
+                    </div>
+                )}
+
+                {/* Stream Switcher Overlay */}
+                {showStreamList && (
+                    <div className="absolute top-4 right-4 w-72 bg-[#19222b]/95 backdrop-blur-md border border-gray-700 rounded-lg shadow-2xl overflow-hidden animate-in fade-in slide-in-from-right-10 z-[60]">
+                        <div className="p-3 border-b border-white/10 flex justify-between items-center">
+                            <span className="font-bold text-white text-sm">Select Source</span>
+                            <X size={16} className="text-gray-400 cursor-pointer hover:text-white" onClick={() => setShowStreamList(false)} />
+                        </div>
+                        <div className="max-h-[300px] overflow-y-auto">
+                            {streams.map((stream, idx) => (
+                                <div 
+                                    key={stream.id || idx} 
+                                    onClick={() => { setActiveStream(stream); setShowStreamList(false); }}
+                                    className={`p-3 border-b border-white/5 cursor-pointer hover:bg-white/5 transition flex items-center justify-between ${activeStream === stream ? 'bg-[#00A8E1]/10 border-l-4 border-l-[#00A8E1]' : 'border-l-4 border-l-transparent'}`}
+                                >
+                                    <div>
+                                        <div className="text-white font-bold text-sm">Stream {stream.streamNo}</div>
+                                        <div className="text-xs text-gray-400 capitalize">{stream.language || 'Unknown Language'}</div>
+                                    </div>
+                                    {stream.hd && <span className="bg-[#333] text-xs text-white px-1.5 py-0.5 rounded border border-gray-600">HD</span>}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
 };
 
 // --- HERO SECTION WITH HOVER PLAYBACK LOGIC ---
@@ -750,6 +990,10 @@ function App() {
           <Route path="/" element={<><Navbar isPrimeOnly={true} /><Home isPrimeOnly={true} /></>} />
           <Route path="/movies" element={<><Navbar isPrimeOnly={true} /><MoviesPage isPrimeOnly={true} /></>} />
           <Route path="/tv" element={<><Navbar isPrimeOnly={true} /><TVPage isPrimeOnly={true} /></>} />
+          
+          <Route path="/sports" element={<><Navbar isPrimeOnly={true} /><SportsPage /></>} />
+          <Route path="/watch/sport/:id" element={<SportsPlayer />} />
+
           <Route path="/live" element={<><Navbar isPrimeOnly={true} /><LiveTV /></>} />
           <Route path="/store" element={<><Navbar isPrimeOnly={true} /><StorePage /></>} />
           <Route path="/search" element={<><Navbar isPrimeOnly={true} /><SearchResults isPrimeOnly={true} /></>} />
