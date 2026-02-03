@@ -8,13 +8,13 @@ const TMDB_API_KEY = "09ca3ca71692ba80b848d268502d24ed";
 const BASE_URL = "https://api.themoviedb.org/3";
 const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
 const IMAGE_ORIGINAL_URL = "https://image.tmdb.org/t/p/original";
-const VIDSRC_BASE = "https://vidsrc.su"; 
+const VIDEASY_BASE = "https://player.videasy.net";
 // IMPORTANT: Leave empty to use the vite.config.js / vercel.json proxy
 const LIVESPORT_BASE = ""; 
 
 // STRICT PRIME FILTERS
 const PRIME_PROVIDER_IDS = "9|119"; 
-const PRIME_REGION = "IN";     
+const PRIME_REGION = "IN";      
 
 const ScrollToTop = () => {
   const { pathname } = useLocation();
@@ -134,7 +134,7 @@ const useInfiniteRows = (type = 'movie', isPrimeOnly = true) => {
         setLoading(false); 
     }, 600);
   }, [loading, deck, deckIndex, isPrimeOnly]);
-  
+   
   return { rows, loadMore, loading };
 };
 
@@ -459,14 +459,14 @@ const SportsPlayer = () => {
                     const found = matches.find(m => m.id === id);
                     if (found) setMatchTitle(found.title);
                     else {
-                         fetch(`${LIVESPORT_BASE}/api/matches/popular`).then(r=>r.json()).then(pop => {
+                          fetch(`${LIVESPORT_BASE}/api/matches/popular`).then(r=>r.json()).then(pop => {
                              if(Array.isArray(pop)) {
                                  const pFound = pop.find(m => m.id === id);
                                  if (pFound) setMatchTitle(pFound.title);
                                  else setMatchTitle("Live Sport Stream");
                              }
-                         });
-                    }
+                          });
+                     }
                 }
             })
             .catch(() => setMatchTitle("Live Sport Stream"));
@@ -549,12 +549,12 @@ const Hero = ({ isPrimeOnly }) => {
   const [trailerKey, setTrailerKey] = useState(null);
   const [showVideo, setShowVideo] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
-  
+   
   // Refs for tracking hover state and timers
   const playTimeout = useRef(null);
   const stopTimeout = useRef(null);
   const isHovering = useRef(false);
-  
+   
   const navigate = useNavigate();
   const theme = getTheme(isPrimeOnly);
 
@@ -807,7 +807,7 @@ const SearchResults = ({ isPrimeOnly }) => {
   const query = new URLSearchParams(useLocation().search).get('q'); 
   const theme = getTheme(isPrimeOnly);
   const navigate = useNavigate();
-  
+   
   useEffect(() => { 
       if (query) {
           setLoading(true);
@@ -905,96 +905,91 @@ const MovieDetail = () => {
   );
 };
 
-const Player = () => { 
-  const { type, id } = useParams(); 
-  const [season, setSeason] = useState(1);
-  const [episode, setEpisode] = useState(1);
-  const [showEpisodes, setShowEpisodes] = useState(false);
-  const [seasonData, setSeasonData] = useState(null);
-  const [totalSeasons, setTotalSeasons] = useState(1);
+const Player = () => {
+  const { type, id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
 
-  useEffect(() => {
-    if (type === 'tv') {
-        fetch(`${BASE_URL}/tv/${id}?api_key=${TMDB_API_KEY}`)
-          .then(res => res.json())
-          .then(data => { if(data.number_of_seasons) setTotalSeasons(data.number_of_seasons); });
-    }
-  }, [type, id]);
+  // Parse query parameters to get the specific season/episode if clicked from Detail page
+  // Default to 1 if not present
+  const queryParams = new URLSearchParams(location.search);
+  const initialSeason = queryParams.get('season') || 1;
+  const initialEpisode = queryParams.get('episode') || 1;
 
-  useEffect(() => {
-    if (type === 'tv') {
-        fetch(`${BASE_URL}/tv/${id}/season/${season}?api_key=${TMDB_API_KEY}`)
-          .then(res => res.json())
-          .then(data => setSeasonData(data));
-    }
-  }, [type, id, season]);
-
-  // Handle watch progress syncing
+  // Handle watch progress syncing (Updated for VIDEASY format)
   useEffect(() => {
     const handleMessage = (event) => {
-      if (event.data?.type === 'MEDIA_DATA') {
-        const mediaData = event.data.data;
-        if (mediaData.id && (mediaData.type === 'movie' || mediaData.type === 'tv')) {
+      try {
+        // VIDEASY sends data as a JSON string
+        if (typeof event.data === "string") {
+          const mediaData = JSON.parse(event.data);
+
+          // Check if valid progress data exists
+          if (mediaData && mediaData.progress) {
             const STORAGE_KEY = 'watch_progress';
             const currentProgress = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-            currentProgress[mediaData.id] = {
-                ...currentProgress[mediaData.id],
-                ...mediaData,
-                last_updated: Date.now()
+            
+            // Use the ID from params or the one sent by player
+            const contentId = mediaData.id || id;
+            
+            currentProgress[contentId] = {
+              ...currentProgress[contentId],
+              ...mediaData,
+              last_updated: Date.now()
             };
+            
             localStorage.setItem(STORAGE_KEY, JSON.stringify(currentProgress));
-            console.log('Progress updated:', mediaData);
+            // Optional: console.log('Progress updated:', mediaData);
+          }
         }
+      } catch (err) {
+        // Ignore errors from other extensions or non-JSON messages
       }
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, []);
+  }, [id]);
 
   const getSourceUrl = () => {
-      const baseParams = "autoplay=true&colour=00A8E1"; // 00A8E1 is Prime Blue
-      return type === 'tv' 
-        ? `${VIDSRC_BASE}/tv/${id}/${season}/${episode}?${baseParams}&autonextepisode=true` 
-        : `${VIDSRC_BASE}/movie/${id}?${baseParams}`;
+    // Prime Blue Hex: 00A8E1
+    const colorParam = "color=00A8E1";
+    
+    if (type === 'tv') {
+      // Structure: /tv/show_id/season/episode
+      // Params: nextEpisode, autoplayNextEpisode, episodeSelector, color
+      return `${VIDEASY_BASE}/tv/${id}/${initialSeason}/${initialEpisode}?${colorParam}&nextEpisode=true&autoplayNextEpisode=true&episodeSelector=true`;
+    } else {
+      // Structure: /movie/movie_id
+      // Params: color
+      return `${VIDEASY_BASE}/movie/${id}?${colorParam}`;
+    }
   };
 
   return (
-    <div className="fixed inset-0 bg-black z-[100] overflow-hidden flex">
-        <div className="absolute top-6 left-6 z-[120]">
-            <button onClick={() => navigate(-1)} className="bg-black/50 hover:bg-[#00A8E1] text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all"><ArrowLeft size={24} /></button>
-        </div>
-        {type === 'tv' && (
-            <div className="absolute top-6 right-6 z-[120]">
-                <button onClick={() => setShowEpisodes(!showEpisodes)} className={`p-3 rounded-full backdrop-blur-md border border-white/10 transition-all ${showEpisodes ? 'bg-[#00A8E1] text-white' : 'bg-black/50 hover:bg-[#333c46] text-gray-200'}`}><List size={24} /></button>
-            </div>
-        )}
-        <div className="flex-1 relative h-full bg-black"><iframe src={getSourceUrl()} className="w-full h-full border-none" allowFullScreen allow="autoplay; encrypted-media" title="Player"></iframe></div>
-        {type === 'tv' && (
-            <div className={`fixed right-0 top-0 h-full bg-[#00050D]/95 backdrop-blur-xl border-l border-white/10 transition-all duration-500 ease-in-out z-[110] flex flex-col ${showEpisodes ? 'w-[350px] translate-x-0 shadow-2xl' : 'w-[350px] translate-x-full shadow-none'}`}>
-                <div className="p-6 border-b border-white/10 flex items-center justify-between bg-[#1a242f]/50">
-                    <h2 className="font-bold text-white text-lg">Episodes</h2>
-                    <div className="relative">
-                        <select value={season} onChange={(e) => setSeason(Number(e.target.value))} className="appearance-none bg-[#00A8E1] text-white font-bold py-1.5 pl-3 pr-8 rounded cursor-pointer text-sm outline-none hover:bg-[#008ebf] transition">{Array.from({length: totalSeasons}, (_, i) => i + 1).map(s => (<option key={s} value={s} className="bg-[#1a242f]">Season {s}</option>))}</select>
-                        <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-white pointer-events-none" />
-                    </div>
-                </div>
-                <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-hide">
-                    {seasonData?.episodes ? (seasonData.episodes.map(ep => (
-                            <div key={ep.id} onClick={() => setEpisode(ep.episode_number)} className={`flex gap-3 p-2 rounded-lg cursor-pointer transition-all group ${episode === ep.episode_number ? 'bg-[#333c46] border border-[#00A8E1]' : 'hover:bg-[#333c46] border border-transparent'}`}>
-                                <div className="relative w-28 h-16 flex-shrink-0 bg-black rounded overflow-hidden">
-                                    {ep.still_path ? (<img src={`${IMAGE_BASE_URL}${ep.still_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" />) : (<div className="w-full h-full flex items-center justify-center text-gray-600 text-xs">No Img</div>)}
-                                    {episode === ep.episode_number && (<div className="absolute inset-0 bg-black/40 flex items-center justify-center"><Play size={16} fill="white" className="text-white" /></div>)}
-                                </div>
-                                <div className="flex flex-col justify-center min-w-0"><span className={`text-xs font-bold mb-0.5 ${episode === ep.episode_number ? 'text-[#00A8E1]' : 'text-gray-400'}`}>Episode {ep.episode_number}</span><h4 className={`text-sm font-medium truncate leading-tight ${episode === ep.episode_number ? 'text-white' : 'text-gray-300 group-hover:text-white'}`}>{ep.name}</h4><span className="text-[10px] text-gray-500 mt-1">{ep.runtime ? `${ep.runtime}m` : ''}</span></div>
-                            </div>
-                    ))) : (<div className="text-center text-gray-500 mt-10 flex flex-col items-center"><Loader className="animate-spin mb-2" /><span>Loading Season {season}...</span></div>)}
-                </div>
-            </div>
-        )}
+    <div className="fixed inset-0 bg-black z-[100] overflow-hidden flex flex-col">
+      {/* Back Button Overlay */}
+      <div className="absolute top-6 left-6 z-[120]">
+        <button 
+          onClick={() => navigate(-1)} 
+          className="bg-black/50 hover:bg-[#00A8E1] text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all"
+        >
+          <ArrowLeft size={24} />
+        </button>
+      </div>
+
+      {/* Video Player Iframe */}
+      <div className="flex-1 relative w-full h-full bg-black">
+        <iframe
+          src={getSourceUrl()}
+          className="w-full h-full border-none"
+          allowFullScreen
+          allow="encrypted-media"
+          title="Player"
+        ></iframe>
+      </div>
     </div>
-  ); 
+  );
 };
 
 // --- MAIN WRAPPERS ---
