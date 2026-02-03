@@ -1,33 +1,53 @@
 import chromium from '@sparticuz/chromium';
 import puppeteer from 'puppeteer-core';
+import axios from 'axios';
 
-// --- CONFIGURATION ---
+const TMDB_KEY = "09ca3ca71692ba80b848d268502d24ed"; // Your key from App.jsx
+
 const HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
-  'Cache-Control': 's-maxage=10, stale-while-revalidate',
 };
 
-// In-memory cache (resets on serverless cold start)
-const streamCache = new Map();
+// Helper to find the correct browser path (Local vs Vercel)
+async function getBrowser() {
+    // If running on Vercel/AWS
+    if (process.env.AWS_LAMBDA_FUNCTION_VERSION || process.env.VERCEL) {
+        return puppeteer.launch({
+            args: chromium.args,
+            defaultViewport: chromium.defaultViewport,
+            executablePath: await chromium.executablePath(),
+            headless: chromium.headless,
+            ignoreHTTPSErrors: true,
+        });
+    } else {
+        // Local Development - uses your local Chrome
+        // You might need to adjust this path if on Mac/Linux
+        const localPaths = [
+            "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+            "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/usr/bin/google-chrome"
+        ];
+        // Find first valid path or fail (simplified for snippet)
+        return puppeteer.launch({
+            channel: 'chrome', // Try to auto-detect
+            headless: false,   // Show browser locally for debugging
+            ignoreHTTPSErrors: true,
+        });
+    }
+}
 
-// --- HEADLESS RESOLVER ---
 async function resolveHLS(embedUrl) {
   let browser = null;
   try {
-    // Launch Vercel-optimized Chrome
-    browser = await puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath(),
-      headless: chromium.headless,
-      ignoreHTTPSErrors: true,
-    });
-
+    browser = await getBrowser();
     const page = await browser.newPage();
     
-    // Optimize: Block images, fonts, and stylesheets to speed up scraping
+    // Set a real User-Agent to avoid detection
+    await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+
     await page.setRequestInterception(true);
     page.on('request', (req) => {
       if (['image', 'stylesheet', 'font'].includes(req.resourceType())) {
@@ -37,12 +57,10 @@ async function resolveHLS(embedUrl) {
       }
     });
 
-    // Capture the first .m3u8 URL that isn't an ad
     let hlsUrl = null;
     const hlsPromise = new Promise((resolve) => {
         page.on('response', (response) => {
             const url = response.url();
-            // Filter logic: Must be m3u8 and not a known ad domain
             if (url.includes('.m3u8') && !url.includes('google') && !url.includes('doubleclick')) { 
                 hlsUrl = url;
                 resolve(url);
@@ -50,89 +68,68 @@ async function resolveHLS(embedUrl) {
         });
     });
 
-    // Navigate to the embed URL
-    // standard 15s timeout for page load
+    // 15s timeout to load page
     await page.goto(embedUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
     
-    // Race: Wait for either the HLS url to be found OR a timeout
+    // Wait for .m3u8 or timeout (8s)
     const result = await Promise.race([
         hlsPromise,
-        new Promise(r => setTimeout(() => r(null), 8000)) // 8s scraping timeout
+        new Promise(r => setTimeout(() => r(null), 8000))
     ]);
 
     return result;
 
   } catch (error) {
-    console.error("Resolver Error:", error);
+    console.error("Resolver Error:", error.message);
     return null;
   } finally {
     if (browser) await browser.close();
   }
 }
 
-// --- PROVIDERS (Source Rotator) ---
-const providers = [
-    {
-        name: 'Vidsrc',
-        search: async (id, type, season, episode) => {
-            // Logic to construct the embed URL for Vidsrc
-            if (type === 'movie') {
-                return `https://vidsrc.to/embed/movie/${id}`;
-            } else {
-                return `https://vidsrc.to/embed/tv/${id}/${season}/${episode}`;
-            }
-        }
-    },
-    // Add more providers here (e.g., SuperStream, VidLink, etc.)
-];
-
-// --- MAIN API HANDLER ---
 export default async function handler(req, res) {
-  // CORS Preflight
   if (req.method === 'OPTIONS') {
     Object.entries(HEADERS).forEach(([k, v]) => res.setHeader(k, v));
     return res.status(200).end();
   }
-
-  // Set Headers
   Object.entries(HEADERS).forEach(([k, v]) => res.setHeader(k, v));
 
   const { id, type = 'movie', season, episode } = req.query;
 
   if (!id) return res.status(400).json({ error: "Missing ID" });
 
-  const cacheKey = `${type}-${id}-${season || ''}-${episode || ''}`;
-
-  // 1. Check Cache
-  if (streamCache.has(cacheKey)) {
-    return res.status(200).json({ streamUrl: streamCache.get(cacheKey), source: 'cache' });
-  }
-
   try {
-    // 2. Loop through providers until a stream is found
-    for (const provider of providers) {
-        console.log(`Checking provider: ${provider.name}`);
-        
-        const embedUrl = await provider.search(id, type, season, episode);
-        if (!embedUrl) continue;
+    // 1. CONVERT TMDB ID -> IMDB ID (Critical Step!)
+    // Vidsrc uses IMDb IDs (tt12345), but your App uses TMDB IDs (12345).
+    const metaUrl = `https://api.themoviedb.org/3/${type}/${id}/external_ids?api_key=${TMDB_KEY}`;
+    const metaRes = await axios.get(metaUrl);
+    const imdbId = metaRes.data.imdb_id;
 
-        // 3. Resolve HLS using Headless Browser
-        const hls = await resolveHLS(embedUrl);
-
-        if (hls) {
-            // Success! Cache and return
-            streamCache.set(cacheKey, hls);
-            // Clear cache entry after 1 hour to prevent stale links
-            setTimeout(() => streamCache.delete(cacheKey), 1000 * 60 * 60);
-
-            return res.status(200).json({ streamUrl: hls, source: provider.name });
-        }
+    if (!imdbId) {
+        return res.status(404).json({ error: "IMDb ID not found for this title" });
     }
 
-    return res.status(404).json({ error: "No stream found across all providers" });
+    // 2. Construct Vidsrc URL
+    let embedUrl;
+    if (type === 'movie') {
+        embedUrl = `https://vidsrc.to/embed/movie/${imdbId}`;
+    } else {
+        embedUrl = `https://vidsrc.to/embed/tv/${imdbId}/${season}/${episode}`;
+    }
+    
+    console.log(`Scraping: ${embedUrl}`);
+
+    // 3. Resolve Stream
+    const hls = await resolveHLS(embedUrl);
+
+    if (hls) {
+        return res.status(200).json({ streamUrl: hls });
+    } else {
+        return res.status(404).json({ error: "Stream not found (Scraper failed)" });
+    }
 
   } catch (error) {
-    console.error("Stream API Error:", error);
+    console.error("Handler Error:", error.message);
     return res.status(500).json({ error: "Internal Server Error", details: error.message });
   }
 }
