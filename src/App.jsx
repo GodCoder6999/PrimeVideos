@@ -226,23 +226,17 @@ const InfiniteScrollTrigger = ({ onIntersect }) => {
 // --- COMPONENTS ---
 
 const Navbar = ({ isPrimeOnly }) => {
-  const [scrolled, setScrolled] = useState(false);
   const [query, setQuery] = useState("");
-  const [menuOpen, setMenuOpen] = useState(false);
   const [suggestions, setSuggestions] = useState({ text: [], visual: [] });
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const navigate = useNavigate();
-  const dropdownRef = useRef(null);
-  const searchRef = useRef(null);
-  const theme = getTheme(isPrimeOnly);
   const location = useLocation();
+  const searchRef = useRef(null);
+  const dropdownRef = useRef(null);
+  const theme = getTheme(isPrimeOnly);
 
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 10);
-    window.addEventListener('scroll', onScroll);
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
-
+  // --- Search Logic (Preserved) ---
   useEffect(() => {
       const handleClickOutside = (event) => { 
           if (dropdownRef.current && !dropdownRef.current.contains(event.target)) setMenuOpen(false); 
@@ -305,40 +299,65 @@ const Navbar = ({ isPrimeOnly }) => {
 
   const handleClear = () => { setQuery(""); setShowSuggestions(false); };
 
-  const getLinkClass = (path) => {
+  // --- Design Implementation ---
+  const getNavLinkClass = (path) => {
     const isActive = location.pathname === path;
-    return isActive ? "text-white font-extrabold" : "hover:text-white transition";
+    
+    // Active Pill Style: Gradient Background + White Text + Rounded Corners
+    if (isActive) {
+      return "text-white font-semibold bg-[linear-gradient(to_bottom,#3a3f45_0%,#2b2f34_100%)] border border-white/[0.08] rounded-[10px] px-[18px] py-[8px] text-[15px] transition-all duration-200 shadow-sm";
+    }
+    
+    // Inactive Style: Muted Gray + No Background + Hover White
+    return "text-[#c7cbd1] font-medium text-[15px] hover:text-white transition-colors cursor-pointer px-[10px] py-[8px]";
   };
 
   return (
-    <nav className={`fixed top-0 w-full z-[100] transition-all duration-300 border-b border-transparent ${scrolled ? 'bg-[#00050D] border-[#1f2a33]' : 'nav-gradient'}`}>
-      <div className="flex items-center justify-between px-4 md:px-10 h-[72px]">
-        <div className="flex items-center gap-6">
-          <Link to={isPrimeOnly ? "/" : "/everything"} className={`font-extrabold text-xl tracking-tighter transition-colors ${theme.color} hover:text-white`}>
-              {theme.logoText}
-          </Link>
-          <div className="hidden lg:flex gap-6 h-full font-bold text-[#8197a4] text-[15px]">
-            <Link to={isPrimeOnly ? "/" : "/everything"} className={getLinkClass(isPrimeOnly ? "/" : "/everything")}>Home</Link>
-            <Link to={isPrimeOnly ? "/movies" : "/everything/movies"} className={getLinkClass(isPrimeOnly ? "/movies" : "/everything/movies")}>Movies</Link>
-            <Link to={isPrimeOnly ? "/tv" : "/everything/tv"} className={getLinkClass(isPrimeOnly ? "/tv" : "/everything/tv")}>TV Shows</Link>
-            <Link to="/sports" className={`${getLinkClass("/sports")} flex items-center gap-1.5`}><Trophy size={16} className={location.pathname === "/sports" ? "text-[#00A8E1]" : ""} /> Live Sports</Link>
-          </div>
-        </div>
-        <div className="flex items-center gap-6 relative">
+    <nav 
+      className="sticky top-0 w-full z-[1000] flex items-center px-[24px]"
+      style={{
+        height: '60px',
+        background: 'linear-gradient(to bottom, #121a22 0%, #0f171e 100%)',
+        fontFamily: '"Amazon Ember", "Inter", "Segoe UI", sans-serif',
+        gap: '28px'
+      }}
+    >
+      {/* 1. Logo (Leftmost) */}
+      <Link to={isPrimeOnly ? "/" : "/everything"} className="text-[#ffffff] font-bold text-[21px] tracking-[-0.2px] no-underline leading-none">
+          {theme.logoText}
+      </Link>
+
+      {/* 2. Navigation Items (Left Aligned) */}
+      <div className="flex items-center gap-[6px]">
+        <Link to={isPrimeOnly ? "/" : "/everything"} className={getNavLinkClass(isPrimeOnly ? "/" : "/everything")}>Home</Link>
+        <Link to={isPrimeOnly ? "/movies" : "/everything/movies"} className={getNavLinkClass(isPrimeOnly ? "/movies" : "/everything/movies")}>Movies</Link>
+        <Link to={isPrimeOnly ? "/tv" : "/everything/tv"} className={getNavLinkClass(isPrimeOnly ? "/tv" : "/everything/tv")}>TV Shows</Link>
+        
+        {/* Live TV / Sports Item */}
+        <Link to="/sports" className={`${getNavLinkClass("/sports")} flex items-center gap-2`}>
+           <Trophy size={16} className={location.pathname === "/sports" ? "text-[#00A8E1]" : "opacity-80"} />
+           Live TV
+        </Link>
+      </div>
+
+      {/* 3. Right Side: Search & Profile (Pushed Right) */}
+      <div className="ml-auto flex items-center gap-6">
           <div ref={searchRef} className="relative">
-              <form onSubmit={handleSearch} className={`bg-[#19222b] border border-white/10 px-3 py-1.5 rounded-md flex items-center group focus-within:${theme.border} transition-all w-[300px] md:w-[400px]`}>
-                 <Search size={18} className={`text-gray-400 group-focus-within:${theme.color}`} />
-                 <input className="bg-transparent border-none outline-none text-white text-sm font-semibold ml-2 w-full placeholder-gray-500" placeholder={isPrimeOnly ? "Search Prime..." : "Search Everything..."} value={query} onChange={(e) => setQuery(e.target.value)} onFocus={() => { if(query.length > 1) setShowSuggestions(true); }} />
-                 {query && <X size={16} className="text-gray-400 cursor-pointer hover:text-white" onClick={handleClear} />}
+              <form onSubmit={handleSearch} className="bg-[#19222b] border border-white/10 px-3 py-1.5 rounded-md flex items-center group focus-within:border-white/30 transition-all w-[300px] md:w-[400px]">
+                 <Search size={18} className="text-[#c7cbd1]" />
+                 <input className="bg-transparent border-none outline-none text-white text-sm font-medium ml-2 w-full placeholder-[#5a6069]" placeholder={isPrimeOnly ? "Search Prime..." : "Search Everything..."} value={query} onChange={(e) => setQuery(e.target.value)} onFocus={() => { if(query.length > 1) setShowSuggestions(true); }} />
+                 {query && <X size={16} className="text-[#c7cbd1] cursor-pointer hover:text-white" onClick={handleClear} />}
               </form>
+              
+              {/* Suggestions Dropdown */}
               {showSuggestions && (suggestions.text.length > 0 || suggestions.visual.length > 0) && (
-                  <div className="absolute top-12 left-0 w-full bg-[#19222b] border border-gray-700 rounded-lg shadow-2xl overflow-hidden animate-in z-[160]">
+                  <div className="absolute top-12 right-0 w-full bg-[#19222b] border border-gray-700 rounded-lg shadow-2xl overflow-hidden animate-in z-[160]">
                       {suggestions.text.map((text, idx) => ( <div key={idx} onClick={() => { setQuery(text); handleSearch({preventDefault:()=>{}}); }} className="px-4 py-2 text-sm text-gray-300 hover:bg-[#333c46] hover:text-white cursor-pointer flex items-center gap-2 border-b border-white/5 last:border-0"><Search size={14} /> {text}</div> ))}
                       {suggestions.visual.length > 0 && ( <div className="px-4 pt-3 pb-2 text-[11px] font-bold text-gray-500 uppercase tracking-wider">Top Results</div> )}
                       <div className="flex gap-3 p-3 overflow-x-auto scrollbar-hide bg-[#00050D]/50">
                           {suggestions.visual.map((item) => (
                               <div key={item.id} onClick={() => { setShowSuggestions(false); navigate(`/detail/${item.media_type}/${item.id}`); }} className="w-[100px] flex-shrink-0 cursor-pointer group">
-                                  <div className="aspect-video rounded-md overflow-hidden bg-gray-800 relative"><img src={`${IMAGE_BASE_URL}${item.backdrop_path || item.poster_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" />{isPrimeOnly && <div className="absolute bottom-1 left-1"><CheckCircle2 size={12} className={`${theme.color} fill-current`} /></div>}</div>
+                                  <div className="aspect-video rounded-md overflow-hidden bg-gray-800 relative"><img src={`${IMAGE_BASE_URL}${item.backdrop_path || item.poster_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" /></div>
                                   <div className="text-[11px] font-bold text-gray-400 mt-1 truncate group-hover:text-white">{item.title || item.name}</div>
                               </div>
                           ))}
@@ -346,8 +365,9 @@ const Navbar = ({ isPrimeOnly }) => {
                   </div>
               )}
           </div>
+
           <div className="relative" ref={dropdownRef}>
-              <div className={`w-9 h-9 rounded-full bg-[#3d464f] flex items-center justify-center border-2 border-transparent hover:border-white transition-all cursor-pointer`} onClick={() => setMenuOpen(!menuOpen)}><Grip size={20} className="text-gray-300" /></div>
+              <div className={`w-9 h-9 rounded-full bg-[#3d464f] flex items-center justify-center border border-white/10 hover:border-white transition-all cursor-pointer`} onClick={() => setMenuOpen(!menuOpen)}><Grip size={20} className="text-[#c7cbd1]" /></div>
               {menuOpen && (
                   <div className="absolute right-0 top-12 w-64 bg-[#19222b] border border-gray-700 rounded-lg shadow-2xl p-2 z-[150] animate-in">
                       <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2 pt-2">Switch Mode</div>
@@ -356,13 +376,12 @@ const Navbar = ({ isPrimeOnly }) => {
                   </div>
               )}
           </div>
-          <div className={`w-9 h-9 rounded-full ${theme.bg} flex items-center justify-center text-white font-bold cursor-pointer`}>U</div>
-        </div>
+          
+          <div className={`w-9 h-9 rounded-full ${theme.bg} flex items-center justify-center text-white font-bold text-sm cursor-pointer border border-white/10`}>U</div>
       </div>
     </nav>
   );
 };
-
 // --- SPORTS COMPONENTS ---
 
 const SportsPage = () => {
