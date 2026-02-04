@@ -717,21 +717,17 @@ const Hero = ({ isPrimeOnly }) => {
 };
 
 // --- MOVIE CARD COMPONENT ---
-// Target: 360px x 440px | Smart Origin Expansion (Fixes Left Cut-off)
+// Target: 360px x 440px | Whole Video Visible (Letterboxed) | Smart Origin
 const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank, isPrimeOnly, isFirst, isLast }) => {
   const navigate = useNavigate();
   const [trailerKey, setTrailerKey] = useState(null);
   
-  // Force Poster orientation
   const imageUrl = movie.poster_path || movie.backdrop_path;
   
-  // Dimensions Configuration
+  // Dimensions
   const baseWidth = 'w-[160px] md:w-[200px]';
   const aspectRatio = 'aspect-[360/440]'; 
   const cardMargin = variant === 'ranked' ? 'ml-[70px]' : ''; 
-
-  // Determine Transform Origin based on position
-  // First card expands right (origin-left), Last card expands left (origin-right)
   const originClass = isFirst ? 'origin-left' : isLast ? 'origin-right' : 'origin-center';
 
   // Mock Metadata
@@ -759,7 +755,6 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
       onClick={() => navigate(`/detail/${movie.media_type || itemType || 'movie'}/${movie.id}`)}
       style={{ zIndex: isHovered ? 100 : 10 }} 
     >
-      {/* Rank Number */}
       {variant === 'ranked' && <span className="rank-number">{rank}</span>}
       
       {/* CARD CONTAINER */}
@@ -775,12 +770,13 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
             boxShadow: isHovered ? '0 25px 50px rgba(0,0,0,0.8)' : '0 4px 6px rgba(0,0,0,0.1)',
         }}
       >
-        {/* MEDIA LAYER */}
-        <div className={`w-full h-full relative bg-black transition-transform duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1) ${isHovered ? 'scale-[1.02]' : 'scale-100'}`}>
+        {/* MEDIA LAYER - Flex Center to hold video in middle */}
+        <div className={`w-full h-full relative bg-black flex items-center justify-center transition-transform duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1) ${isHovered ? 'scale-[1.02]' : 'scale-100'}`}>
             {isHovered && trailerKey ? (
-               <div className="absolute inset-0 w-full h-full overflow-hidden">
+               // WHOLE VIDEO VISIBLE: Width 100%, Aspect Video, No Clipping
+               <div className="w-full aspect-video relative z-20 shadow-2xl">
                    <iframe 
-                      className="absolute top-0 left-1/2 -translate-x-1/2 h-full w-[177%] max-w-none pointer-events-none" 
+                      className="w-full h-full pointer-events-none" 
                       src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} 
                       title="Trailer" 
                       allow="autoplay; encrypted-media" 
@@ -796,22 +792,19 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
         <div 
             className={`
                 absolute inset-0 flex flex-col justify-end px-4 py-5 text-white
-                bg-gradient-to-t from-[#0f171e] via-[#0f171e]/90 to-transparent
-                transition-all duration-300 ease-out
+                bg-gradient-to-t from-[#0f171e] via-[#0f171e]/95 to-transparent
+                transition-all duration-300 ease-out z-30
                 ${isHovered ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}
             `}
         >
-            {/* PRIME TAG */}
             <div className="mb-2 opacity-90">
                <span className="text-[5px] font-black tracking-[0.2em] text-[#00A8E1] uppercase bg-[#00A8E1]/10 px-1 py-0.5 rounded-sm">Prime</span>
             </div>
 
-            {/* Title */}
             <h3 className="font-extrabold text-[10px] leading-[1.2] text-white drop-shadow-md line-clamp-2 mb-2 w-[90%]">
                 {movie.title || movie.name}
             </h3>
 
-            {/* Action Buttons */}
             <div className="flex items-center gap-2 mb-3">
                 <button className="bg-white hover:bg-[#d6d6d6] text-black text-[6px] font-bold h-6 px-3 rounded-[3px] transition-colors flex items-center justify-center gap-1 uppercase tracking-wider">
                     <Play fill="black" size={6} /> Play
@@ -821,7 +814,6 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
                 </button>
             </div>
 
-            {/* Metadata */}
             <div className="flex items-center gap-1.5 text-[6px] font-medium text-gray-300 mb-1">
                 <span className="text-[#46d369] font-bold">{rating} Match</span>
                 <span className="text-gray-600 text-[5px]">•</span>
@@ -831,14 +823,12 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
                 <span className="ml-auto border border-white/20 px-1 rounded-[2px] text-[5px] text-gray-400">U/A 13+</span>
             </div>
 
-            {/* Video Quality Badges */}
             <div className="flex items-center gap-1 mb-2 opacity-80">
                 <span className="bg-white/10 text-[4.5px] font-bold px-1 py-0.5 rounded-[2px] text-gray-200">4K UHD</span>
                 <span className="bg-white/10 text-[4.5px] font-bold px-1 py-0.5 rounded-[2px] text-gray-200">HDR10</span>
                 <span className="bg-white/10 text-[4.5px] font-bold px-1 py-0.5 rounded-[2px] text-gray-200">Dolby Atmos</span>
             </div>
 
-            {/* Description */}
             <p className="text-[5.5px] text-gray-400 line-clamp-2 leading-relaxed font-medium">
                 {movie.overview || "Stream this title now on Prime Video."}
             </p>
@@ -851,6 +841,7 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
 const Row = ({ title, fetchUrl, variant = 'standard', itemType = 'movie', isPrimeOnly }) => {
   const [movies, setMovies] = useState([]);
   const [hoveredId, setHoveredId] = useState(null);
+  const rowRef = useRef(null); // Ref for scrolling
   const timeoutRef = useRef(null);
   const theme = getTheme(isPrimeOnly);
 
@@ -858,7 +849,6 @@ const Row = ({ title, fetchUrl, variant = 'standard', itemType = 'movie', isPrim
       fetch(`${BASE_URL}${fetchUrl}`)
         .then(res => res.json())
         .then(data => {
-            // Filter out items without images to ensure 'first' and 'last' logic matches visual reality
             const validResults = (data.results || []).filter(m => m.backdrop_path || m.poster_path);
             setMovies(validResults);
         })
@@ -868,35 +858,66 @@ const Row = ({ title, fetchUrl, variant = 'standard', itemType = 'movie', isPrim
   const handleHover = (id) => { if (timeoutRef.current) clearTimeout(timeoutRef.current); timeoutRef.current = setTimeout(() => setHoveredId(id), 400); };
   const handleLeave = () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); setHoveredId(null); };
 
+  // Scroll Handlers
+  const slideLeft = () => {
+      if (rowRef.current) rowRef.current.scrollBy({ left: -800, behavior: 'smooth' });
+  };
+  const slideRight = () => {
+      if (rowRef.current) rowRef.current.scrollBy({ left: 800, behavior: 'smooth' });
+  };
+
   return (
     <div className="mb-6 pl-4 md:pl-12 relative z-20 group/row animate-row-enter hover:z-30 transition-all duration-300">
+      
+      {/* Title */}
       <h3 className="text-[19px] font-bold text-white mb-2 flex items-center gap-2">
           {variant === 'ranked' ? <span className={theme.color}>Top 10</span> : <span className={theme.color}>{theme.name}</span>} 
           {title}
           <ChevronRight size={18} className="text-[#8197a4] opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer"/>
       </h3>
-      <div className={`row-container ${variant === 'vertical' ? 'vertical' : ''} scrollbar-hide`}>
-        {movies.map((movie, index) => ( 
-           <MovieCard 
-               key={movie.id} 
-               movie={movie} 
-               variant={variant} 
-               itemType={itemType} 
-               rank={index + 1} 
-               isHovered={hoveredId === movie.id} 
-               onHover={handleHover} 
-               onLeave={handleLeave} 
-               isPrimeOnly={isPrimeOnly}
-               // SMART POSITIONING PROPS
-               isFirst={index === 0}
-               isLast={index === movies.length - 1}
-           /> 
-        ))}
+
+      {/* Container Wrapper for Buttons */}
+      <div className="relative">
+          
+          {/* Left Arrow Button (Dynamic Show/Hide on Hover) */}
+          <button 
+            onClick={slideLeft}
+            className="absolute left-0 top-[40%] -translate-y-1/2 z-[60] w-12 h-full bg-gradient-to-r from-black/80 to-transparent opacity-0 group-hover/row:opacity-100 transition-opacity duration-300 flex items-center justify-start pl-3 hover:w-16 cursor-pointer"
+          >
+             <ChevronLeft size={40} className="text-white hover:scale-125 transition-transform" />
+          </button>
+
+          {/* Scrollable Row */}
+          <div ref={rowRef} className={`row-container ${variant === 'vertical' ? 'vertical' : ''} scrollbar-hide`}>
+            {movies.map((movie, index) => ( 
+               <MovieCard 
+                   key={movie.id} 
+                   movie={movie} 
+                   variant={variant} 
+                   itemType={itemType} 
+                   rank={index + 1} 
+                   isHovered={hoveredId === movie.id} 
+                   onHover={handleHover} 
+                   onLeave={handleLeave} 
+                   isPrimeOnly={isPrimeOnly}
+                   isFirst={index === 0}
+                   isLast={index === movies.length - 1}
+               /> 
+            ))}
+          </div>
+
+          {/* Right Arrow Button */}
+          <button 
+            onClick={slideRight}
+            className="absolute right-0 top-[40%] -translate-y-1/2 z-[60] w-12 h-full bg-gradient-to-l from-black/80 to-transparent opacity-0 group-hover/row:opacity-100 transition-opacity duration-300 flex items-center justify-end pr-3 hover:w-16 cursor-pointer"
+          >
+             <ChevronRight size={40} className="text-white hover:scale-125 transition-transform" />
+          </button>
+
       </div>
     </div>
   );
 };
-
 const SearchResults = ({ isPrimeOnly }) => { 
   const [movies, setMovies] = useState([]); 
   const [loading, setLoading] = useState(false);
