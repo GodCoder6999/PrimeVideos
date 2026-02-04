@@ -2,6 +2,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useLocation, useParams, Link } from 'react-router-dom';
 import { Search, Play, Info, Plus, ChevronRight, ChevronLeft, Download, Share2, CheckCircle2, ThumbsUp, ChevronDown, Grip, Loader, List, ArrowLeft, X, Volume2, VolumeX, Trophy, Signal, Clock, Ban, Eye, Bookmark, TrendingUp } from 'lucide-react';
 
+// --- GLOBAL HLS REFERENCE ---
+const Hls = window.Hls;
+
 // --- CSS STYLES ---
 const GlobalStyles = () => (
   <style>{`
@@ -43,12 +46,10 @@ const BASE_URL = "https://api.themoviedb.org/3";
 const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
 const IMAGE_ORIGINAL_URL = "https://image.tmdb.org/t/p/original";
 const VIDFAST_BASE = "https://vidfast.pro";
-// IMPORTANT: Leave empty to use the vite.config.js / vercel.json proxy
-const LIVESPORT_BASE = ""; 
 
 // STRICT PRIME FILTERS
 const PRIME_PROVIDER_IDS = "9|119"; 
-const PRIME_REGION = "IN";      
+const PRIME_REGION = "IN";       
 
 const ScrollToTop = () => {
   const { pathname } = useLocation();
@@ -106,9 +107,7 @@ const useInfiniteRows = (type = 'movie', isPrimeOnly = true) => {
   const [deck, setDeck] = useState([]); 
   const [deckIndex, setDeckIndex] = useState(0); 
 
-  // Helper to generate API URLs
   const getUrl = (category, pageNum) => {
-      // If the global type is 'all', rely on the category's specific type
       const targetType = category.type || (type === 'all' ? 'movie' : type);
       
       if (isPrimeOnly) {
@@ -130,8 +129,6 @@ const useInfiniteRows = (type = 'movie', isPrimeOnly = true) => {
   };
 
   useEffect(() => {
-      // 1. FILTER THE DECK BASED ON TAB TYPE
-      // If type is 'all', show everything. If 'movie' or 'tv', filter strictly.
       const filteredDeck = type === 'all' 
         ? [...CATEGORY_DECK] 
         : CATEGORY_DECK.filter(item => item.type === type);
@@ -139,7 +136,6 @@ const useInfiniteRows = (type = 'movie', isPrimeOnly = true) => {
       const initialDeck = shuffleDeck(filteredDeck);
       setDeck(initialDeck);
 
-      // 2. CONFIGURE INITIAL ROWS (HERO & TOP 10)
       let heroUrl, topUrl, heroTitle;
 
       if (type === 'tv') {
@@ -159,7 +155,6 @@ const useInfiniteRows = (type = 'movie', isPrimeOnly = true) => {
             ? `/discover/movie?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc&page=1`
             : `/movie/top_rated?api_key=${TMDB_API_KEY}`;
       } else {
-          // 'all' / Mixed Home
           heroTitle = isPrimeOnly ? "Prime - Recommended" : "Trending Now";
           heroUrl = isPrimeOnly
             ? `/discover/movie?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc&page=1`
@@ -208,8 +203,8 @@ const useInfiniteRows = (type = 'movie', isPrimeOnly = true) => {
         setDeckIndex(prev => prev + 3); 
         setLoading(false); 
     }, 600);
-  }, [loading, deck, deckIndex, isPrimeOnly, type]); // Added type to dependency
-   
+  }, [loading, deck, deckIndex, isPrimeOnly, type]); 
+    
   return { rows, loadMore, loading };
 };
 
@@ -223,8 +218,7 @@ const InfiniteScrollTrigger = ({ onIntersect }) => {
   return <div ref={triggerRef} className="h-20 w-full flex items-center justify-center p-4"><div className="w-8 h-8 border-4 border-gray-600 border-t-transparent rounded-full animate-spin"></div></div>;
 };
 
-// --- COMPONENTS ---
-
+// --- UPDATED NAVBAR (Glassmorphism + Amazon Ember) ---
 const Navbar = ({ isPrimeOnly }) => {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState({ text: [], visual: [] });
@@ -236,7 +230,6 @@ const Navbar = ({ isPrimeOnly }) => {
   const dropdownRef = useRef(null);
   const theme = getTheme(isPrimeOnly);
 
-  // --- Search Logic (Preserved) ---
   useEffect(() => {
       const handleClickOutside = (event) => { 
           if (dropdownRef.current && !dropdownRef.current.contains(event.target)) setMenuOpen(false); 
@@ -387,6 +380,7 @@ const Navbar = ({ isPrimeOnly }) => {
     </nav>
   );
 };
+
 // --- SPORTS COMPONENTS ---
 
 const SportsPage = () => {
@@ -399,14 +393,14 @@ const SportsPage = () => {
     const [error, setError] = useState(null);
     const navigate = useNavigate();
 
-    // Use the main robust playlist
+    // Robust M3U Playlist
     const PLAYLIST_URL = 'https://iptv-org.github.io/iptv/index.m3u';
     
-    // Keywords to identify sports channels from the massive list
+    // Sports Keywords for filtering
     const SPORTS_KEYWORDS = [
         'Sport', 'Football', 'Soccer', 'Cricket', 'Tennis', 'Basketball', 
         'Baseball', 'Golf', 'Hockey', 'Rugby', 'Boxing', 'MMA', 'Racing', 
-        'F1', 'MotoGP', 'Wrestling', 'Athletics', 'Volleyball'
+        'F1', 'MotoGP', 'Wrestling', 'Athletics', 'Volleyball', 'ESPN', 'Sky'
     ];
 
     useEffect(() => {
@@ -428,14 +422,11 @@ const SportsPage = () => {
                     let line = lines[i].trim();
                     
                     if (line.startsWith('#EXTINF:')) {
-                        // Extract Metadata
                         const logoMatch = line.match(/tvg-logo="([^"]*)"/);
                         const groupMatch = line.match(/group-title="([^"]*)"/);
                         const name = line.split(',').pop().trim();
                         const group = groupMatch ? groupMatch[1].trim() : 'Uncategorized';
 
-                        // --- CRITICAL OPTIMIZATION ---
-                        // Check if this is actually a sports channel OR belongs to a sports group
                         const isSport = SPORTS_KEYWORDS.some(k => 
                             group.includes(k) || name.includes(k)
                         );
@@ -444,13 +435,12 @@ const SportsPage = () => {
                             categorySet.add(group);
                             current = { name, logo: logoMatch ? logoMatch[1] : null, group };
                         } else {
-                            current = {}; // Skip this channel
+                            current = {}; 
                         }
                     } else if (line.startsWith('http') && current.name) {
-                        // Only add if the previous line identified it as a sport
                         current.url = line;
                         parsed.push(current);
-                        current = {}; // Reset
+                        current = {}; 
                     }
                 }
 
@@ -458,12 +448,11 @@ const SportsPage = () => {
                     throw new Error("No sports channels found in playlist.");
                 }
 
-                // Sort categories naturally
                 const sortedCats = ['All', ...Array.from(categorySet).filter(c => c !== 'All').sort()];
                 
                 setChannels(parsed);
                 setCategories(sortedCats);
-                setDisplayedChannels(parsed.slice(0, 100)); // Show top 100 initially
+                setDisplayedChannels(parsed.slice(0, 100));
                 setLoading(false);
             })
             .catch(e => {
@@ -473,25 +462,20 @@ const SportsPage = () => {
             });
     }, []);
 
-    // Filter Logic
     useEffect(() => {
         let filtered = channels;
-
         if (activeCategory !== 'All') {
             filtered = filtered.filter(c => c.group === activeCategory);
         }
-
         if (searchQuery.trim()) {
             const lowerQ = searchQuery.toLowerCase();
             filtered = filtered.filter(c => c.name.toLowerCase().includes(lowerQ));
         }
-
         setDisplayedChannels(filtered.slice(0, 200));
     }, [activeCategory, searchQuery, channels]);
 
     return (
         <div className="pt-24 px-4 md:px-12 min-h-screen pb-20">
-            {/* --- HEADER --- */}
             <div className="flex flex-col md:flex-row justify-between items-end gap-6 mb-8">
                 <div>
                     <h2 className="text-3xl font-bold text-white flex items-center gap-2">
@@ -501,8 +485,6 @@ const SportsPage = () => {
                         {loading ? "Scanning frequencies..." : `${channels.length} Sports Channels Online`}
                     </p>
                 </div>
-
-                {/* SEARCH BAR */}
                 <div className="flex w-full md:w-auto gap-2">
                     <div className="relative flex-1 md:w-80">
                         <input 
@@ -518,7 +500,6 @@ const SportsPage = () => {
                 </div>
             </div>
 
-            {/* --- CATEGORY PILLS --- */}
             {!loading && !error && (
                 <div className="flex items-center gap-3 mb-8 overflow-x-auto scrollbar-hide pb-2">
                     {categories.map(cat => (
@@ -537,7 +518,6 @@ const SportsPage = () => {
                 </div>
             )}
 
-            {/* --- CONTENT AREA --- */}
             {loading ? (
                 <div className="h-80 flex flex-col items-center justify-center text-[#00A8E1] gap-4">
                     <Loader className="animate-spin" size={48} />
@@ -568,7 +548,6 @@ const SportsPage = () => {
                                 ) : (
                                     <Signal className="text-gray-700" size={32} />
                                 )}
-                                {/* Play Button Overlay */}
                                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                                     <div className="bg-[#00A8E1] p-3 rounded-full shadow-xl transform scale-75 group-hover:scale-100 transition-transform">
                                         <Play fill="white" className="text-white" size={20} />
@@ -590,136 +569,219 @@ const SportsPage = () => {
     );
 };
 
-const Player = () => {
-  const { type, id } = useParams();
-  const navigate = useNavigate();
-  const location = useLocation();
+const SportsPlayer = () => {
+    const navigate = useNavigate();
+    const location = useLocation();
+    const videoRef = useRef(null);
+    const { streamUrl, title } = location.state || {};
 
-  // Parse query parameters
-  const queryParams = new URLSearchParams(location.search);
-  const [season, setSeason] = useState(Number(queryParams.get('season')) || 1);
-  const [episode, setEpisode] = useState(Number(queryParams.get('episode')) || 1);
-  
-  // State for UI
-  const [showEpisodes, setShowEpisodes] = useState(false);
-  const [seasonData, setSeasonData] = useState(null);
-  const [totalSeasons, setTotalSeasons] = useState(1);
+    useEffect(() => {
+        if (!streamUrl) return;
 
-  // Fetch Total Seasons
-  useEffect(() => {
-    if (type === 'tv') {
-        fetch(`${BASE_URL}/tv/${id}?api_key=${TMDB_API_KEY}`)
-          .then(res => res.json())
-          .then(data => { if(data.number_of_seasons) setTotalSeasons(data.number_of_seasons); });
-    }
-  }, [type, id]);
+        let hls;
+        if (Hls && Hls.isSupported()) {
+            hls = new Hls();
+            hls.loadSource(streamUrl);
+            hls.attachMedia(videoRef.current);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                videoRef.current.play().catch(e => console.log("Auto-play prevented", e));
+            });
+        } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
+            videoRef.current.src = streamUrl;
+            videoRef.current.addEventListener('loadedmetadata', () => {
+                videoRef.current.play();
+            });
+        }
 
-  // Fetch Season Data
-  useEffect(() => {
-    if (type === 'tv') {
-        fetch(`${BASE_URL}/tv/${id}/season/${season}?api_key=${TMDB_API_KEY}`)
-          .then(res => res.json())
-          .then(data => setSeasonData(data));
-    }
-  }, [type, id, season]);
+        return () => {
+            if (hls) hls.destroy();
+        };
+    }, [streamUrl]);
 
-  // VIDFAST.PRO SOURCE LOGIC
-  const getSourceUrl = () => {
-    // Prime Blue Hex for VidFast theme
-    const themeParam = "theme=00A8E1";
-    
-    if (type === 'tv') {
-      // Structure: https://vidfast.pro/tv/{id}/{season}/{episode}?autoPlay=true&theme=...
-      return `${VIDFAST_BASE}/tv/${id}/${season}/${episode}?autoPlay=true&${themeParam}&nextButton=true&autoNext=true`;
-    } else {
-      // Structure: https://vidfast.pro/movie/{id}?autoPlay=true&theme=...
-      return `${VIDFAST_BASE}/movie/${id}?autoPlay=true&${themeParam}`;
-    }
-  };
+    if (!streamUrl) return <div className="text-white pt-20 text-center">No stream selected. <button onClick={() => navigate(-1)} className="text-[#00A8E1] ml-2 hover:underline">Go Back</button></div>;
 
-  return (
-    <div className="fixed inset-0 bg-black z-[100] overflow-hidden flex flex-col">
-      {/* Back Button */}
-      <div className="absolute top-6 left-6 z-[120]">
-        <button 
-          onClick={() => navigate(-1)} 
-          className="bg-black/50 hover:bg-[#00A8E1] text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all"
-        >
-          <ArrowLeft size={24} />
-        </button>
-      </div>
-
-      {/* Episode List Toggle (TV Only) */}
-      {type === 'tv' && (
-        <div className="absolute top-6 right-6 z-[120]">
-            <button onClick={() => setShowEpisodes(!showEpisodes)} className={`p-3 rounded-full backdrop-blur-md border border-white/10 transition-all ${showEpisodes ? 'bg-[#00A8E1] text-white' : 'bg-black/50 hover:bg-[#333c46] text-gray-200'}`}>
-                <List size={24} />
-            </button>
-        </div>
-      )}
-
-      {/* Video Player Iframe (Restored VidFast) */}
-      <div className="flex-1 relative w-full h-full bg-black">
-        <iframe
-          src={getSourceUrl()}
-          className="w-full h-full border-none"
-          // Optimization: Hardware Acceleration for smooth playback
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-          // Optimization: Load immediately
-          loading="eager" 
-          referrerPolicy="origin"
-          allowFullScreen
-          title="Player"
-        ></iframe>
-      </div>
-
-      {/* Episode Sidebar */}
-      {type === 'tv' && (
-        <div className={`fixed right-0 top-0 h-full bg-[#00050D]/95 backdrop-blur-xl border-l border-white/10 transition-all duration-500 ease-in-out z-[110] flex flex-col ${showEpisodes ? 'w-[350px] translate-x-0 shadow-2xl' : 'w-[350px] translate-x-full shadow-none'}`}>
-            <div className="p-6 border-b border-white/10 flex items-center justify-between bg-[#1a242f]/50">
-                <h2 className="font-bold text-white text-lg">Episodes</h2>
-                <div className="relative">
-                    <select value={season} onChange={(e) => setSeason(Number(e.target.value))} className="appearance-none bg-[#00A8E1] text-white font-bold py-1.5 pl-3 pr-8 rounded cursor-pointer text-sm outline-none hover:bg-[#008ebf] transition">
-                        {Array.from({length: totalSeasons}, (_, i) => i + 1).map(s => (<option key={s} value={s} className="bg-[#1a242f]">Season {s}</option>))}
-                    </select>
-                    <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-white pointer-events-none" />
+    return (
+        <div className="fixed inset-0 bg-black z-[200] flex flex-col">
+            <div className="h-16 bg-[#19222b] flex items-center px-4 justify-between shrink-0 border-b border-white/10 relative z-50">
+                <div className="flex items-center gap-4">
+                    <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-white transition"><ArrowLeft size={24} /></button>
+                    <div>
+                        <h1 className="text-white font-bold text-lg leading-tight">{title || "Live Stream"}</h1>
+                        <div className="text-[#00A8E1] text-xs font-bold flex items-center gap-1">LIVE BROADCAST</div>
+                    </div>
                 </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-hide">
-                {seasonData?.episodes ? (seasonData.episodes.map(ep => (
-                        <div key={ep.id} onClick={() => setEpisode(ep.episode_number)} className={`flex gap-3 p-2 rounded-lg cursor-pointer transition-all group ${episode === ep.episode_number ? 'bg-[#333c46] border border-[#00A8E1]' : 'hover:bg-[#333c46] border border-transparent'}`}>
-                            <div className="relative w-28 h-16 flex-shrink-0 bg-black rounded overflow-hidden">
-                                {ep.still_path ? (<img src={`${IMAGE_BASE_URL}${ep.still_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" />) : (<div className="w-full h-full flex items-center justify-center text-gray-600 text-xs">No Img</div>)}
-                                {episode === ep.episode_number && (<div className="absolute inset-0 bg-black/40 flex items-center justify-center"><Play size={16} fill="white" className="text-white" /></div>)}
-                            </div>
-                            <div className="flex flex-col justify-center min-w-0">
-                                <span className={`text-xs font-bold mb-0.5 ${episode === ep.episode_number ? 'text-[#00A8E1]' : 'text-gray-400'}`}>Episode {ep.episode_number}</span>
-                                <h4 className={`text-sm font-medium truncate leading-tight ${episode === ep.episode_number ? 'text-white' : 'text-gray-300 group-hover:text-white'}`}>{ep.name}</h4>
-                            </div>
-                        </div>
-                ))) : (<div className="text-center text-gray-500 mt-10 flex flex-col items-center"><Loader className="animate-spin mb-2" /><span>Loading Season {season}...</span></div>)}
+
+            <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden">
+                <video 
+                    ref={videoRef} 
+                    className="w-full h-full" 
+                    controls 
+                    autoPlay
+                    playsInline
+                ></video>
             </div>
         </div>
+    );
+};
+
+// --- HERO SECTION ---
+const Hero = ({ isPrimeOnly }) => {
+  const [movies, setMovies] = useState([]);
+  const [currentSlide, setCurrentSlide] = useState(0);
+  const [trailerKey, setTrailerKey] = useState(null);
+  const [showVideo, setShowVideo] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
+    
+  const playTimeout = useRef(null);
+  const stopTimeout = useRef(null);
+  const isHovering = useRef(false);
+    
+  const navigate = useNavigate();
+  const theme = getTheme(isPrimeOnly);
+
+  useEffect(() => { 
+      const endpoint = isPrimeOnly 
+        ? `/discover/movie?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc`
+        : `/trending/all/day?api_key=${TMDB_API_KEY}`;
+      
+      fetch(`${BASE_URL}${endpoint}`)
+        .then(res => res.json())
+        .then(data => setMovies(data.results.slice(0, 5))); 
+  }, [isPrimeOnly]);
+
+  useEffect(() => {
+      if (movies.length === 0) return;
+      
+      setShowVideo(false);
+      setTrailerKey(null);
+      clearTimeout(playTimeout.current);
+      clearTimeout(stopTimeout.current);
+
+      const movie = movies[currentSlide];
+      const mediaType = movie.media_type || 'movie';
+
+      fetch(`${BASE_URL}/${mediaType}/${movie.id}/videos?api_key=${TMDB_API_KEY}`)
+        .then(res => res.json())
+        .then(data => {
+            const trailer = data.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube') || data.results?.find(v => v.site === 'YouTube');
+            if (trailer) {
+                setTrailerKey(trailer.key);
+                if (isHovering.current) {
+                    playTimeout.current = setTimeout(() => setShowVideo(true), 4000);
+                }
+            }
+        });
+  }, [currentSlide, movies]);
+
+  const handleMouseEnter = () => {
+      isHovering.current = true;
+      clearTimeout(stopTimeout.current);
+      clearTimeout(playTimeout.current);
+      playTimeout.current = setTimeout(() => setShowVideo(true), 4000);
+  };
+
+  const handleMouseLeave = () => {
+      isHovering.current = false;
+      clearTimeout(playTimeout.current);
+      clearTimeout(stopTimeout.current);
+      stopTimeout.current = setTimeout(() => setShowVideo(false), 1000);
+  };
+
+  const nextSlide = () => setCurrentSlide((prev) => (prev + 1) % movies.length);
+  const prevSlide = () => setCurrentSlide((prev) => (prev - 1 + movies.length) % movies.length);
+
+  if (movies.length === 0) return <div className="h-[85vh] w-full bg-[#00050D]" />;
+
+  const movie = movies[currentSlide];
+
+  return (
+    <div 
+        className="relative w-full h-[85vh] overflow-hidden group"
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+    >
+      <div className={`absolute inset-0 transition-opacity duration-700 ${showVideo ? 'opacity-0' : 'opacity-100'}`}>
+        <img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover" alt="" />
+      </div>
+
+      {showVideo && trailerKey && (
+          <div className="absolute inset-0 animate-in pointer-events-none">
+             <iframe 
+                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`}
+                className="w-full h-full scale-[1.3]" 
+                allow="autoplay; encrypted-media"
+                frameBorder="0"
+                title="Hero Trailer"
+             ></iframe>
+          </div>
       )}
+
+      <div className="absolute inset-0 bg-gradient-to-r from-[#00050D] via-[#00050D]/40 to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-t from-[#00050D] via-transparent to-transparent" />
+
+      <div className="absolute top-[25%] left-[4%] max-w-[600px] z-30 animate-row-enter">
+        <h1 className="text-5xl md:text-7xl font-extrabold text-white mb-4 drop-shadow-[0_4px_10px_rgba(0,0,0,0.8)] tracking-tight leading-tight">
+            {movie.title || movie.name}
+        </h1>
+        
+        <div className="flex items-center gap-3 text-[#a9b7c1] font-bold text-sm mb-6">
+           {isPrimeOnly && <span className={`${theme.color} tracking-wide`}>Included with Prime</span>}
+           <span className="bg-[#33373d]/80 text-white px-1.5 py-0.5 rounded text-xs border border-gray-600 backdrop-blur-md">UHD</span>
+           <span className="bg-[#33373d]/80 text-white px-1.5 py-0.5 rounded text-xs border border-gray-600 backdrop-blur-md">16+</span>
+        </div>
+        
+        <p className="text-lg text-white font-medium line-clamp-3 mb-8 opacity-90 drop-shadow-md text-shadow-sm">{movie.overview}</p>
+        
+        <div className="flex items-center gap-4">
+            <button onClick={() => navigate(`/watch/${movie.media_type || 'movie'}/${movie.id}`)} className={`${theme.bg} ${theme.hoverBg} text-white h-14 pl-8 pr-8 rounded-md font-bold text-lg flex items-center gap-3 transition transform hover:scale-105 ${theme.shadow}`}>
+                <Play fill="white" size={24} /> 
+                {isPrimeOnly ? "Play" : "Rent or Play"}
+            </button>
+            <button className="w-14 h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm group">
+                <Plus size={28} className="text-gray-200 group-hover:text-white" />
+            </button>
+            <button onClick={() => navigate(`/detail/${movie.media_type || 'movie'}/${movie.id}`)} className="w-14 h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm group">
+                <Info size={28} className="text-gray-200 group-hover:text-white" />
+            </button>
+        </div>
+      </div>
+
+      <div className="absolute top-32 right-[4%] z-40">
+          <button 
+            onClick={() => setIsMuted(!isMuted)} 
+            className="w-12 h-12 rounded-full border-2 border-white/20 bg-black/20 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/10 hover:border-white transition"
+          >
+              {isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}
+          </button>
+      </div>
+
+      <button onClick={prevSlide} className="absolute left-4 top-1/2 -translate-y-1/2 z-40 p-2 rounded-full bg-black/20 hover:bg-black/50 text-white/50 hover:text-white transition backdrop-blur-sm border border-transparent hover:border-white/30">
+          <ChevronLeft size={40} />
+      </button>
+      <button onClick={nextSlide} className="absolute right-4 top-1/2 -translate-y-1/2 z-40 p-2 rounded-full bg-black/20 hover:bg-black/50 text-white/50 hover:text-white transition backdrop-blur-sm border border-transparent hover:border-white/30">
+          <ChevronRight size={40} />
+      </button>
+
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-40">
+          {movies.map((_, idx) => (
+              <div key={idx} className={`w-2 h-2 rounded-full transition-all ${idx === currentSlide ? 'bg-white w-4' : 'bg-gray-500'}`} />
+          ))}
+      </div>
     </div>
   );
 };
 
 // --- MOVIE CARD COMPONENT ---
-// Target: 360px x 440px | Image Only (No Trailer) | Smart Origin
 const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank, isPrimeOnly, isFirst, isLast }) => {
   const navigate = useNavigate();
-  // REMOVED: trailerKey state and fetching logic completely
-
   const imageUrl = movie.poster_path || movie.backdrop_path;
   
-  // Dimensions
   const baseWidth = 'w-[160px] md:w-[200px]';
   const aspectRatio = 'aspect-[360/440]'; 
   const cardMargin = variant === 'ranked' ? 'ml-[70px]' : ''; 
   const originClass = isFirst ? 'origin-left' : isLast ? 'origin-right' : 'origin-center';
 
-  // Mock Metadata
   const rating = movie.vote_average ? Math.round(movie.vote_average * 10) + "%" : "98%";
   const year = movie.release_date?.split('-')[0] || "2024";
   const duration = movie.media_type === 'tv' ? '1 Season' : '2h 15m';
@@ -734,7 +796,6 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
     >
       {variant === 'ranked' && <span className="rank-number">{rank}</span>}
       
-      {/* CARD CONTAINER */}
       <div 
         className={`
             relative w-full h-full rounded-xl overflow-hidden cursor-pointer bg-[#19222b] shadow-xl
@@ -747,12 +808,10 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
             boxShadow: isHovered ? '0 25px 50px rgba(0,0,0,0.8)' : '0 4px 6px rgba(0,0,0,0.1)',
         }}
       >
-        {/* MEDIA LAYER - Image Only */}
         <div className={`w-full h-full relative bg-black transition-transform duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1) ${isHovered ? 'scale-[1.02]' : 'scale-100'}`}>
             <img src={`${IMAGE_BASE_URL}${imageUrl}`} alt={movie.title} className="w-full h-full object-cover" loading="lazy" />
         </div>
 
-        {/* OVERLAY LAYER */}
         <div 
             className={`
                 absolute inset-0 flex flex-col justify-end px-4 py-5 text-white
@@ -805,7 +864,7 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
 const Row = ({ title, fetchUrl, variant = 'standard', itemType = 'movie', isPrimeOnly }) => {
   const [movies, setMovies] = useState([]);
   const [hoveredId, setHoveredId] = useState(null);
-  const rowRef = useRef(null); // Ref for scrolling
+  const rowRef = useRef(null); 
   const timeoutRef = useRef(null);
   const theme = getTheme(isPrimeOnly);
 
@@ -822,7 +881,6 @@ const Row = ({ title, fetchUrl, variant = 'standard', itemType = 'movie', isPrim
   const handleHover = (id) => { if (timeoutRef.current) clearTimeout(timeoutRef.current); timeoutRef.current = setTimeout(() => setHoveredId(id), 400); };
   const handleLeave = () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); setHoveredId(null); };
 
-  // Scroll Handlers
   const slideLeft = () => {
       if (rowRef.current) rowRef.current.scrollBy({ left: -800, behavior: 'smooth' });
   };
@@ -832,26 +890,18 @@ const Row = ({ title, fetchUrl, variant = 'standard', itemType = 'movie', isPrim
 
   return (
     <div className="mb-6 pl-4 md:pl-12 relative z-20 group/row animate-row-enter hover:z-30 transition-all duration-300">
-      
-      {/* Title */}
       <h3 className="text-[19px] font-bold text-white mb-2 flex items-center gap-2">
           {variant === 'ranked' ? <span className={theme.color}>Top 10</span> : <span className={theme.color}>{theme.name}</span>} 
           {title}
           <ChevronRight size={18} className="text-[#8197a4] opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer"/>
       </h3>
-
-      {/* Container Wrapper for Buttons */}
       <div className="relative">
-          
-          {/* Left Arrow Button (Dynamic Show/Hide on Hover) */}
           <button 
             onClick={slideLeft}
             className="absolute left-0 top-[40%] -translate-y-1/2 z-[60] w-12 h-full bg-gradient-to-r from-black/80 to-transparent opacity-0 group-hover/row:opacity-100 transition-opacity duration-300 flex items-center justify-start pl-3 hover:w-16 cursor-pointer"
           >
              <ChevronLeft size={40} className="text-white hover:scale-125 transition-transform" />
           </button>
-
-          {/* Scrollable Row */}
           <div ref={rowRef} className={`row-container ${variant === 'vertical' ? 'vertical' : ''} scrollbar-hide`}>
             {movies.map((movie, index) => ( 
                <MovieCard 
@@ -869,26 +919,24 @@ const Row = ({ title, fetchUrl, variant = 'standard', itemType = 'movie', isPrim
                /> 
             ))}
           </div>
-
-          {/* Right Arrow Button */}
           <button 
             onClick={slideRight}
             className="absolute right-0 top-[40%] -translate-y-1/2 z-[60] w-12 h-full bg-gradient-to-l from-black/80 to-transparent opacity-0 group-hover/row:opacity-100 transition-opacity duration-300 flex items-center justify-end pr-3 hover:w-16 cursor-pointer"
           >
              <ChevronRight size={40} className="text-white hover:scale-125 transition-transform" />
           </button>
-
       </div>
     </div>
   );
 };
+
 const SearchResults = ({ isPrimeOnly }) => { 
   const [movies, setMovies] = useState([]); 
   const [loading, setLoading] = useState(false);
   const query = new URLSearchParams(useLocation().search).get('q'); 
   const theme = getTheme(isPrimeOnly);
   const navigate = useNavigate();
-   
+    
   useEffect(() => { 
       if (query) {
           setLoading(true);
@@ -950,54 +998,43 @@ const SearchResults = ({ isPrimeOnly }) => {
 };
 
 // --- MOVIE DETAIL COMPONENT ---
-// Integrated Trailer Button & Modal
 const MovieDetail = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
   
-  // Data State
   const [movie, setMovie] = useState(null);
   const [relatedMovies, setRelatedMovies] = useState([]);
   const [credits, setCredits] = useState(null);
-  
-  // Playback State
   const [trailerKey, setTrailerKey] = useState(null);
   const [showVideo, setShowVideo] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
 
-  // --- DATA FETCHING ---
   useEffect(() => {
-    // 1. Reset States to prevent "ghost" content during navigation
     setShowVideo(false);
     setTrailerKey(null);
     setIsMuted(true);
     setMovie(null);
-    setRelatedMovies([]); // Clear previous related items immediately
+    setRelatedMovies([]); 
     window.scrollTo(0, 0);
 
-    // 2. Fetch Core Details
     fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}&language=en-US`)
         .then(res => res.json())
         .then(data => setMovie(data))
         .catch(err => console.error(err));
 
-    // 3. Fetch Credits (Cast/Crew)
     fetch(`${BASE_URL}/${type}/${id}/credits?api_key=${TMDB_API_KEY}`)
         .then(res => res.json())
         .then(data => setCredits(data));
 
-    // 4. Fetch Related Content (Robust Logic)
     const fetchRelated = async () => {
         try {
-            // First try "Recommendations" (Algorithm based)
             const recRes = await fetch(`${BASE_URL}/${type}/${id}/recommendations?api_key=${TMDB_API_KEY}&language=en-US`);
             const recData = await recRes.json();
             
             if (recData.results && recData.results.length > 0) {
                 setRelatedMovies(recData.results.slice(0, 10));
             } else {
-                // Fallback to "Similar" (Genre/Keyword based) if no recommendations
                 const simRes = await fetch(`${BASE_URL}/${type}/${id}/similar?api_key=${TMDB_API_KEY}&language=en-US`);
                 const simData = await simRes.json();
                 if (simData.results) {
@@ -1010,21 +1047,19 @@ const MovieDetail = () => {
     };
     fetchRelated();
 
-    // 5. Fetch Trailer & Init Auto-Play
     fetch(`${BASE_URL}/${type}/${id}/videos?api_key=${TMDB_API_KEY}`)
         .then(res => res.json())
         .then(data => {
             const trailer = data.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube') || data.results?.find(v => v.site === 'YouTube');
             if (trailer) {
                 setTrailerKey(trailer.key);
-                setTimeout(() => setShowVideo(true), 3000); // 3s Delay
+                setTimeout(() => setShowVideo(true), 3000); 
             }
         });
   }, [type, id]);
 
   if (!movie) return <div className="min-h-screen w-full bg-[#0f171e]" />;
 
-  // Derived Data
   const director = credits?.crew?.find(c => c.job === 'Director')?.name || "Unknown Director";
   const cast = credits?.cast?.slice(0, 5).map(c => c.name).join(", ") || "N/A";
   const studio = movie.production_companies?.[0]?.name || "Prime Studios";
@@ -1035,35 +1070,27 @@ const MovieDetail = () => {
 
   return (
     <div className="min-h-screen bg-[#0f171e] text-white font-sans selection:bg-[#00A8E1] selection:text-white pb-20">
-      
-      {/* ============================================
-          HERO SECTION (Top Half) 
-      ============================================ */}
       <div className="relative w-full h-[85vh] overflow-hidden">
-          
-          {/* Background Media */}
           <div className="absolute inset-0 w-full h-full">
-               <div className={`absolute inset-0 transition-opacity duration-1000 ${showVideo ? 'opacity-0' : 'opacity-100'}`}>
-                   <img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover object-top md:object-right-top" alt="" />
-               </div>
-               {showVideo && trailerKey && (
+                <div className={`absolute inset-0 transition-opacity duration-1000 ${showVideo ? 'opacity-0' : 'opacity-100'}`}>
+                    <img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover object-top md:object-right-top" alt="" />
+                </div>
+                {showVideo && trailerKey && (
                   <div className="absolute inset-0 animate-in fade-in duration-1000 pointer-events-none">
-                     <iframe 
+                      <iframe 
                         src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`}
                         className="w-full h-full scale-[1.5] origin-center" 
                         allow="autoplay; encrypted-media"
                         frameBorder="0"
                         title="Hero Background"
-                     />
+                      />
                   </div>
-               )}
+                )}
           </div>
 
-          {/* Gradients */}
           <div className="absolute inset-0 bg-gradient-to-r from-[#0f171e] via-[#0f171e]/90 to-transparent w-[90%] md:w-[65%] z-10" />
           <div className="absolute inset-0 bg-gradient-to-t from-[#0f171e] via-transparent to-transparent z-10" />
 
-          {/* Hero Content */}
           <div className="absolute inset-0 z-20 flex flex-col justify-center px-6 md:px-16 lg:px-24 max-w-3xl pt-20">
               <div className="mb-4 opacity-0 animate-fade-in-up" style={{ animationDelay: '0ms' }}>
                   <span className="text-[11px] font-black tracking-[0.2em] text-[#00A8E1] uppercase bg-[#00A8E1]/10 px-2 py-1 rounded">
@@ -1105,7 +1132,6 @@ const MovieDetail = () => {
               </div>
           </div>
 
-          {/* Volume Control */}
           {showVideo && trailerKey && (
               <div className="absolute top-[35%] right-8 z-50">
                   <button 
@@ -1118,9 +1144,6 @@ const MovieDetail = () => {
           )}
       </div>
 
-      {/* ============================================
-          RELATED CONTENT STRIP (Customers also watched)
-      ============================================ */}
       <div className="relative z-30 -mt-24 px-6 md:px-16 mb-16">
           <h3 className="text-xl font-bold text-white mb-4 drop-shadow-md">Customers also watched</h3>
           
@@ -1130,8 +1153,6 @@ const MovieDetail = () => {
                       <div 
                         key={m.id} 
                         onClick={() => { 
-                            // FIX: Determine correct type fallback.
-                            // If API doesn't give media_type (common in 'similar' endpoint), assume same as current page.
                             const targetType = m.media_type || type;
                             navigate(`/detail/${targetType}/${m.id}`); 
                         }}
@@ -1159,12 +1180,7 @@ const MovieDetail = () => {
           )}
       </div>
 
-      {/* ============================================
-          DETAIL INFO SECTION (Lower Half)
-      ============================================ */}
       <div className="px-6 md:px-16 grid grid-cols-1 lg:grid-cols-3 gap-10">
-          
-          {/* LEFT COLUMN: Content Details */}
           <div className="lg:col-span-2 space-y-8">
               <div className="bg-[#19222b] p-6 rounded-lg border border-white/5">
                   <h4 className="text-lg font-bold text-white mb-3">Synopsis</h4>
@@ -1202,7 +1218,6 @@ const MovieDetail = () => {
               </div>
           </div>
 
-          {/* RIGHT COLUMN: Advisory & Tech Info */}
           <div className="space-y-6">
               <div className="bg-[#19222b] p-6 rounded-lg border border-white/5">
                   <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">Content Advisory</h4>
@@ -1233,7 +1248,6 @@ const MovieDetail = () => {
           </div>
       </div>
 
-      {/* FOOTER AREA */}
       <div className="mt-20 px-6 md:px-16 pt-8 border-t border-white/10 text-center md:text-left">
           <p className="text-xs text-gray-500 mb-4">
               By clicking play, you agree to our <a href="#" className="text-[#00A8E1] hover:underline">Terms of Use</a>.
@@ -1245,7 +1259,6 @@ const MovieDetail = () => {
               <span className="text-gray-600">© 1996-2024, PrimeShows.com, Inc. or its affiliates</span>
           </div>
       </div>
-
     </div>
   );
 };
@@ -1255,20 +1268,14 @@ const Player = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Parse query parameters to get the specific season/episode if clicked from Detail page
-  // Default to 1 if not present
   const queryParams = new URLSearchParams(location.search);
-  
-  // State for playback
   const [season, setSeason] = useState(Number(queryParams.get('season')) || 1);
   const [episode, setEpisode] = useState(Number(queryParams.get('episode')) || 1);
   
-  // State for UI
   const [showEpisodes, setShowEpisodes] = useState(false);
   const [seasonData, setSeasonData] = useState(null);
   const [totalSeasons, setTotalSeasons] = useState(1);
 
-  // Fetch Total Seasons
   useEffect(() => {
     if (type === 'tv') {
         fetch(`${BASE_URL}/tv/${id}?api_key=${TMDB_API_KEY}`)
@@ -1277,7 +1284,6 @@ const Player = () => {
     }
   }, [type, id]);
 
-  // Fetch Season Data
   useEffect(() => {
     if (type === 'tv') {
         fetch(`${BASE_URL}/tv/${id}/season/${season}?api_key=${TMDB_API_KEY}`)
@@ -1286,85 +1292,47 @@ const Player = () => {
     }
   }, [type, id, season]);
 
-  // Handle watch progress syncing (Updated for VIDFAST format)
-  useEffect(() => {
-    const vidfastOrigins = [
-        'https://vidfast.pro',
-        'https://vidfast.in',
-        'https://vidfast.io',
-        'https://vidfast.me',
-        'https://vidfast.net',
-        'https://vidfast.pm',
-        'https://vidfast.xyz'
-    ];
-
-    const handleMessage = (event) => {
-      // Validate origin
-      if (!vidfastOrigins.includes(event.origin) || !event.data) {
-          return;
-      }
-      
-      // Handle MEDIA_DATA event for progress saving (per docs)
-      if (event.data.type === 'MEDIA_DATA') {
-          // Store data exactly as received from VidFast
-          localStorage.setItem('vidFastProgress', JSON.stringify(event.data.data));
-          
-          // Optional: Sync to our internal format 'watch_progress' if needed for other app features
-          try {
-             const STORAGE_KEY = 'watch_progress';
-             const currentProgress = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-             const contentId = event.data.data[Object.keys(event.data.data)[0]].id || id; // extracting ID from the nested structure
-             
-             // Simple fallback to ensure at least some ID matches
-             if(contentId) {
-                currentProgress[contentId] = {
-                   ...currentProgress[contentId],
-                   ...event.data.data,
-                   last_updated: Date.now()
-                };
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(currentProgress));
-             }
-          } catch(e) {
-             // fail silently if internal sync fails
-          }
-      }
-    };
-
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [id]);
-
+  // VIDFAST.PRO SOURCE LOGIC
   const getSourceUrl = () => {
+    const themeParam = "theme=00A8E1";
     if (type === 'tv') {
-      // TV Show Format: https://multiembed.mov/?video_id={tmdb_id}&tmdb=1&s={season}&e={episode}
-      return `https://multiembed.mov/?video_id=${id}&tmdb=1&s=${season}&e=${episode}`;
+      return `${VIDFAST_BASE}/tv/${id}/${season}/${episode}?autoPlay=true&${themeParam}&nextButton=true&autoNext=true`;
     } else {
-      // Movie Format: https://multiembed.mov/?video_id={tmdb_id}&tmdb=1
-      return `https://multiembed.mov/?video_id=${id}&tmdb=1`;
+      return `${VIDFAST_BASE}/movie/${id}?autoPlay=true&${themeParam}`;
     }
   };
 
   return (
     <div className="fixed inset-0 bg-black z-[100] overflow-hidden flex flex-col">
-      {/* Back Button & Sidebar logic remains the same... */}
       <div className="absolute top-6 left-6 z-[120]">
-        <button onClick={() => navigate(-1)} className="bg-black/50 hover:bg-[#00A8E1] text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all">
+        <button 
+          onClick={() => navigate(-1)} 
+          className="bg-black/50 hover:bg-[#00A8E1] text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all"
+        >
           <ArrowLeft size={24} />
         </button>
       </div>
 
-      {/* Video Player Iframe */}
+      {type === 'tv' && (
+        <div className="absolute top-6 right-6 z-[120]">
+            <button onClick={() => setShowEpisodes(!showEpisodes)} className={`p-3 rounded-full backdrop-blur-md border border-white/10 transition-all ${showEpisodes ? 'bg-[#00A8E1] text-white' : 'bg-black/50 hover:bg-[#333c46] text-gray-200'}`}>
+                <List size={24} />
+            </button>
+        </div>
+      )}
+
       <div className="flex-1 relative w-full h-full bg-black">
         <iframe
           src={getSourceUrl()}
           className="w-full h-full border-none"
-          allowFullScreen
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          loading="eager" 
+          referrerPolicy="origin"
+          allowFullScreen
           title="Player"
         ></iframe>
       </div>
 
-      {/* Episode Sidebar */}
       {type === 'tv' && (
         <div className={`fixed right-0 top-0 h-full bg-[#00050D]/95 backdrop-blur-xl border-l border-white/10 transition-all duration-500 ease-in-out z-[110] flex flex-col ${showEpisodes ? 'w-[350px] translate-x-0 shadow-2xl' : 'w-[350px] translate-x-full shadow-none'}`}>
             <div className="p-6 border-b border-white/10 flex items-center justify-between bg-[#1a242f]/50">
@@ -1386,7 +1354,6 @@ const Player = () => {
                             <div className="flex flex-col justify-center min-w-0">
                                 <span className={`text-xs font-bold mb-0.5 ${episode === ep.episode_number ? 'text-[#00A8E1]' : 'text-gray-400'}`}>Episode {ep.episode_number}</span>
                                 <h4 className={`text-sm font-medium truncate leading-tight ${episode === ep.episode_number ? 'text-white' : 'text-gray-300 group-hover:text-white'}`}>{ep.name}</h4>
-                                <span className="text-[10px] text-gray-500 mt-1">{ep.runtime ? `${ep.runtime}m` : ''}</span>
                             </div>
                         </div>
                 ))) : (<div className="text-center text-gray-500 mt-10 flex flex-col items-center"><Loader className="animate-spin mb-2" /><span>Loading Season {season}...</span></div>)}
@@ -1398,11 +1365,9 @@ const Player = () => {
 };
 
 // --- MAIN WRAPPERS ---
-// Change 'movie' to 'all'
 const Home = ({ isPrimeOnly }) => { const { rows, loadMore } = useInfiniteRows('all', isPrimeOnly); return <><Hero isPrimeOnly={isPrimeOnly} /><div className="-mt-10 relative z-20 pb-20">{rows.map(row => <Row key={row.id} title={row.title} fetchUrl={row.fetchUrl} variant={row.variant} itemType={row.itemType} isPrimeOnly={isPrimeOnly} />)}<InfiniteScrollTrigger onIntersect={loadMore} /></div></>; };
 const MoviesPage = ({ isPrimeOnly }) => { const { rows, loadMore } = useInfiniteRows('movie', isPrimeOnly); return <><Hero isPrimeOnly={isPrimeOnly} /><div className="-mt-10 relative z-20 pb-20">{rows.map(row => <Row key={row.id} title={row.title} fetchUrl={row.fetchUrl} variant={row.variant} itemType={row.itemType} isPrimeOnly={isPrimeOnly} />)}<InfiniteScrollTrigger onIntersect={loadMore} /></div></>; };
 const TVPage = ({ isPrimeOnly }) => { const { rows, loadMore } = useInfiniteRows('tv', isPrimeOnly); return <><Hero isPrimeOnly={isPrimeOnly} /><div className="-mt-10 relative z-20 pb-20">{rows.map(row => <Row key={row.id} title={row.title} fetchUrl={row.fetchUrl} variant={row.variant} itemType={row.itemType} isPrimeOnly={isPrimeOnly} />)}<InfiniteScrollTrigger onIntersect={loadMore} /></div></>; };
-const LiveTV = () => <div className="pt-32 px-12 text-white">Live TV</div>;
 const StorePage = () => <div className="pt-32 px-12 text-white">Store</div>;
 
 function App() {
@@ -1412,26 +1377,23 @@ function App() {
       <ScrollToTop />
       <div className="bg-[#00050D] min-h-screen text-white font-sans selection:bg-[#00A8E1] selection:text-white">
         <Routes>
-          {/* --- PRIME VIDEO MODE --- */}
           <Route path="/" element={<><Navbar isPrimeOnly={true} /><Home isPrimeOnly={true} /></>} />
           <Route path="/movies" element={<><Navbar isPrimeOnly={true} /><MoviesPage isPrimeOnly={true} /></>} />
           <Route path="/tv" element={<><Navbar isPrimeOnly={true} /><TVPage isPrimeOnly={true} /></>} />
           <Route path="/search" element={<><Navbar isPrimeOnly={true} /><SearchResults isPrimeOnly={true} /></>} />
           
-          {/* --- LITERALLY EVERYTHING MODE (Fixed) --- */}
           <Route path="/everything" element={<><Navbar isPrimeOnly={false} /><Home isPrimeOnly={false} /></>} />
           <Route path="/everything/movies" element={<><Navbar isPrimeOnly={false} /><MoviesPage isPrimeOnly={false} /></>} />
           <Route path="/everything/tv" element={<><Navbar isPrimeOnly={false} /><TVPage isPrimeOnly={false} /></>} />
           <Route path="/everything/search" element={<><Navbar isPrimeOnly={false} /><SearchResults isPrimeOnly={false} /></>} />
 
-          {/* --- DETAILS & PLAYER (Restored) --- */}
-          {/* Note: We force isPrimeOnly=true on Navbar for details to keep UI consistent, or pass a param if you prefer */}
           <Route path="/detail/:type/:id" element={<><Navbar isPrimeOnly={true} /><MovieDetail /></>} />
           <Route path="/watch/:type/:id" element={<Player />} />
 
-          {/* --- SPORTS / LIVE TV --- */}
           <Route path="/sports" element={<><Navbar isPrimeOnly={true} /><SportsPage /></>} />
           <Route path="/watch/sport/iptv" element={<SportsPlayer />} />
+          <Route path="/live" element={<><Navbar isPrimeOnly={true} /><SportsPage /></>} />
+          <Route path="/store" element={<><Navbar isPrimeOnly={true} /><StorePage /></>} />
         </Routes>
       </div>
     </BrowserRouter>
