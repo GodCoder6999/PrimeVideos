@@ -391,100 +391,152 @@ const Navbar = ({ isPrimeOnly }) => {
 
 const SportsPage = () => {
     const [channels, setChannels] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const [displayedChannels, setDisplayedChannels] = useState([]);
+    const [categories, setCategories] = useState(['All']);
     const [activeCategory, setActiveCategory] = useState('All');
+    const [searchQuery, setSearchQuery] = useState("");
+    const [loading, setLoading] = useState(true);
     const navigate = useNavigate();
 
-    // Categories to filter from the massive list to keep it relevant
-    const RELEVANT_CATEGORIES = ['Sports', 'Sport', 'Football', 'Soccer', 'Cricket', 'Tennis', 'Basketball'];
+    // OPTIMIZATION: Use the 'sport.m3u' playlist (~2MB) instead of 'index.m3u' (~30MB)
+    // This prevents the browser from crashing/freezing.
+    const PLAYLIST_URL = 'https://iptv-org.github.io/iptv/categories/sport.m3u';
 
     useEffect(() => {
         setLoading(true);
-        fetch('https://iptv-org.github.io/iptv/index.m3u')
+        fetch(PLAYLIST_URL)
             .then(res => res.text())
             .then(data => {
                 const lines = data.split('\n');
-                const parsedChannels = [];
-                let currentChannel = {};
+                const parsed = [];
+                const categorySet = new Set(['All']);
+                let current = {};
 
-                // Basic M3U Parser
                 lines.forEach(line => {
+                    line = line.trim();
                     if (line.startsWith('#EXTINF:')) {
-                        // Extract metadata
-                        const logoMatch = line.match(/tvg-logo="(.*?)"/);
-                        const groupMatch = line.match(/group-title="(.*?)"/);
-                        const nameParts = line.split(',');
+                        const logoMatch = line.match(/tvg-logo="([^"]*)"/);
+                        const groupMatch = line.match(/group-title="([^"]*)"/);
+                        const name = line.split(',').pop().trim();
+                        // Use provided group or fallback to 'General Sport'
+                        const group = groupMatch ? groupMatch[1].trim() : 'General Sport';
                         
-                        currentChannel = {
-                            name: nameParts[nameParts.length - 1].trim(),
-                            logo: logoMatch ? logoMatch[1] : null,
-                            group: groupMatch ? groupMatch[1] : 'Uncategorized'
-                        };
+                        if (group) categorySet.add(group);
+
+                        current = { name, logo: logoMatch ? logoMatch[1] : null, group };
                     } else if (line.startsWith('http')) {
-                        // Match URL to metadata
-                        if (currentChannel.name) {
-                            currentChannel.url = line.trim();
-                            // Only add if it's a sports channel to improve performance
-                            if (RELEVANT_CATEGORIES.some(cat => currentChannel.group.includes(cat))) {
-                                parsedChannels.push(currentChannel);
-                            }
-                            currentChannel = {}; // Reset
+                        if (current.name) {
+                            current.url = line;
+                            parsed.push(current);
+                            current = {};
                         }
                     }
                 });
+
+                // Sort categories for better UX
+                const sortedCats = ['All', ...Array.from(categorySet).filter(c => c !== 'All').sort()];
                 
-                setChannels(parsedChannels);
+                setChannels(parsed);
+                setCategories(sortedCats);
+                setDisplayedChannels(parsed.slice(0, 100)); // Initial load
                 setLoading(false);
             })
-            .catch(err => {
-                console.error("Error fetching playlist:", err);
+            .catch(e => {
+                console.error(e);
                 setLoading(false);
             });
     }, []);
 
-    // Get unique categories from parsed channels
-    const categories = ['All', ...new Set(channels.map(c => c.group))].sort();
-    const displayChannels = activeCategory === 'All' ? channels : channels.filter(c => c.group === activeCategory);
+    // Handle Search & Filter
+    useEffect(() => {
+        let filtered = channels;
+
+        if (activeCategory !== 'All') {
+            filtered = filtered.filter(c => c.group === activeCategory);
+        }
+
+        if (searchQuery.trim()) {
+            const lowerQ = searchQuery.toLowerCase();
+            filtered = filtered.filter(c => c.name.toLowerCase().includes(lowerQ));
+        }
+
+        // Pagination limit to keep UI smooth
+        setDisplayedChannels(filtered.slice(0, 200));
+    }, [activeCategory, searchQuery, channels]);
 
     return (
         <div className="pt-24 px-4 md:px-12 min-h-screen pb-20">
-            {/* Category Filter */}
-            <div className="flex items-center gap-4 mb-8 overflow-x-auto scrollbar-hide pb-2">
-                {categories.slice(0, 15).map(cat => (
+            {/* --- HEADER & SEARCH --- */}
+            <div className="flex flex-col md:flex-row justify-between items-end gap-6 mb-8">
+                <div>
+                    <h2 className="text-3xl font-bold text-white flex items-center gap-2">
+                        <Trophy className="text-[#00A8E1]" /> Live Sports
+                    </h2>
+                    <p className="text-gray-400 text-sm mt-1">{channels.length} Channels Online</p>
+                </div>
+
+                {/* NEW: Dedicated Search Bar with Button */}
+                <div className="flex w-full md:w-auto gap-2">
+                    <div className="relative flex-1 md:w-80">
+                        <input 
+                            type="text" 
+                            placeholder="Find channel..." 
+                            className="w-full bg-[#19222b] border border-white/10 rounded-lg px-4 py-3 pl-10 text-white focus:border-[#00A8E1] outline-none font-medium"
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                        />
+                        <Search className="absolute left-3 top-3.5 text-gray-500" size={18} />
+                        {searchQuery && <X onClick={() => setSearchQuery('')} className="absolute right-3 top-3.5 text-gray-400 cursor-pointer hover:text-white" size={18} />}
+                    </div>
+                    <button className="bg-[#00A8E1] hover:bg-[#008ebf] text-white px-6 rounded-lg font-bold transition-colors">
+                        Search
+                    </button>
+                </div>
+            </div>
+
+            {/* --- DYNAMIC CATEGORIES --- */}
+            <div className="flex items-center gap-3 mb-8 overflow-x-auto scrollbar-hide pb-2">
+                {categories.map(cat => (
                     <button 
                         key={cat} 
-                        onClick={() => setActiveCategory(cat)} 
-                        className={`px-5 py-2.5 rounded-full font-bold text-sm transition-all whitespace-nowrap ${activeCategory === cat ? 'bg-[#00A8E1] text-white' : 'bg-[#19222b] text-gray-300 hover:bg-[#333c46]'}`}
+                        onClick={() => setActiveCategory(cat)}
+                        className={`px-5 py-2.5 rounded-lg font-bold text-sm whitespace-nowrap transition-all border ${
+                            activeCategory === cat 
+                            ? 'bg-white text-black border-white' 
+                            : 'bg-[#19222b] text-gray-400 border-transparent hover:border-white/20 hover:text-white'
+                        }`}
                     >
                         {cat}
                     </button>
                 ))}
             </div>
 
-            <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
-                Live Sports Channels <span className="text-[#00A8E1] text-sm ml-2">({displayChannels.length})</span>
-            </h2>
-
+            {/* --- CHANNEL GRID --- */}
             {loading ? (
-                <div className="h-60 flex items-center justify-center text-gray-500"><Loader className="animate-spin" /> Loading Channels...</div>
+                <div className="h-60 flex items-center justify-center text-[#00A8E1]"><Loader className="animate-spin mr-2" /> Loading Live Feeds...</div>
+            ) : displayedChannels.length === 0 ? (
+                <div className="text-center text-gray-500 py-20">No channels found. Try a different category.</div>
             ) : (
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                    {displayChannels.slice(0, 100).map((channel, idx) => ( // Limit render to 100 for performance
+                    {displayedChannels.map((channel, idx) => (
                         <div 
                             key={idx} 
                             onClick={() => navigate('/watch/sport/iptv', { state: { streamUrl: channel.url, title: channel.name } })}
-                            className="bg-[#19222b] hover:bg-[#232d38] rounded-xl overflow-hidden cursor-pointer transition group hover:-translate-y-1"
+                            className="bg-[#19222b] hover:bg-[#232d38] rounded-xl overflow-hidden cursor-pointer group hover:-translate-y-1 transition-all border border-white/5 hover:border-[#00A8E1]/40"
                         >
-                            <div className="aspect-video bg-black/50 flex items-center justify-center p-4">
+                            <div className="aspect-video bg-black/40 flex items-center justify-center p-4 relative">
                                 {channel.logo ? (
-                                    <img src={channel.logo} className="w-full h-full object-contain" alt={channel.name} onError={(e) => e.target.style.display='none'} />
+                                    <img src={channel.logo} className="w-full h-full object-contain" alt={channel.name} onError={e => e.target.style.display='none'} />
                                 ) : (
-                                    <Trophy size={32} className="text-gray-600" />
+                                    <Signal className="text-gray-700" size={32} />
                                 )}
+                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                    <Play fill="white" className="text-white" size={24} />
+                                </div>
                             </div>
                             <div className="p-3">
-                                <h3 className="font-bold text-white text-xs truncate">{channel.name}</h3>
-                                <p className="text-[10px] text-[#00A8E1]">{channel.group}</p>
+                                <h3 className="text-white text-xs font-bold truncate">{channel.name}</h3>
+                                <p className="text-[#00A8E1] text-[10px] mt-0.5 truncate">{channel.group}</p>
                             </div>
                         </div>
                     ))}
@@ -1406,24 +1458,26 @@ function App() {
       <ScrollToTop />
       <div className="bg-[#00050D] min-h-screen text-white font-sans selection:bg-[#00A8E1] selection:text-white">
         <Routes>
+          {/* --- PRIME VIDEO MODE --- */}
           <Route path="/" element={<><Navbar isPrimeOnly={true} /><Home isPrimeOnly={true} /></>} />
           <Route path="/movies" element={<><Navbar isPrimeOnly={true} /><MoviesPage isPrimeOnly={true} /></>} />
           <Route path="/tv" element={<><Navbar isPrimeOnly={true} /><TVPage isPrimeOnly={true} /></>} />
-          
-          <Route path="/sports" element={<><Navbar isPrimeOnly={true} /><SportsPage /></>} />
-          <Route path="/watch/sport/:id" element={<SportsPlayer />} />
-
-          <Route path="/live" element={<><Navbar isPrimeOnly={true} /><LiveTV /></>} />
-          <Route path="/store" element={<><Navbar isPrimeOnly={true} /><StorePage /></>} />
           <Route path="/search" element={<><Navbar isPrimeOnly={true} /><SearchResults isPrimeOnly={true} /></>} />
-
+          
+          {/* --- LITERALLY EVERYTHING MODE (Fixed) --- */}
           <Route path="/everything" element={<><Navbar isPrimeOnly={false} /><Home isPrimeOnly={false} /></>} />
           <Route path="/everything/movies" element={<><Navbar isPrimeOnly={false} /><MoviesPage isPrimeOnly={false} /></>} />
           <Route path="/everything/tv" element={<><Navbar isPrimeOnly={false} /><TVPage isPrimeOnly={false} /></>} />
           <Route path="/everything/search" element={<><Navbar isPrimeOnly={false} /><SearchResults isPrimeOnly={false} /></>} />
 
+          {/* --- DETAILS & PLAYER (Restored) --- */}
+          {/* Note: We force isPrimeOnly=true on Navbar for details to keep UI consistent, or pass a param if you prefer */}
           <Route path="/detail/:type/:id" element={<><Navbar isPrimeOnly={true} /><MovieDetail /></>} />
           <Route path="/watch/:type/:id" element={<Player />} />
+
+          {/* --- SPORTS / LIVE TV --- */}
+          <Route path="/sports" element={<><Navbar isPrimeOnly={true} /><SportsPage /></>} />
+          <Route path="/watch/sport/iptv" element={<SportsPlayer />} />
         </Routes>
       </div>
     </BrowserRouter>
