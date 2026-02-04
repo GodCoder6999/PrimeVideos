@@ -717,8 +717,6 @@ const Hero = ({ isPrimeOnly }) => {
 };
 
 // --- MOVIE CARD COMPONENT ---
-// Fixed Overlap & Rich Details Expansion
-// --- MOVIE CARD COMPONENT ---
 // Target: 360px x 440px | Ultra Clean Layout
 // Logic: Base 200px * Scale 1.8 = 360px Width
 const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank, isPrimeOnly }) => {
@@ -777,15 +775,18 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
         }}
       >
         {/* MEDIA LAYER */}
-        <div className={`w-full h-full transition-transform duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1) ${isHovered ? 'scale-[1.05]' : 'scale-100'}`}>
+        <div className={`w-full h-full relative bg-black transition-transform duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1) ${isHovered ? 'scale-[1.02]' : 'scale-100'}`}>
             {isHovered && trailerKey ? (
-               <iframe 
-                  className="w-full h-full object-cover pointer-events-none scale-[1.35]"
-                  src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} 
-                  title="Trailer" 
-                  allow="autoplay; encrypted-media" 
-                  frameBorder="0"
-               />
+               <div className="absolute inset-0 w-full h-full overflow-hidden">
+                   {/* Centered Video: Covers Height, Centers Width */}
+                   <iframe 
+                      className="absolute top-0 left-1/2 -translate-x-1/2 h-full w-[177%] max-w-none pointer-events-none" 
+                      src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} 
+                      title="Trailer" 
+                      allow="autoplay; encrypted-media" 
+                      frameBorder="0"
+                   />
+               </div>
             ) : (
                <img src={`${IMAGE_BASE_URL}${imageUrl}`} alt={movie.title} className="w-full h-full object-cover" loading="lazy" />
             )}
@@ -805,12 +806,12 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
                <span className="text-[5px] font-black tracking-[0.2em] text-[#00A8E1] uppercase bg-[#00A8E1]/10 px-1 py-0.5 rounded-sm">Prime</span>
             </div>
 
-            {/* Title - Larger and bolder for readability */}
+            {/* Title */}
             <h3 className="font-extrabold text-[10px] leading-[1.2] text-white drop-shadow-md line-clamp-2 mb-2 w-[90%]">
                 {movie.title || movie.name}
             </h3>
 
-            {/* Action Buttons - Clean circular layout */}
+            {/* Action Buttons */}
             <div className="flex items-center gap-2 mb-3">
                 <button className="bg-white hover:bg-[#d6d6d6] text-black text-[6px] font-bold h-6 px-3 rounded-[3px] transition-colors flex items-center justify-center gap-1 uppercase tracking-wider">
                     <Play fill="black" size={6} /> Play
@@ -820,8 +821,8 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
                 </button>
             </div>
 
-            {/* Metadata Line - Ultra Clean spacing */}
-            <div className="flex items-center gap-1.5 text-[6px] font-medium text-gray-300 mb-1.5">
+            {/* Metadata Line 1 */}
+            <div className="flex items-center gap-1.5 text-[6px] font-medium text-gray-300 mb-1">
                 <span className="text-[#46d369] font-bold">{rating} Match</span>
                 <span className="text-gray-600 text-[5px]">•</span>
                 <span className="text-white">{year}</span>
@@ -830,7 +831,14 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
                 <span className="ml-auto border border-white/20 px-1 rounded-[2px] text-[5px] text-gray-400">U/A 13+</span>
             </div>
 
-            {/* Description - Subtle */}
+            {/* NEW: Video Quality Badges */}
+            <div className="flex items-center gap-1 mb-2 opacity-80">
+                <span className="bg-white/10 text-[4.5px] font-bold px-1 py-0.5 rounded-[2px] text-gray-200">4K UHD</span>
+                <span className="bg-white/10 text-[4.5px] font-bold px-1 py-0.5 rounded-[2px] text-gray-200">HDR10</span>
+                <span className="bg-white/10 text-[4.5px] font-bold px-1 py-0.5 rounded-[2px] text-gray-200">Dolby Atmos</span>
+            </div>
+
+            {/* Description */}
             <p className="text-[5.5px] text-gray-400 line-clamp-2 leading-relaxed font-medium">
                 {movie.overview || "Stream this title now on Prime Video."}
             </p>
@@ -839,6 +847,7 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
     </div>
   );
 };
+
 const Row = ({ title, fetchUrl, variant = 'standard', itemType = 'movie', isPrimeOnly }) => {
   const [movies, setMovies] = useState([]);
   const [hoveredId, setHoveredId] = useState(null);
