@@ -1,19 +1,42 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useLocation, useParams, Link } from 'react-router-dom';
-import { Search, Play, Info, Plus, ChevronRight, ChevronLeft, Download, Share2, CheckCircle2, ThumbsUp, ChevronDown, Grip, Loader, List, ArrowLeft, X, Volume2, VolumeX, Trophy, Signal, Clock, Ban } from 'lucide-react';
-import './App.css';
+import { Search, Play, Info, Plus, ChevronRight, ChevronLeft, Download, Share2, CheckCircle2, ThumbsUp, ChevronDown, Grip, Loader, List, ArrowLeft, X, Volume2, VolumeX, Trophy, Signal, Clock, Ban, Eye, Bookmark } from 'lucide-react';
+
+// --- CSS STYLES ---
+const GlobalStyles = () => (
+  <style>{`
+    .scrollbar-hide::-webkit-scrollbar { display: none; }
+    .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+    .nav-gradient { background: linear-gradient(180deg, rgba(0,5,13,0.7) 10%, transparent); }
+    .row-container { display: flex; overflow-y: hidden; overflow-x: scroll; padding: 20px 0 40px 0; gap: 16px; }
+    .rank-number { position: absolute; left: -70px; bottom: 0; font-size: 100px; font-weight: 900; color: #19222b; -webkit-text-stroke: 2px #5a6069; z-index: 10; font-family: sans-serif; letter-spacing: -5px; line-height: 0.8; }
+    .glow-hover:hover { box-shadow: 0 0 20px rgba(255, 255, 255, 0.1); }
+    @keyframes row-enter { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    .animate-row-enter { animation: row-enter 0.6s ease-out forwards; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .animate-in { animation: fadeIn 0.3s ease-out forwards; }
+    
+    /* Text Gradient for Titles */
+    .text-gradient {
+        background: linear-gradient(to bottom, #ffffff 0%, #e0e0e0 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+  `}</style>
+);
 
 // --- CONFIGURATION ---
 const TMDB_API_KEY = "09ca3ca71692ba80b848d268502d24ed";
 const BASE_URL = "https://api.themoviedb.org/3";
 const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
 const IMAGE_ORIGINAL_URL = "https://image.tmdb.org/t/p/original";
-const VIDSRC_BASE = "https://vidsrc.su"; 
-const LIVESPORT_BASE = ""; // Empty to use Proxy
+const VIDFAST_BASE = "https://vidfast.pro";
+// IMPORTANT: Leave empty to use the vite.config.js / vercel.json proxy
+const LIVESPORT_BASE = ""; 
 
 // STRICT PRIME FILTERS
 const PRIME_PROVIDER_IDS = "9|119"; 
-const PRIME_REGION = "IN";     
+const PRIME_REGION = "IN";      
 
 const ScrollToTop = () => {
   const { pathname } = useLocation();
@@ -133,7 +156,7 @@ const useInfiniteRows = (type = 'movie', isPrimeOnly = true) => {
         setLoading(false); 
     }, 600);
   }, [loading, deck, deckIndex, isPrimeOnly]);
-  
+   
   return { rows, loadMore, loading };
 };
 
@@ -150,6 +173,7 @@ const InfiniteScrollTrigger = ({ onIntersect }) => {
 // --- COMPONENTS ---
 
 const Navbar = ({ isPrimeOnly }) => {
+  // ... (No changes to Navbar) ...
   const [scrolled, setScrolled] = useState(false);
   const [query, setQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -287,8 +311,7 @@ const Navbar = ({ isPrimeOnly }) => {
   );
 };
 
-// --- SPORTS COMPONENTS ---
-
+// ... (Sports components unchanged) ...
 const SportsPage = () => {
     const [sports, setSports] = useState([]);
     const [matches, setMatches] = useState([]);
@@ -296,6 +319,7 @@ const SportsPage = () => {
     const [loading, setLoading] = useState(true);
     const navigate = useNavigate();
 
+    // Fetch Sports
     useEffect(() => {
         fetch(`${LIVESPORT_BASE}/api/sports`)
             .then(res => {
@@ -309,6 +333,7 @@ const SportsPage = () => {
             .catch(e => console.error("Error fetching sports:", e));
     }, []);
 
+    // Fetch Matches based on Category
     useEffect(() => {
         setLoading(true);
         setMatches([]); 
@@ -340,11 +365,13 @@ const SportsPage = () => {
 
     const formatTime = (timestamp) => {
         if (!timestamp) return "TBD";
+        // API says timestamp is in milliseconds, so direct Date() works
         return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     };
 
     const isLive = (date) => {
         const now = Date.now();
+        // Assume match lasts 2 hours (7200000 ms)
         return activeCategory === 'live' || (date && date < now && date + 7200000 > now); 
     };
 
@@ -428,6 +455,7 @@ const SportsPlayer = () => {
     const [showStreamList, setShowStreamList] = useState(false);
 
     useEffect(() => {
+        // Fetch detail using proxy
         fetch(`${LIVESPORT_BASE}/api/matches/${id}/detail`)
             .then(res => {
                 if (!res.ok) throw new Error("Match not found");
@@ -445,6 +473,7 @@ const SportsPlayer = () => {
                 setLoading(false);
             });
         
+        // Fetch Title Info (Optional backup if detail doesn't have it)
         fetch(`${LIVESPORT_BASE}/api/matches/live`)
             .then(res => res.json())
             .then(matches => {
@@ -452,14 +481,14 @@ const SportsPlayer = () => {
                     const found = matches.find(m => m.id === id);
                     if (found) setMatchTitle(found.title);
                     else {
-                         fetch(`${LIVESPORT_BASE}/api/matches/popular`).then(r=>r.json()).then(pop => {
+                          fetch(`${LIVESPORT_BASE}/api/matches/popular`).then(r=>r.json()).then(pop => {
                              if(Array.isArray(pop)) {
                                  const pFound = pop.find(m => m.id === id);
                                  if (pFound) setMatchTitle(pFound.title);
                                  else setMatchTitle("Live Sport Stream");
                              }
-                         });
-                    }
+                          });
+                     }
                 }
             })
             .catch(() => setMatchTitle("Live Sport Stream"));
@@ -506,6 +535,7 @@ const SportsPlayer = () => {
                     </div>
                 )}
 
+                {/* Stream Switcher Overlay */}
                 {showStreamList && (
                     <div className="absolute top-4 right-4 w-72 bg-[#19222b]/95 backdrop-blur-md border border-gray-700 rounded-lg shadow-2xl overflow-hidden animate-in fade-in slide-in-from-right-10 z-[60]">
                         <div className="p-3 border-b border-white/10 flex justify-between items-center">
@@ -534,30 +564,39 @@ const SportsPlayer = () => {
     );
 };
 
-// --- HERO SECTION ---
+// --- HERO SECTION WITH HOVER PLAYBACK LOGIC ---
 const Hero = ({ isPrimeOnly }) => {
+  // ... (No changes to Hero) ...
   const [movies, setMovies] = useState([]);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [trailerKey, setTrailerKey] = useState(null);
   const [showVideo, setShowVideo] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
-  
+   
+  // Refs for tracking hover state and timers
   const playTimeout = useRef(null);
   const stopTimeout = useRef(null);
   const isHovering = useRef(false);
-  
+   
   const navigate = useNavigate();
   const theme = getTheme(isPrimeOnly);
 
+  // 1. Fetch Top 5 Movies
   useEffect(() => { 
       const endpoint = isPrimeOnly 
         ? `/discover/movie?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc`
         : `/trending/all/day?api_key=${TMDB_API_KEY}`;
-      fetch(`${BASE_URL}${endpoint}`).then(res => res.json()).then(data => setMovies(data.results.slice(0, 5))); 
+      
+      fetch(`${BASE_URL}${endpoint}`)
+        .then(res => res.json())
+        .then(data => setMovies(data.results.slice(0, 5))); 
   }, [isPrimeOnly]);
 
+  // 2. Load Trailer Key on Slide Change
   useEffect(() => {
       if (movies.length === 0) return;
+      
+      // Reset Video State on Slide Change
       setShowVideo(false);
       setTrailerKey(null);
       clearTimeout(playTimeout.current);
@@ -566,28 +605,36 @@ const Hero = ({ isPrimeOnly }) => {
       const movie = movies[currentSlide];
       const mediaType = movie.media_type || 'movie';
 
+      // Fetch Trailer
       fetch(`${BASE_URL}/${mediaType}/${movie.id}/videos?api_key=${TMDB_API_KEY}`)
         .then(res => res.json())
         .then(data => {
             const trailer = data.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube') || data.results?.find(v => v.site === 'YouTube');
             if (trailer) {
                 setTrailerKey(trailer.key);
-                if (isHovering.current) playTimeout.current = setTimeout(() => setShowVideo(true), 4000);
+                // If mouse is ALREADY hovering when slide changes, restart start timer
+                if (isHovering.current) {
+                    playTimeout.current = setTimeout(() => setShowVideo(true), 4000);
+                }
             }
         });
   }, [currentSlide, movies]);
 
   const handleMouseEnter = () => {
       isHovering.current = true;
-      clearTimeout(stopTimeout.current);
-      clearTimeout(playTimeout.current);
+      clearTimeout(stopTimeout.current); // Cancel any pending stop
+      clearTimeout(playTimeout.current); // Reset start timer
+      
+      // Start 4s timer to play video
       playTimeout.current = setTimeout(() => setShowVideo(true), 4000);
   };
 
   const handleMouseLeave = () => {
       isHovering.current = false;
-      clearTimeout(playTimeout.current);
+      clearTimeout(playTimeout.current); // Cancel pending play
       clearTimeout(stopTimeout.current);
+      
+      // Start 1s timer to stop video
       stopTimeout.current = setTimeout(() => setShowVideo(false), 1000);
   };
 
@@ -599,44 +646,89 @@ const Hero = ({ isPrimeOnly }) => {
   const movie = movies[currentSlide];
 
   return (
-    <div className="relative w-full h-[85vh] overflow-hidden group" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+    <div 
+        className="relative w-full h-[85vh] overflow-hidden group"
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+    >
+      {/* BACKGROUND IMAGE (Visible when video is hidden) */}
       <div className={`absolute inset-0 transition-opacity duration-700 ${showVideo ? 'opacity-0' : 'opacity-100'}`}>
         <img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover" alt="" />
       </div>
+
+      {/* VIDEO PLAYER (Conditionally Rendered to stop audio when removed) */}
       {showVideo && trailerKey && (
           <div className="absolute inset-0 animate-in pointer-events-none">
-             <iframe src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} className="w-full h-full scale-[1.3]" allow="autoplay; encrypted-media" frameBorder="0" title="Hero Trailer"></iframe>
+             <iframe 
+                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`}
+                className="w-full h-full scale-[1.3]" 
+                allow="autoplay; encrypted-media"
+                frameBorder="0"
+                title="Hero Trailer"
+             ></iframe>
           </div>
       )}
+
+      {/* GRADIENTS */}
       <div className="absolute inset-0 bg-gradient-to-r from-[#00050D] via-[#00050D]/40 to-transparent" />
       <div className="absolute inset-0 bg-gradient-to-t from-[#00050D] via-transparent to-transparent" />
+
+      {/* INFO CONTENT */}
       <div className="absolute top-[25%] left-[4%] max-w-[600px] z-30 animate-row-enter">
-        <h1 className="text-5xl md:text-7xl font-extrabold text-white mb-4 drop-shadow-[0_4px_10px_rgba(0,0,0,0.8)] tracking-tight leading-tight">{movie.title || movie.name}</h1>
+        <h1 className="text-5xl md:text-7xl font-extrabold text-white mb-4 drop-shadow-[0_4px_10px_rgba(0,0,0,0.8)] tracking-tight leading-tight">
+            {movie.title || movie.name}
+        </h1>
+        
         <div className="flex items-center gap-3 text-[#a9b7c1] font-bold text-sm mb-6">
            {isPrimeOnly && <span className={`${theme.color} tracking-wide`}>Included with Prime</span>}
            <span className="bg-[#33373d]/80 text-white px-1.5 py-0.5 rounded text-xs border border-gray-600 backdrop-blur-md">UHD</span>
            <span className="bg-[#33373d]/80 text-white px-1.5 py-0.5 rounded text-xs border border-gray-600 backdrop-blur-md">16+</span>
         </div>
+        
         <p className="text-lg text-white font-medium line-clamp-3 mb-8 opacity-90 drop-shadow-md text-shadow-sm">{movie.overview}</p>
+        
         <div className="flex items-center gap-4">
-            <button onClick={() => navigate(`/watch/${movie.media_type || 'movie'}/${movie.id}`)} className={`${theme.bg} ${theme.hoverBg} text-white h-14 pl-8 pr-8 rounded-md font-bold text-lg flex items-center gap-3 transition transform hover:scale-105 ${theme.shadow}`}><Play fill="white" size={24} /> {isPrimeOnly ? "Play" : "Rent or Play"}</button>
-            <button className="w-14 h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm group"><Plus size={28} className="text-gray-200 group-hover:text-white" /></button>
-            <button onClick={() => navigate(`/detail/${movie.media_type || 'movie'}/${movie.id}`)} className="w-14 h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm group"><Info size={28} className="text-gray-200 group-hover:text-white" /></button>
+            <button onClick={() => navigate(`/watch/${movie.media_type || 'movie'}/${movie.id}`)} className={`${theme.bg} ${theme.hoverBg} text-white h-14 pl-8 pr-8 rounded-md font-bold text-lg flex items-center gap-3 transition transform hover:scale-105 ${theme.shadow}`}>
+                <Play fill="white" size={24} /> 
+                {isPrimeOnly ? "Play" : "Rent or Play"}
+            </button>
+            <button className="w-14 h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm group">
+                <Plus size={28} className="text-gray-200 group-hover:text-white" />
+            </button>
+            <button onClick={() => navigate(`/detail/${movie.media_type || 'movie'}/${movie.id}`)} className="w-14 h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm group">
+                <Info size={28} className="text-gray-200 group-hover:text-white" />
+            </button>
         </div>
       </div>
+
+      {/* MUTE BUTTON */}
       <div className="absolute top-32 right-[4%] z-40">
-          <button onClick={() => setIsMuted(!isMuted)} className="w-12 h-12 rounded-full border-2 border-white/20 bg-black/20 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/10 hover:border-white transition">{isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}</button>
+          <button 
+            onClick={() => setIsMuted(!isMuted)} 
+            className="w-12 h-12 rounded-full border-2 border-white/20 bg-black/20 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/10 hover:border-white transition"
+          >
+              {isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}
+          </button>
       </div>
-      <button onClick={prevSlide} className="absolute left-4 top-1/2 -translate-y-1/2 z-40 p-2 rounded-full bg-black/20 hover:bg-black/50 text-white/50 hover:text-white transition backdrop-blur-sm border border-transparent hover:border-white/30"><ChevronLeft size={40} /></button>
-      <button onClick={nextSlide} className="absolute right-4 top-1/2 -translate-y-1/2 z-40 p-2 rounded-full bg-black/20 hover:bg-black/50 text-white/50 hover:text-white transition backdrop-blur-sm border border-transparent hover:border-white/30"><ChevronRight size={40} /></button>
+
+      {/* CAROUSEL ARROWS */}
+      <button onClick={prevSlide} className="absolute left-4 top-1/2 -translate-y-1/2 z-40 p-2 rounded-full bg-black/20 hover:bg-black/50 text-white/50 hover:text-white transition backdrop-blur-sm border border-transparent hover:border-white/30">
+          <ChevronLeft size={40} />
+      </button>
+      <button onClick={nextSlide} className="absolute right-4 top-1/2 -translate-y-1/2 z-40 p-2 rounded-full bg-black/20 hover:bg-black/50 text-white/50 hover:text-white transition backdrop-blur-sm border border-transparent hover:border-white/30">
+          <ChevronRight size={40} />
+      </button>
+
+      {/* DOTS */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-40">
-          {movies.map((_, idx) => (<div key={idx} className={`w-2 h-2 rounded-full transition-all ${idx === currentSlide ? 'bg-white w-4' : 'bg-gray-500'}`} />))}
+          {movies.map((_, idx) => (
+              <div key={idx} className={`w-2 h-2 rounded-full transition-all ${idx === currentSlide ? 'bg-white w-4' : 'bg-gray-500'}`} />
+          ))}
       </div>
     </div>
   );
 };
 
-// --- MOVIE CARD COMPONENT (FIXED: HTML+CSS STYLE) ---
 const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank, isPrimeOnly }) => {
   const navigate = useNavigate();
   const [trailerKey, setTrailerKey] = useState(null);
@@ -646,89 +738,128 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
   const isRanked = variant === 'ranked';
   const imageUrl = isPoster || isRanked ? movie.poster_path : movie.backdrop_path;
   
-  // Base dimensions (CSS logic)
-  const baseWidth = isPoster ? 'w-[160px] md:w-[190px]' : isRanked ? 'w-[180px]' : 'w-[240px] md:w-[280px]';
-  const baseHeight = isPoster || isRanked ? 'h-[240px] md:h-[280px]' : 'h-[140px] md:h-[160px]';
+  // Adjusted widths to match the vertical poster style better
+  const baseWidth = isPoster ? 'w-[180px] md:w-[200px]' : isRanked ? 'w-[180px]' : 'w-[240px] md:w-[280px]';
   const cardMargin = isRanked ? 'ml-[70px]' : ''; 
 
-  // Fetch Trailer on Hover
+  // Mock Data for Badges
+  const rating = movie.vote_average ? movie.vote_average.toFixed(1) : "N/A";
+  const views = movie.popularity ? `${Math.floor(movie.popularity * 100)}` : "10K"; 
+
+  // Only fetch trailer for standard cards that expand horizontally
   useEffect(() => {
     if (isHovered && !isPoster && !isRanked) { 
         const mediaType = movie.media_type || itemType || 'movie';
-        fetch(`${BASE_URL}/${mediaType}/${movie.id}/videos?api_key=${TMDB_API_KEY}`)
-          .then(res => res.json())
-          .then(data => {
+        fetch(`${BASE_URL}/${mediaType}/${movie.id}/videos?api_key=${TMDB_API_KEY}`).then(res => res.json()).then(data => {
               const trailer = data.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube') || data.results?.find(v => v.site === 'YouTube');
               if (trailer) setTrailerKey(trailer.key);
           }).catch(err => console.error(err));
     } else { setTrailerKey(null); }
   }, [isHovered, movie, itemType, isPoster, isRanked]);
 
+  // Render Horizontal/Standard Card (Old Style, kept for landscape rows)
+  if (!isPoster && !isRanked) {
+      return (
+        <div 
+          className={`relative flex-shrink-0 transition-all duration-300 ease-in-out cursor-pointer group/card ${cardMargin} ${isHovered ? 'w-[340px] z-50 scale-110' : `${baseWidth} z-0 scale-100`}`}
+          style={{ height: isHovered ? 'auto' : 'h-[140px] md:h-[160px]', transformOrigin: 'center center' }}
+          onMouseEnter={() => onHover(movie.id)}
+          onMouseLeave={onLeave}
+          onClick={() => navigate(`/detail/${movie.media_type || itemType || 'movie'}/${movie.id}`)}
+        >
+          <div className={`w-full h-full rounded-lg overflow-hidden bg-[#19222b] shadow-xl transition-all duration-300 ${isHovered ? `shadow-[0_0_40px_rgba(0,0,0,0.8)] border ${theme.border}` : ''} glow-hover`}>
+            <div className={`relative w-full aspect-video`}>
+                {isHovered && trailerKey ? (
+                   <iframe className="w-full h-full object-cover pointer-events-none scale-125" src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} title="Trailer" allow="autoplay; encrypted-media" frameBorder="0"></iframe>
+                ) : (
+                   <img src={`${IMAGE_BASE_URL}${imageUrl}`} alt={movie.title} className="w-full h-full object-cover opacity-95 hover:opacity-100 transition-opacity" />
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-[#19222b] via-transparent to-transparent"></div>
+                {!isHovered && isPrimeOnly && (
+                    <div className="absolute bottom-2 left-3"><span className={`text-[10px] font-black tracking-widest ${theme.color} uppercase drop-shadow-md`}>PRIME</span></div>
+                )}
+            </div>
+            {isHovered && (
+                <div className="p-3 flex flex-col gap-2 animate-in bg-[#1a242f]">
+                    <div className="flex items-center gap-2">
+                        <button className="w-8 h-8 bg-white rounded-full flex items-center justify-center hover:bg-gray-200 transition"><Play fill="black" size={12} className="text-black ml-0.5" /></button>
+                        <button className="w-8 h-8 border border-gray-500 rounded-full flex items-center justify-center hover:border-white transition bg-[#333c46]/50"><Plus size={16} className="text-white" /></button>
+                        <button className="w-8 h-8 border border-gray-500 rounded-full flex items-center justify-center hover:border-white transition bg-[#333c46]/50"><ThumbsUp size={14} className="text-white" /></button>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-wrap"><span className="text-[11px] font-bold text-white leading-tight line-clamp-1">{movie.title || movie.name}</span></div>
+                </div>
+            )}
+          </div>
+        </div>
+      );
+  }
+
+  // Render Vertical/Poster Card (NEW STYLE)
   return (
     <div 
-      className={`
-        relative flex-shrink-0 rounded-lg overflow-hidden bg-[#19222b] cursor-pointer 
-        transition-all duration-300 ease-in-out shadow-lg group 
-        ${baseWidth} ${cardMargin}
-        hover:scale-110 hover:z-50 hover:shadow-[0_10px_20px_rgba(0,0,0,0.7)]
+      className={`relative flex-shrink-0 transition-all duration-300 ease-in-out cursor-pointer group/card ${cardMargin}
+        ${isHovered ? 'z-50 scale-105' : 'z-0 scale-100'}
+        ${baseWidth}
       `}
-      style={{ height: baseHeight }}
+      style={{ height: 'auto', transformOrigin: 'center center' }}
       onMouseEnter={() => onHover(movie.id)}
       onMouseLeave={onLeave}
       onClick={() => navigate(`/detail/${movie.media_type || itemType || 'movie'}/${movie.id}`)}
     >
       {isRanked && <span className="rank-number">{rank}</span>}
       
-      {/* Media Layer */}
-      <div className="w-full h-full relative">
-          {/* Show Trailer Iframe if Hovered & Available (Auto-Play Logic) */}
-          {isHovered && trailerKey && !isPoster && !isRanked ? (
-             <iframe 
-               className="w-full h-full object-cover pointer-events-none scale-125" 
-               src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} 
-               title="Trailer" 
-               allow="autoplay; encrypted-media" 
-               frameBorder="0"
-             ></iframe>
-          ) : (
-             <img 
-               src={`${IMAGE_BASE_URL}${imageUrl}`} 
-               alt={movie.title} 
-               className="w-full h-full object-cover opacity-95 group-hover:opacity-100 transition-opacity" 
-             />
-          )}
-          
-          {/* Gradient Overlay for Text Readability */}
-          {!isPoster && !isRanked && <div className="absolute inset-0 bg-gradient-to-t from-[#19222b] via-transparent to-transparent opacity-60 group-hover:opacity-40 transition-opacity"></div>}
-          
-          {/* Prime Badge */}
-          {!isHovered && !isPoster && !isRanked && isPrimeOnly && (
-              <div className="absolute bottom-2 left-3"><span className={`text-[10px] font-black tracking-widest ${theme.color} uppercase drop-shadow-md`}>PRIME</span></div>
-          )}
-      </div>
+      {/* Main Card Container with styling matching the image */}
+      <div className={`w-full h-full rounded-xl overflow-hidden bg-[#0f1014] shadow-xl border border-white/5 transition-all relative ${isHovered ? 'border-[#3B82F6]/50 shadow-[0_0_30px_rgba(59,130,246,0.2)]' : 'hover:border-white/20'}`}>
+        
+        {/* Image Container */}
+        <div className="relative aspect-[2/3] w-full">
+            <img src={`${IMAGE_BASE_URL}${movie.poster_path}`} alt={movie.title} className="w-full h-full object-cover" />
+            
+            {/* Overlay Gradient for Text readability */}
+            <div className={`absolute inset-0 bg-gradient-to-t from-[#0f1014] via-transparent to-transparent opacity-60 transition-opacity ${isHovered ? 'opacity-90' : ''}`} />
 
-      {/* Details Overlay (Slides Up on Hover) */}
-      {!isPoster && !isRanked && (
-        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-[#0f171e] via-[#0f171e]/95 to-transparent p-4 translate-y-full transition-transform duration-300 group-hover:translate-y-0">
-            <div className="flex items-center gap-2 mb-2">
-                <button className="w-8 h-8 bg-white rounded-full flex items-center justify-center hover:bg-gray-200 transition"><Play fill="black" size={12} className="text-black ml-0.5" /></button>
-                <button className="w-8 h-8 border border-gray-500 rounded-full flex items-center justify-center hover:border-white transition bg-[#333c46]/50"><Plus size={16} className="text-white" /></button>
-                <button className="w-8 h-8 border border-gray-500 rounded-full flex items-center justify-center ml-auto hover:border-white transition bg-[#333c46]/50"><Info size={16} className="text-white" /></button>
+            {/* Rating Badge (Top Left) */}
+            <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-md px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-white/10 shadow-sm">
+                <span className="text-[#FFD700] text-xs font-bold">{rating}</span>
+            </div>
+
+            {/* View Count Badge (Top Right) */}
+            <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-md px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-white/10 shadow-sm">
+                <Eye size={12} className="text-white/70" />
+                <span className="text-white text-xs font-bold">{views}</span>
             </div>
             
-            <h3 className="text-sm font-bold text-white leading-tight mb-1 truncate">{movie.title || movie.name}</h3>
-            
-            <div className="flex items-center gap-2 text-[10px] font-bold text-[#a9b7c1] mb-1">
-                <span className="text-[#00A8E1]">⭐ {movie.vote_average?.toFixed(1)}</span>
-                <span>{movie.release_date?.split('-')[0] || movie.first_air_date?.split('-')[0]}</span>
-                <span className="bg-[#33373d] px-1 rounded border border-gray-600 text-white">16+</span>
-            </div>
-            
-            <p className="text-[10px] text-gray-400 line-clamp-2 leading-relaxed">
-                {movie.overview}
-            </p>
+            {/* Title (Always visible at bottom, moves up on hover) */}
+            {!isHovered && (
+                <div className="absolute bottom-0 left-0 w-full p-3">
+                    <h3 className="text-white font-black text-sm uppercase leading-tight truncate text-shadow-sm text-gradient">{movie.title || movie.name}</h3>
+                </div>
+            )}
         </div>
-      )}
+
+        {/* Expanded Details Section (Visible on Hover) */}
+        {isHovered && (
+            <div className="absolute bottom-0 left-0 w-full bg-[#0f1014]/95 backdrop-blur-xl p-3 flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 border-t border-white/10">
+                {/* Title */}
+                <h3 className="text-white font-black text-sm uppercase leading-tight truncate text-gradient">{movie.title || movie.name}</h3>
+                
+                {/* Description */}
+                <p className="text-gray-400 text-[10px] line-clamp-2 leading-relaxed font-medium">
+                    {movie.overview || "No description available."}
+                </p>
+                
+                {/* Action Buttons */}
+                <div className="flex gap-2 mt-1">
+                    <button className="flex-1 bg-[#2563EB] hover:bg-[#1d4ed8] text-white text-xs font-bold py-2 rounded-lg transition-colors flex items-center justify-center shadow-lg shadow-blue-900/20">
+                        Details
+                    </button>
+                    <button className="bg-[#1e293b] hover:bg-[#334155] text-white p-2 rounded-lg transition-colors border border-white/10 flex items-center justify-center">
+                        <Bookmark size={16} />
+                    </button>
+                </div>
+            </div>
+        )}
+      </div>
     </div>
   );
 };
@@ -745,14 +876,13 @@ const Row = ({ title, fetchUrl, variant = 'standard', itemType = 'movie', isPrim
   const handleLeave = () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); setHoveredId(null); };
 
   return (
-    <div className="mb-2 pl-4 md:pl-12 relative z-20 group/row animate-row-enter">
+    <div className="mb-6 pl-4 md:pl-12 relative z-20 group/row animate-row-enter">
       <h3 className="text-[19px] font-bold text-white mb-2 flex items-center gap-2">
           {variant === 'ranked' ? <span className={theme.color}>Top 10</span> : <span className={theme.color}>{theme.name}</span>} 
           {title}
           <ChevronRight size={18} className="text-[#8197a4] opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer"/>
       </h3>
-      {/* Added py-10 padding to prevent clipping when cards scale up */}
-      <div className={`row-container ${variant === 'vertical' ? 'vertical' : ''} scrollbar-hide py-10 -my-10`}>
+      <div className={`row-container ${variant === 'vertical' ? 'vertical' : ''} scrollbar-hide`}>
         {movies.length > 0 && movies.map((movie, index) => ( 
            (movie.backdrop_path || movie.poster_path) && 
            <MovieCard key={movie.id} movie={movie} variant={variant} itemType={itemType} rank={index + 1} isHovered={hoveredId === movie.id} onHover={handleHover} onLeave={handleLeave} isPrimeOnly={isPrimeOnly} /> 
@@ -762,13 +892,16 @@ const Row = ({ title, fetchUrl, variant = 'standard', itemType = 'movie', isPrim
   );
 };
 
+// ... (Rest of components: SearchResults, MovieDetail, Player, Wrappers, App unchanged) ...
+// (Re-declaring them here to ensure the full file is complete)
+
 const SearchResults = ({ isPrimeOnly }) => { 
   const [movies, setMovies] = useState([]); 
   const [loading, setLoading] = useState(false);
   const query = new URLSearchParams(useLocation().search).get('q'); 
   const theme = getTheme(isPrimeOnly);
   const navigate = useNavigate();
-  
+   
   useEffect(() => { 
       if (query) {
           setLoading(true);
@@ -866,15 +999,25 @@ const MovieDetail = () => {
   );
 };
 
-const Player = () => { 
-  const { type, id } = useParams(); 
-  const [season, setSeason] = useState(1);
-  const [episode, setEpisode] = useState(1);
+const Player = () => {
+  const { type, id } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // Parse query parameters to get the specific season/episode if clicked from Detail page
+  // Default to 1 if not present
+  const queryParams = new URLSearchParams(location.search);
+  
+  // State for playback
+  const [season, setSeason] = useState(Number(queryParams.get('season')) || 1);
+  const [episode, setEpisode] = useState(Number(queryParams.get('episode')) || 1);
+  
+  // State for UI
   const [showEpisodes, setShowEpisodes] = useState(false);
   const [seasonData, setSeasonData] = useState(null);
   const [totalSeasons, setTotalSeasons] = useState(1);
-  const navigate = useNavigate();
 
+  // Fetch Total Seasons
   useEffect(() => {
     if (type === 'tv') {
         fetch(`${BASE_URL}/tv/${id}?api_key=${TMDB_API_KEY}`)
@@ -883,6 +1026,7 @@ const Player = () => {
     }
   }, [type, id]);
 
+  // Fetch Season Data
   useEffect(() => {
     if (type === 'tv') {
         fetch(`${BASE_URL}/tv/${id}/season/${season}?api_key=${TMDB_API_KEY}`)
@@ -891,71 +1035,130 @@ const Player = () => {
     }
   }, [type, id, season]);
 
-  // Handle watch progress syncing
+  // Handle watch progress syncing (Updated for VIDFAST format)
   useEffect(() => {
+    const vidfastOrigins = [
+        'https://vidfast.pro',
+        'https://vidfast.in',
+        'https://vidfast.io',
+        'https://vidfast.me',
+        'https://vidfast.net',
+        'https://vidfast.pm',
+        'https://vidfast.xyz'
+    ];
+
     const handleMessage = (event) => {
-      if (event.data?.type === 'MEDIA_DATA') {
-        const mediaData = event.data.data;
-        if (mediaData.id && (mediaData.type === 'movie' || mediaData.type === 'tv')) {
-            const STORAGE_KEY = 'watch_progress';
-            const currentProgress = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-            currentProgress[mediaData.id] = {
-                ...currentProgress[mediaData.id],
-                ...mediaData,
-                last_updated: Date.now()
-            };
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(currentProgress));
-            console.log('Progress updated:', mediaData);
-        }
+      // Validate origin
+      if (!vidfastOrigins.includes(event.origin) || !event.data) {
+          return;
+      }
+      
+      // Handle MEDIA_DATA event for progress saving (per docs)
+      if (event.data.type === 'MEDIA_DATA') {
+          // Store data exactly as received from VidFast
+          localStorage.setItem('vidFastProgress', JSON.stringify(event.data.data));
+          
+          // Optional: Sync to our internal format 'watch_progress' if needed for other app features
+          try {
+             const STORAGE_KEY = 'watch_progress';
+             const currentProgress = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+             const contentId = event.data.data[Object.keys(event.data.data)[0]].id || id; // extracting ID from the nested structure
+             
+             // Simple fallback to ensure at least some ID matches
+             if(contentId) {
+                currentProgress[contentId] = {
+                   ...currentProgress[contentId],
+                   ...event.data.data,
+                   last_updated: Date.now()
+                };
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(currentProgress));
+             }
+          } catch(e) {
+             // fail silently if internal sync fails
+          }
       }
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, []);
+  }, [id]);
 
   const getSourceUrl = () => {
-      const baseParams = "autoplay=true&colour=00A8E1"; // 00A8E1 is Prime Blue
-      return type === 'tv' 
-        ? `${VIDSRC_BASE}/tv/${id}/${season}/${episode}?${baseParams}&autonextepisode=true` 
-        : `${VIDSRC_BASE}/movie/${id}?${baseParams}`;
+    // Prime Blue Hex for VidFast theme (no #)
+    const themeParam = "theme=00A8E1";
+    
+    if (type === 'tv') {
+      // Structure: https://vidfast.pro/tv/{id}/{season}/{episode}?autoPlay=true&theme=...&nextButton=true&autoNext=true
+      return `${VIDFAST_BASE}/tv/${id}/${season}/${episode}?autoPlay=true&${themeParam}&nextButton=true&autoNext=true`;
+    } else {
+      // Structure: https://vidfast.pro/movie/{id}?autoPlay=true&theme=...
+      return `${VIDFAST_BASE}/movie/${id}?autoPlay=true&${themeParam}`;
+    }
   };
 
   return (
-    <div className="fixed inset-0 bg-black z-[100] overflow-hidden flex">
-        <div className="absolute top-6 left-6 z-[120]">
-            <button onClick={() => navigate(-1)} className="bg-black/50 hover:bg-[#00A8E1] text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all"><ArrowLeft size={24} /></button>
+    <div className="fixed inset-0 bg-black z-[100] overflow-hidden flex flex-col">
+      {/* Back Button Overlay */}
+      <div className="absolute top-6 left-6 z-[120]">
+        <button 
+          onClick={() => navigate(-1)} 
+          className="bg-black/50 hover:bg-[#00A8E1] text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all"
+        >
+          <ArrowLeft size={24} />
+        </button>
+      </div>
+
+      {/* Episode List Toggle */}
+      {type === 'tv' && (
+        <div className="absolute top-6 right-6 z-[120]">
+            <button onClick={() => setShowEpisodes(!showEpisodes)} className={`p-3 rounded-full backdrop-blur-md border border-white/10 transition-all ${showEpisodes ? 'bg-[#00A8E1] text-white' : 'bg-black/50 hover:bg-[#333c46] text-gray-200'}`}>
+                <List size={24} />
+            </button>
         </div>
-        {type === 'tv' && (
-            <div className="absolute top-6 right-6 z-[120]">
-                <button onClick={() => setShowEpisodes(!showEpisodes)} className={`p-3 rounded-full backdrop-blur-md border border-white/10 transition-all ${showEpisodes ? 'bg-[#00A8E1] text-white' : 'bg-black/50 hover:bg-[#333c46] text-gray-200'}`}><List size={24} /></button>
-            </div>
-        )}
-        <div className="flex-1 relative h-full bg-black"><iframe src={getSourceUrl()} className="w-full h-full border-none" allowFullScreen allow="autoplay; encrypted-media" title="Player"></iframe></div>
-        {type === 'tv' && (
-            <div className={`fixed right-0 top-0 h-full bg-[#00050D]/95 backdrop-blur-xl border-l border-white/10 transition-all duration-500 ease-in-out z-[110] flex flex-col ${showEpisodes ? 'w-[350px] translate-x-0 shadow-2xl' : 'w-[350px] translate-x-full shadow-none'}`}>
-                <div className="p-6 border-b border-white/10 flex items-center justify-between bg-[#1a242f]/50">
-                    <h2 className="font-bold text-white text-lg">Episodes</h2>
-                    <div className="relative">
-                        <select value={season} onChange={(e) => setSeason(Number(e.target.value))} className="appearance-none bg-[#00A8E1] text-white font-bold py-1.5 pl-3 pr-8 rounded cursor-pointer text-sm outline-none hover:bg-[#008ebf] transition">{Array.from({length: totalSeasons}, (_, i) => i + 1).map(s => (<option key={s} value={s} className="bg-[#1a242f]">Season {s}</option>))}</select>
-                        <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-white pointer-events-none" />
-                    </div>
+      )}
+
+      {/* Video Player Iframe */}
+      <div className="flex-1 relative w-full h-full bg-black">
+        <iframe
+          src={getSourceUrl()}
+          className="w-full h-full border-none"
+          allowFullScreen
+          allow="encrypted-media"
+          title="Player"
+        ></iframe>
+      </div>
+
+      {/* Episode Sidebar */}
+      {type === 'tv' && (
+        <div className={`fixed right-0 top-0 h-full bg-[#00050D]/95 backdrop-blur-xl border-l border-white/10 transition-all duration-500 ease-in-out z-[110] flex flex-col ${showEpisodes ? 'w-[350px] translate-x-0 shadow-2xl' : 'w-[350px] translate-x-full shadow-none'}`}>
+            <div className="p-6 border-b border-white/10 flex items-center justify-between bg-[#1a242f]/50">
+                <h2 className="font-bold text-white text-lg">Episodes</h2>
+                <div className="relative">
+                    <select value={season} onChange={(e) => setSeason(Number(e.target.value))} className="appearance-none bg-[#00A8E1] text-white font-bold py-1.5 pl-3 pr-8 rounded cursor-pointer text-sm outline-none hover:bg-[#008ebf] transition">
+                        {Array.from({length: totalSeasons}, (_, i) => i + 1).map(s => (<option key={s} value={s} className="bg-[#1a242f]">Season {s}</option>))}
+                    </select>
+                    <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-white pointer-events-none" />
                 </div>
-                <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-hide">
-                    {seasonData?.episodes ? (seasonData.episodes.map(ep => (
-                            <div key={ep.id} onClick={() => setEpisode(ep.episode_number)} className={`flex gap-3 p-2 rounded-lg cursor-pointer transition-all group ${episode === ep.episode_number ? 'bg-[#333c46] border border-[#00A8E1]' : 'hover:bg-[#333c46] border border-transparent'}`}>
-                                <div className="relative w-28 h-16 flex-shrink-0 bg-black rounded overflow-hidden">
-                                    {ep.still_path ? (<img src={`${IMAGE_BASE_URL}${ep.still_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" />) : (<div className="w-full h-full flex items-center justify-center text-gray-600 text-xs">No Img</div>)}
-                                    {episode === ep.episode_number && (<div className="absolute inset-0 bg-black/40 flex items-center justify-center"><Play size={16} fill="white" className="text-white" /></div>)}
-                                </div>
-                                <div className="flex flex-col justify-center min-w-0"><span className={`text-xs font-bold mb-0.5 ${episode === ep.episode_number ? 'text-[#00A8E1]' : 'text-gray-400'}`}>Episode {ep.episode_number}</span><h4 className={`text-sm font-medium truncate leading-tight ${episode === ep.episode_number ? 'text-white' : 'text-gray-300 group-hover:text-white'}`}>{ep.name}</h4><span className="text-[10px] text-gray-500 mt-1">{ep.runtime ? `${ep.runtime}m` : ''}</span></div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-hide">
+                {seasonData?.episodes ? (seasonData.episodes.map(ep => (
+                        <div key={ep.id} onClick={() => setEpisode(ep.episode_number)} className={`flex gap-3 p-2 rounded-lg cursor-pointer transition-all group ${episode === ep.episode_number ? 'bg-[#333c46] border border-[#00A8E1]' : 'hover:bg-[#333c46] border border-transparent'}`}>
+                            <div className="relative w-28 h-16 flex-shrink-0 bg-black rounded overflow-hidden">
+                                {ep.still_path ? (<img src={`${IMAGE_BASE_URL}${ep.still_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" />) : (<div className="w-full h-full flex items-center justify-center text-gray-600 text-xs">No Img</div>)}
+                                {episode === ep.episode_number && (<div className="absolute inset-0 bg-black/40 flex items-center justify-center"><Play size={16} fill="white" className="text-white" /></div>)}
                             </div>
-                    ))) : (<div className="text-center text-gray-500 mt-10 flex flex-col items-center"><Loader className="animate-spin mb-2" /><span>Loading Season {season}...</span></div>)}
-                </div>
+                            <div className="flex flex-col justify-center min-w-0">
+                                <span className={`text-xs font-bold mb-0.5 ${episode === ep.episode_number ? 'text-[#00A8E1]' : 'text-gray-400'}`}>Episode {ep.episode_number}</span>
+                                <h4 className={`text-sm font-medium truncate leading-tight ${episode === ep.episode_number ? 'text-white' : 'text-gray-300 group-hover:text-white'}`}>{ep.name}</h4>
+                                <span className="text-[10px] text-gray-500 mt-1">{ep.runtime ? `${ep.runtime}m` : ''}</span>
+                            </div>
+                        </div>
+                ))) : (<div className="text-center text-gray-500 mt-10 flex flex-col items-center"><Loader className="animate-spin mb-2" /><span>Loading Season {season}...</span></div>)}
             </div>
-        )}
+        </div>
+      )}
     </div>
-  ); 
+  );
 };
 
 // --- MAIN WRAPPERS ---
@@ -968,6 +1171,7 @@ const StorePage = () => <div className="pt-32 px-12 text-white">Store</div>;
 function App() {
   return (
     <BrowserRouter>
+      <GlobalStyles />
       <ScrollToTop />
       <div className="bg-[#00050D] min-h-screen text-white font-sans selection:bg-[#00A8E1] selection:text-white">
         <Routes>
