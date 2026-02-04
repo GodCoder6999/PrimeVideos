@@ -5,7 +5,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&display=swap');
 
 body {
-  background-color: #00040a; /* Reference Deep Black/Blue */
+  background-color: #00040a;
   color: white;
   margin: 0;
   font-family: 'Poppins', sans-serif;
@@ -21,43 +21,44 @@ body {
 
 /* --- NAVIGATION --- */
 .nav-glass {
-  background: rgba(0, 4, 10, 0.8);
+  background: rgba(0, 4, 10, 0.85);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-/* --- HERO SIDEBAR ANIMATIONS --- */
-.hero-side-card {
+/* --- HERO THUMBNAILS (Now Horizontal) --- */
+.hero-thumb-card {
   transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
-.hero-side-card:hover {
-  transform: scale(1.05) translateX(-5px);
+.hero-thumb-card:hover {
+  transform: scale(1.1) translateY(-10px);
   z-index: 20;
-  border-color: #3b82f6; /* Blue-500 */
-  box-shadow: 0 0 20px rgba(59, 130, 246, 0.4);
+  border-color: #3b82f6;
+  box-shadow: 0 10px 30px rgba(59, 130, 246, 0.4);
 }
 
-/* --- ROW STYLES --- */
+/* --- ROW STYLES (Strict Horizontal) --- */
 .row-container {
-  display: flex;
+  display: flex !important;       /* Force flex */
+  flex-direction: row !important; /* Force horizontal */
   gap: 16px;
   overflow-x: auto;
   overflow-y: visible;
   padding: 20px 4% 40px 4%;
   scroll-behavior: smooth;
+  white-space: nowrap; /* Prevent wrapping */
 }
 
-/* --- RANK NUMBERS (TOP 10) --- */
-/* Matches the reference's massive, stroked number behind the card */
+/* --- RANK NUMBERS (Top 10) --- */
 .rank-number {
   position: absolute;
-  left: -15px; /* Tucked behind left side */
+  left: -15px;
   bottom: 0;
-  font-size: 110px; /* Huge size */
+  font-size: 110px;
   line-height: 0.8;
   font-weight: 900;
   color: transparent;
-  -webkit-text-stroke: 2px #3b82f6; /* Blue outline */
+  -webkit-text-stroke: 2px #3b82f6;
   z-index: 0;
   font-family: 'Poppins', sans-serif;
   pointer-events: none;
