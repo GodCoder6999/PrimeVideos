@@ -419,10 +419,11 @@ const SportsPage = () => {
         return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     };
 
-    const isLive = (date) => {
-        const now = Date.now();
-        return activeCategory === 'live' || (date && date < now && date + 7200000 > now); 
-    };
+    const isLive = (matchTimestamp) => {
+    const now = Date.now();
+    // A match is generally "live" from its start time until ~3 hours later
+    return now >= matchTimestamp && now <= (matchTimestamp + 10800000);
+};;
 
     return (
         <div className="pt-24 px-4 md:px-12 min-h-screen pb-20">
@@ -568,12 +569,11 @@ const SportsPlayer = () => {
                     </div>
                 ) : activeStream ? (
                     <iframe 
-                        src={activeStream.embedUrl} 
-                        className="w-full h-full border-0" 
-                        allowFullScreen 
-                        allow="autoplay; encrypted-media"
-                        title="Sports Player"
-                    />
+    src={activeStream.embedUrl} 
+    className="w-full h-full border-0" 
+    allowFullScreen 
+    allow="autoplay; encrypted-media"
+/>
                 ) : (
                     <div className="text-center text-gray-500">
                         <Ban size={48} className="mx-auto mb-4 opacity-50" />
