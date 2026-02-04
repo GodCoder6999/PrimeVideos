@@ -1427,8 +1427,7 @@ const Player = () => {
         </div>
       )}
 
-      {/* Video Player Iframe */}
-      // Inside Player component return statement:
+      {/* Video Player Iframe */
 
 <div className="flex-1 relative w-full h-full bg-black">
   <iframe
