@@ -396,58 +396,84 @@ const SportsPage = () => {
     const [activeCategory, setActiveCategory] = useState('All');
     const [searchQuery, setSearchQuery] = useState("");
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
     const navigate = useNavigate();
 
-    // OPTIMIZATION: Use the 'sport.m3u' playlist (~2MB) instead of 'index.m3u' (~30MB)
-    // This prevents the browser from crashing/freezing.
-    const PLAYLIST_URL = 'https://iptv-org.github.io/iptv/categories/sport.m3u';
+    // Use the main robust playlist
+    const PLAYLIST_URL = 'https://iptv-org.github.io/iptv/index.m3u';
+    
+    // Keywords to identify sports channels from the massive list
+    const SPORTS_KEYWORDS = [
+        'Sport', 'Football', 'Soccer', 'Cricket', 'Tennis', 'Basketball', 
+        'Baseball', 'Golf', 'Hockey', 'Rugby', 'Boxing', 'MMA', 'Racing', 
+        'F1', 'MotoGP', 'Wrestling', 'Athletics', 'Volleyball'
+    ];
 
     useEffect(() => {
         setLoading(true);
+        setError(null);
+
         fetch(PLAYLIST_URL)
-            .then(res => res.text())
+            .then(res => {
+                if (!res.ok) throw new Error("Failed to load playlist");
+                return res.text();
+            })
             .then(data => {
                 const lines = data.split('\n');
                 const parsed = [];
                 const categorySet = new Set(['All']);
                 let current = {};
 
-                lines.forEach(line => {
-                    line = line.trim();
+                for (let i = 0; i < lines.length; i++) {
+                    let line = lines[i].trim();
+                    
                     if (line.startsWith('#EXTINF:')) {
+                        // Extract Metadata
                         const logoMatch = line.match(/tvg-logo="([^"]*)"/);
                         const groupMatch = line.match(/group-title="([^"]*)"/);
                         const name = line.split(',').pop().trim();
-                        // Use provided group or fallback to 'General Sport'
-                        const group = groupMatch ? groupMatch[1].trim() : 'General Sport';
-                        
-                        if (group) categorySet.add(group);
+                        const group = groupMatch ? groupMatch[1].trim() : 'Uncategorized';
 
-                        current = { name, logo: logoMatch ? logoMatch[1] : null, group };
-                    } else if (line.startsWith('http')) {
-                        if (current.name) {
-                            current.url = line;
-                            parsed.push(current);
-                            current = {};
+                        // --- CRITICAL OPTIMIZATION ---
+                        // Check if this is actually a sports channel OR belongs to a sports group
+                        const isSport = SPORTS_KEYWORDS.some(k => 
+                            group.includes(k) || name.includes(k)
+                        );
+
+                        if (isSport) {
+                            categorySet.add(group);
+                            current = { name, logo: logoMatch ? logoMatch[1] : null, group };
+                        } else {
+                            current = {}; // Skip this channel
                         }
+                    } else if (line.startsWith('http') && current.name) {
+                        // Only add if the previous line identified it as a sport
+                        current.url = line;
+                        parsed.push(current);
+                        current = {}; // Reset
                     }
-                });
+                }
 
-                // Sort categories for better UX
+                if (parsed.length === 0) {
+                    throw new Error("No sports channels found in playlist.");
+                }
+
+                // Sort categories naturally
                 const sortedCats = ['All', ...Array.from(categorySet).filter(c => c !== 'All').sort()];
                 
                 setChannels(parsed);
                 setCategories(sortedCats);
-                setDisplayedChannels(parsed.slice(0, 100)); // Initial load
+                setDisplayedChannels(parsed.slice(0, 100)); // Show top 100 initially
                 setLoading(false);
             })
             .catch(e => {
-                console.error(e);
+                console.error("Playlist Error:", e);
+                setError("Unable to load live channels. The feed might be down.");
                 setLoading(false);
             });
     }, []);
 
-    // Handle Search & Filter
+    // Filter Logic
     useEffect(() => {
         let filtered = channels;
 
@@ -460,27 +486,28 @@ const SportsPage = () => {
             filtered = filtered.filter(c => c.name.toLowerCase().includes(lowerQ));
         }
 
-        // Pagination limit to keep UI smooth
         setDisplayedChannels(filtered.slice(0, 200));
     }, [activeCategory, searchQuery, channels]);
 
     return (
         <div className="pt-24 px-4 md:px-12 min-h-screen pb-20">
-            {/* --- HEADER & SEARCH --- */}
+            {/* --- HEADER --- */}
             <div className="flex flex-col md:flex-row justify-between items-end gap-6 mb-8">
                 <div>
                     <h2 className="text-3xl font-bold text-white flex items-center gap-2">
                         <Trophy className="text-[#00A8E1]" /> Live Sports
                     </h2>
-                    <p className="text-gray-400 text-sm mt-1">{channels.length} Channels Online</p>
+                    <p className="text-gray-400 text-sm mt-1">
+                        {loading ? "Scanning frequencies..." : `${channels.length} Sports Channels Online`}
+                    </p>
                 </div>
 
-                {/* NEW: Dedicated Search Bar with Button */}
+                {/* SEARCH BAR */}
                 <div className="flex w-full md:w-auto gap-2">
                     <div className="relative flex-1 md:w-80">
                         <input 
                             type="text" 
-                            placeholder="Find channel..." 
+                            placeholder="Find channel (e.g. Sky, ESPN)..." 
                             className="w-full bg-[#19222b] border border-white/10 rounded-lg px-4 py-3 pl-10 text-white focus:border-[#00A8E1] outline-none font-medium"
                             value={searchQuery}
                             onChange={e => setSearchQuery(e.target.value)}
@@ -488,55 +515,72 @@ const SportsPage = () => {
                         <Search className="absolute left-3 top-3.5 text-gray-500" size={18} />
                         {searchQuery && <X onClick={() => setSearchQuery('')} className="absolute right-3 top-3.5 text-gray-400 cursor-pointer hover:text-white" size={18} />}
                     </div>
-                    <button className="bg-[#00A8E1] hover:bg-[#008ebf] text-white px-6 rounded-lg font-bold transition-colors">
-                        Search
-                    </button>
                 </div>
             </div>
 
-            {/* --- DYNAMIC CATEGORIES --- */}
-            <div className="flex items-center gap-3 mb-8 overflow-x-auto scrollbar-hide pb-2">
-                {categories.map(cat => (
-                    <button 
-                        key={cat} 
-                        onClick={() => setActiveCategory(cat)}
-                        className={`px-5 py-2.5 rounded-lg font-bold text-sm whitespace-nowrap transition-all border ${
-                            activeCategory === cat 
-                            ? 'bg-white text-black border-white' 
-                            : 'bg-[#19222b] text-gray-400 border-transparent hover:border-white/20 hover:text-white'
-                        }`}
-                    >
-                        {cat}
-                    </button>
-                ))}
-            </div>
+            {/* --- CATEGORY PILLS --- */}
+            {!loading && !error && (
+                <div className="flex items-center gap-3 mb-8 overflow-x-auto scrollbar-hide pb-2">
+                    {categories.map(cat => (
+                        <button 
+                            key={cat} 
+                            onClick={() => { setActiveCategory(cat); setDisplayedChannels(channels.filter(c => c.group === cat).slice(0,100)); }}
+                            className={`px-5 py-2.5 rounded-lg font-bold text-sm whitespace-nowrap transition-all border ${
+                                activeCategory === cat 
+                                ? 'bg-white text-black border-white shadow-lg' 
+                                : 'bg-[#19222b] text-gray-400 border-transparent hover:border-white/20 hover:text-white'
+                            }`}
+                        >
+                            {cat}
+                        </button>
+                    ))}
+                </div>
+            )}
 
-            {/* --- CHANNEL GRID --- */}
+            {/* --- CONTENT AREA --- */}
             {loading ? (
-                <div className="h-60 flex items-center justify-center text-[#00A8E1]"><Loader className="animate-spin mr-2" /> Loading Live Feeds...</div>
+                <div className="h-80 flex flex-col items-center justify-center text-[#00A8E1] gap-4">
+                    <Loader className="animate-spin" size={48} />
+                    <div className="text-gray-400 text-sm font-medium">Fetching global sports feed...</div>
+                </div>
+            ) : error ? (
+                <div className="h-60 flex flex-col items-center justify-center text-red-500 gap-2 border border-dashed border-white/10 rounded-xl">
+                    <Ban size={48} />
+                    <p>{error}</p>
+                    <button onClick={() => window.location.reload()} className="text-white underline mt-2">Retry Connection</button>
+                </div>
             ) : displayedChannels.length === 0 ? (
-                <div className="text-center text-gray-500 py-20">No channels found. Try a different category.</div>
+                <div className="h-60 flex flex-col items-center justify-center text-gray-500 gap-3 border border-dashed border-white/10 rounded-xl">
+                    <Trophy size={48} className="opacity-20" />
+                    <p>No channels found for this search.</p>
+                </div>
             ) : (
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 animate-in fade-in duration-500">
                     {displayedChannels.map((channel, idx) => (
                         <div 
                             key={idx} 
                             onClick={() => navigate('/watch/sport/iptv', { state: { streamUrl: channel.url, title: channel.name } })}
-                            className="bg-[#19222b] hover:bg-[#232d38] rounded-xl overflow-hidden cursor-pointer group hover:-translate-y-1 transition-all border border-white/5 hover:border-[#00A8E1]/40"
+                            className="bg-[#19222b] hover:bg-[#232d38] rounded-xl overflow-hidden cursor-pointer group hover:-translate-y-1 transition-all border border-white/5 hover:border-[#00A8E1]/40 shadow-lg"
                         >
                             <div className="aspect-video bg-black/40 flex items-center justify-center p-4 relative">
                                 {channel.logo ? (
-                                    <img src={channel.logo} className="w-full h-full object-contain" alt={channel.name} onError={e => e.target.style.display='none'} />
+                                    <img src={channel.logo} className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-300" alt={channel.name} onError={e => e.target.style.display='none'} />
                                 ) : (
                                     <Signal className="text-gray-700" size={32} />
                                 )}
+                                {/* Play Button Overlay */}
                                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                                    <Play fill="white" className="text-white" size={24} />
+                                    <div className="bg-[#00A8E1] p-3 rounded-full shadow-xl transform scale-75 group-hover:scale-100 transition-transform">
+                                        <Play fill="white" className="text-white" size={20} />
+                                    </div>
                                 </div>
                             </div>
                             <div className="p-3">
-                                <h3 className="text-white text-xs font-bold truncate">{channel.name}</h3>
-                                <p className="text-[#00A8E1] text-[10px] mt-0.5 truncate">{channel.group}</p>
+                                <h3 className="text-gray-200 text-xs font-bold truncate group-hover:text-white">{channel.name}</h3>
+                                <div className="flex items-center gap-1.5 mt-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
+                                    <p className="text-[#00A8E1] text-[10px] font-bold truncate">{channel.group}</p>
+                                </div>
                             </div>
                         </div>
                     ))}
@@ -546,207 +590,117 @@ const SportsPage = () => {
     );
 };
 
-const SportsPlayer = () => {
-    const navigate = useNavigate();
-    const location = useLocation();
-    const videoRef = useRef(null);
-    const { streamUrl, title } = location.state || {}; // Get data passed from SportsPage
-
-    useEffect(() => {
-        if (!streamUrl) return;
-
-        let hls;
-        if (Hls.isSupported()) {
-            hls = new Hls();
-            hls.loadSource(streamUrl);
-            hls.attachMedia(videoRef.current);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                videoRef.current.play().catch(e => console.log("Auto-play prevented", e));
-            });
-        } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-            // Native HLS support (Safari)
-            videoRef.current.src = streamUrl;
-            videoRef.current.addEventListener('loadedmetadata', () => {
-                videoRef.current.play();
-            });
-        }
-
-        return () => {
-            if (hls) hls.destroy();
-        };
-    }, [streamUrl]);
-
-    if (!streamUrl) return <div className="text-white pt-20 text-center">No stream selected. <button onClick={() => navigate(-1)}>Go Back</button></div>;
-
-    return (
-        <div className="fixed inset-0 bg-black z-[200] flex flex-col">
-            {/* Header */}
-            <div className="h-16 bg-[#19222b] flex items-center px-4 justify-between shrink-0 border-b border-white/10 relative z-50">
-                <div className="flex items-center gap-4">
-                    <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-white transition"><ArrowLeft size={24} /></button>
-                    <div>
-                        <h1 className="text-white font-bold text-lg leading-tight">{title || "Live Stream"}</h1>
-                        <div className="text-[#00A8E1] text-xs font-bold flex items-center gap-1">LIVE BROADCAST</div>
-                    </div>
-                </div>
-            </div>
-
-            {/* HLS Video Player */}
-            <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden">
-                <video 
-                    ref={videoRef} 
-                    className="w-full h-full" 
-                    controls 
-                    autoPlay
-                    playsInline
-                ></video>
-            </div>
-        </div>
-    );
-};
-// --- HERO SECTION WITH HOVER PLAYBACK LOGIC ---
-const Hero = ({ isPrimeOnly }) => {
-  const [movies, setMovies] = useState([]);
-  const [currentSlide, setCurrentSlide] = useState(0);
-  const [trailerKey, setTrailerKey] = useState(null);
-  const [showVideo, setShowVideo] = useState(false);
-  const [isMuted, setIsMuted] = useState(true);
-   
-  const playTimeout = useRef(null);
-  const stopTimeout = useRef(null);
-  const isHovering = useRef(false);
-   
+const Player = () => {
+  const { type, id } = useParams();
   const navigate = useNavigate();
-  const theme = getTheme(isPrimeOnly);
+  const location = useLocation();
 
-  useEffect(() => { 
-      const endpoint = isPrimeOnly 
-        ? `/discover/movie?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc`
-        : `/trending/all/day?api_key=${TMDB_API_KEY}`;
-      
-      fetch(`${BASE_URL}${endpoint}`)
-        .then(res => res.json())
-        .then(data => setMovies(data.results.slice(0, 5))); 
-  }, [isPrimeOnly]);
+  // Parse query parameters
+  const queryParams = new URLSearchParams(location.search);
+  const [season, setSeason] = useState(Number(queryParams.get('season')) || 1);
+  const [episode, setEpisode] = useState(Number(queryParams.get('episode')) || 1);
+  
+  // State for UI
+  const [showEpisodes, setShowEpisodes] = useState(false);
+  const [seasonData, setSeasonData] = useState(null);
+  const [totalSeasons, setTotalSeasons] = useState(1);
 
+  // Fetch Total Seasons
   useEffect(() => {
-      if (movies.length === 0) return;
-      
-      setShowVideo(false);
-      setTrailerKey(null);
-      clearTimeout(playTimeout.current);
-      clearTimeout(stopTimeout.current);
+    if (type === 'tv') {
+        fetch(`${BASE_URL}/tv/${id}?api_key=${TMDB_API_KEY}`)
+          .then(res => res.json())
+          .then(data => { if(data.number_of_seasons) setTotalSeasons(data.number_of_seasons); });
+    }
+  }, [type, id]);
 
-      const movie = movies[currentSlide];
-      const mediaType = movie.media_type || 'movie';
+  // Fetch Season Data
+  useEffect(() => {
+    if (type === 'tv') {
+        fetch(`${BASE_URL}/tv/${id}/season/${season}?api_key=${TMDB_API_KEY}`)
+          .then(res => res.json())
+          .then(data => setSeasonData(data));
+    }
+  }, [type, id, season]);
 
-      fetch(`${BASE_URL}/${mediaType}/${movie.id}/videos?api_key=${TMDB_API_KEY}`)
-        .then(res => res.json())
-        .then(data => {
-            const trailer = data.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube') || data.results?.find(v => v.site === 'YouTube');
-            if (trailer) {
-                setTrailerKey(trailer.key);
-                if (isHovering.current) {
-                    playTimeout.current = setTimeout(() => setShowVideo(true), 4000);
-                }
-            }
-        });
-  }, [currentSlide, movies]);
-
-  const handleMouseEnter = () => {
-      isHovering.current = true;
-      clearTimeout(stopTimeout.current);
-      clearTimeout(playTimeout.current);
-      playTimeout.current = setTimeout(() => setShowVideo(true), 4000);
+  // VIDFAST.PRO SOURCE LOGIC
+  const getSourceUrl = () => {
+    // Prime Blue Hex for VidFast theme
+    const themeParam = "theme=00A8E1";
+    
+    if (type === 'tv') {
+      // Structure: https://vidfast.pro/tv/{id}/{season}/{episode}?autoPlay=true&theme=...
+      return `${VIDFAST_BASE}/tv/${id}/${season}/${episode}?autoPlay=true&${themeParam}&nextButton=true&autoNext=true`;
+    } else {
+      // Structure: https://vidfast.pro/movie/{id}?autoPlay=true&theme=...
+      return `${VIDFAST_BASE}/movie/${id}?autoPlay=true&${themeParam}`;
+    }
   };
-
-  const handleMouseLeave = () => {
-      isHovering.current = false;
-      clearTimeout(playTimeout.current);
-      clearTimeout(stopTimeout.current);
-      stopTimeout.current = setTimeout(() => setShowVideo(false), 1000);
-  };
-
-  const nextSlide = () => setCurrentSlide((prev) => (prev + 1) % movies.length);
-  const prevSlide = () => setCurrentSlide((prev) => (prev - 1 + movies.length) % movies.length);
-
-  if (movies.length === 0) return <div className="h-[85vh] w-full bg-[#00050D]" />;
-
-  const movie = movies[currentSlide];
 
   return (
-    <div 
-        className="relative w-full h-[85vh] overflow-hidden group"
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
-    >
-      <div className={`absolute inset-0 transition-opacity duration-700 ${showVideo ? 'opacity-0' : 'opacity-100'}`}>
-        <img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover" alt="" />
+    <div className="fixed inset-0 bg-black z-[100] overflow-hidden flex flex-col">
+      {/* Back Button */}
+      <div className="absolute top-6 left-6 z-[120]">
+        <button 
+          onClick={() => navigate(-1)} 
+          className="bg-black/50 hover:bg-[#00A8E1] text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all"
+        >
+          <ArrowLeft size={24} />
+        </button>
       </div>
 
-      {showVideo && trailerKey && (
-          <div className="absolute inset-0 animate-in pointer-events-none">
-             <iframe 
-                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`}
-                className="w-full h-full scale-[1.3]" 
-                allow="autoplay; encrypted-media"
-                frameBorder="0"
-                title="Hero Trailer"
-             ></iframe>
-          </div>
+      {/* Episode List Toggle (TV Only) */}
+      {type === 'tv' && (
+        <div className="absolute top-6 right-6 z-[120]">
+            <button onClick={() => setShowEpisodes(!showEpisodes)} className={`p-3 rounded-full backdrop-blur-md border border-white/10 transition-all ${showEpisodes ? 'bg-[#00A8E1] text-white' : 'bg-black/50 hover:bg-[#333c46] text-gray-200'}`}>
+                <List size={24} />
+            </button>
+        </div>
       )}
 
-      <div className="absolute inset-0 bg-gradient-to-r from-[#00050D] via-[#00050D]/40 to-transparent" />
-      <div className="absolute inset-0 bg-gradient-to-t from-[#00050D] via-transparent to-transparent" />
+      {/* Video Player Iframe (Restored VidFast) */}
+      <div className="flex-1 relative w-full h-full bg-black">
+        <iframe
+          src={getSourceUrl()}
+          className="w-full h-full border-none"
+          // Optimization: Hardware Acceleration for smooth playback
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          // Optimization: Load immediately
+          loading="eager" 
+          referrerPolicy="origin"
+          allowFullScreen
+          title="Player"
+        ></iframe>
+      </div>
 
-      <div className="absolute top-[25%] left-[4%] max-w-[600px] z-30 animate-row-enter">
-        <h1 className="text-5xl md:text-7xl font-extrabold text-white mb-4 drop-shadow-[0_4px_10px_rgba(0,0,0,0.8)] tracking-tight leading-tight">
-            {movie.title || movie.name}
-        </h1>
-        
-        <div className="flex items-center gap-3 text-[#a9b7c1] font-bold text-sm mb-6">
-           {isPrimeOnly && <span className={`${theme.color} tracking-wide`}>Included with Prime</span>}
-           <span className="bg-[#33373d]/80 text-white px-1.5 py-0.5 rounded text-xs border border-gray-600 backdrop-blur-md">UHD</span>
-           <span className="bg-[#33373d]/80 text-white px-1.5 py-0.5 rounded text-xs border border-gray-600 backdrop-blur-md">16+</span>
+      {/* Episode Sidebar */}
+      {type === 'tv' && (
+        <div className={`fixed right-0 top-0 h-full bg-[#00050D]/95 backdrop-blur-xl border-l border-white/10 transition-all duration-500 ease-in-out z-[110] flex flex-col ${showEpisodes ? 'w-[350px] translate-x-0 shadow-2xl' : 'w-[350px] translate-x-full shadow-none'}`}>
+            <div className="p-6 border-b border-white/10 flex items-center justify-between bg-[#1a242f]/50">
+                <h2 className="font-bold text-white text-lg">Episodes</h2>
+                <div className="relative">
+                    <select value={season} onChange={(e) => setSeason(Number(e.target.value))} className="appearance-none bg-[#00A8E1] text-white font-bold py-1.5 pl-3 pr-8 rounded cursor-pointer text-sm outline-none hover:bg-[#008ebf] transition">
+                        {Array.from({length: totalSeasons}, (_, i) => i + 1).map(s => (<option key={s} value={s} className="bg-[#1a242f]">Season {s}</option>))}
+                    </select>
+                    <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-white pointer-events-none" />
+                </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-hide">
+                {seasonData?.episodes ? (seasonData.episodes.map(ep => (
+                        <div key={ep.id} onClick={() => setEpisode(ep.episode_number)} className={`flex gap-3 p-2 rounded-lg cursor-pointer transition-all group ${episode === ep.episode_number ? 'bg-[#333c46] border border-[#00A8E1]' : 'hover:bg-[#333c46] border border-transparent'}`}>
+                            <div className="relative w-28 h-16 flex-shrink-0 bg-black rounded overflow-hidden">
+                                {ep.still_path ? (<img src={`${IMAGE_BASE_URL}${ep.still_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" />) : (<div className="w-full h-full flex items-center justify-center text-gray-600 text-xs">No Img</div>)}
+                                {episode === ep.episode_number && (<div className="absolute inset-0 bg-black/40 flex items-center justify-center"><Play size={16} fill="white" className="text-white" /></div>)}
+                            </div>
+                            <div className="flex flex-col justify-center min-w-0">
+                                <span className={`text-xs font-bold mb-0.5 ${episode === ep.episode_number ? 'text-[#00A8E1]' : 'text-gray-400'}`}>Episode {ep.episode_number}</span>
+                                <h4 className={`text-sm font-medium truncate leading-tight ${episode === ep.episode_number ? 'text-white' : 'text-gray-300 group-hover:text-white'}`}>{ep.name}</h4>
+                            </div>
+                        </div>
+                ))) : (<div className="text-center text-gray-500 mt-10 flex flex-col items-center"><Loader className="animate-spin mb-2" /><span>Loading Season {season}...</span></div>)}
+            </div>
         </div>
-        
-        <p className="text-lg text-white font-medium line-clamp-3 mb-8 opacity-90 drop-shadow-md text-shadow-sm">{movie.overview}</p>
-        
-        <div className="flex items-center gap-4">
-            <button onClick={() => navigate(`/watch/${movie.media_type || 'movie'}/${movie.id}`)} className={`${theme.bg} ${theme.hoverBg} text-white h-14 pl-8 pr-8 rounded-md font-bold text-lg flex items-center gap-3 transition transform hover:scale-105 ${theme.shadow}`}>
-                <Play fill="white" size={24} /> 
-                {isPrimeOnly ? "Play" : "Rent or Play"}
-            </button>
-            <button className="w-14 h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm group">
-                <Plus size={28} className="text-gray-200 group-hover:text-white" />
-            </button>
-            <button onClick={() => navigate(`/detail/${movie.media_type || 'movie'}/${movie.id}`)} className="w-14 h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm group">
-                <Info size={28} className="text-gray-200 group-hover:text-white" />
-            </button>
-        </div>
-      </div>
-
-      <div className="absolute top-32 right-[4%] z-40">
-          <button 
-            onClick={() => setIsMuted(!isMuted)} 
-            className="w-12 h-12 rounded-full border-2 border-white/20 bg-black/20 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/10 hover:border-white transition"
-          >
-              {isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}
-          </button>
-      </div>
-
-      <button onClick={prevSlide} className="absolute left-4 top-1/2 -translate-y-1/2 z-40 p-2 rounded-full bg-black/20 hover:bg-black/50 text-white/50 hover:text-white transition backdrop-blur-sm border border-transparent hover:border-white/30">
-          <ChevronLeft size={40} />
-      </button>
-      <button onClick={nextSlide} className="absolute right-4 top-1/2 -translate-y-1/2 z-40 p-2 rounded-full bg-black/20 hover:bg-black/50 text-white/50 hover:text-white transition backdrop-blur-sm border border-transparent hover:border-white/30">
-          <ChevronRight size={40} />
-      </button>
-
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-40">
-          {movies.map((_, idx) => (
-              <div key={idx} className={`w-2 h-2 rounded-full transition-all ${idx === currentSlide ? 'bg-white w-4' : 'bg-gray-500'}`} />
-          ))}
-      </div>
+      )}
     </div>
   );
 };
