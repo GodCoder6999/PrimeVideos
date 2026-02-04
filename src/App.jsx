@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useLocation, useParams, Link } from 'react-router-dom';
-import { Search, Play, Info, Plus, ChevronRight, ChevronLeft, Download, Share2, CheckCircle2, ThumbsUp, ChevronDown, Grip, Loader, List, ArrowLeft, X, Volume2, VolumeX, Trophy, Signal, Clock, Ban, Eye, Bookmark } from 'lucide-react';
+import { Search, Play, Info, Plus, ChevronRight, ChevronLeft, Download, Share2, CheckCircle2, ThumbsUp, ChevronDown, Grip, Loader, List, ArrowLeft, X, Volume2, VolumeX, Trophy, Signal, Clock, Ban, Eye, Bookmark, TrendingUp } from 'lucide-react';
 
 // --- CSS STYLES ---
 const GlobalStyles = () => (
@@ -822,31 +822,44 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
 
         {/* Expanded Details (Visible on Hover) */}
         {isHovered && (
-            <div className="p-3 flex flex-col gap-2 bg-[#0f1014] animate-in fade-in slide-in-from-bottom-2">
-                {/* Title */}
-                <h3 className="text-white font-black text-sm uppercase leading-tight text-gradient line-clamp-2">{movie.title || movie.name}</h3>
+            <div className="p-3 flex flex-col gap-2.5 bg-[#0f1014] animate-in fade-in slide-in-from-bottom-2">
                 
-                {/* Metadata Row */}
-                <div className="flex items-center gap-2 text-[10px] font-bold text-gray-400">
-                    <span className="border border-gray-700 px-1 rounded text-gray-300">HD</span>
-                    <span>{movie.release_date?.split('-')[0] || "2024"}</span>
-                    {isPrimeOnly && <span className="text-[#00A8E1]">Prime</span>}
+                {/* Provider Line */}
+                <div className="flex items-center gap-1.5 text-[10px] font-bold text-[#00A8E1]">
+                    <CheckCircle2 size={12} className="fill-current" />
+                    <span>Included with Prime</span>
+                </div>
+
+                {/* Controls */}
+                <div className="flex items-center gap-2">
+                    <button className="flex-1 bg-white hover:bg-gray-200 text-black text-xs font-bold py-2 rounded-md transition-colors flex items-center justify-center gap-2">
+                        <Play fill="black" size={14} /> Play
+                    </button>
+                    <button className="w-8 h-8 rounded-full border border-gray-600 hover:border-white flex items-center justify-center transition-colors bg-[#1e293b]">
+                        <Plus size={16} className="text-white" />
+                    </button>
+                    <button className="w-8 h-8 rounded-full border border-gray-600 hover:border-white flex items-center justify-center transition-colors bg-[#1e293b]">
+                        <Info size={16} className="text-white" />
+                    </button>
+                </div>
+
+                {/* Trending/Genre */}
+                <div className="flex items-center gap-1.5 text-[10px] font-bold text-[#46d369]">
+                    <TrendingUp size={12} />
+                    <span>#{rank || Math.floor(Math.random() * 10) + 1} in Movies</span>
+                </div>
+
+                {/* Metadata Badges */}
+                <div className="flex items-center gap-2 text-[10px] font-bold text-gray-300">
+                    <span className="bg-[#33373d] px-1.5 py-0.5 rounded-[3px] border border-white/10">U/A 13+</span>
+                    <span className="bg-[#33373d] px-1.5 py-0.5 rounded-[3px] border border-white/10">{movie.release_date?.split('-')[0] || "2024"}</span>
+                    <span className="text-gray-400">2 h 15 min</span>
                 </div>
 
                 {/* Description */}
                 <p className="text-gray-400 text-[10px] line-clamp-3 leading-relaxed font-medium">
-                    {movie.overview || "No description available for this title."}
+                    {movie.overview}
                 </p>
-                
-                {/* Action Buttons */}
-                <div className="flex gap-2 mt-2">
-                    <button className="flex-1 bg-[#2563EB] hover:bg-[#1d4ed8] text-white text-xs font-bold py-2 rounded-md transition-colors flex items-center justify-center shadow-lg shadow-blue-900/20">
-                        Details
-                    </button>
-                    <button className="bg-[#1e293b] hover:bg-[#334155] text-white w-9 rounded-md transition-colors border border-white/10 flex items-center justify-center">
-                        <Bookmark size={16} />
-                    </button>
-                </div>
             </div>
         )}
       </div>
@@ -985,6 +998,9 @@ const MovieDetail = () => {
     </div>
   );
 };
+
+// ... (Rest of component unchanged) ...
+// (Player and Wrappers are same as previous, re-added for completeness)
 
 const Player = () => {
   const { type, id } = useParams();
