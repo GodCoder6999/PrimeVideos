@@ -969,53 +969,107 @@ const MovieDetail = () => {
   const [seasonData, setSeasonData] = useState(null);
   const [relatedMovies, setRelatedMovies] = useState([]);
   const [selectedSeason, setSelectedSeason] = useState(1);
-  // NEW: Trailer State
+  
+  // Trailer & Playback State
   const [trailerKey, setTrailerKey] = useState(null);
-  const [showTrailer, setShowTrailer] = useState(false);
+  const [showVideo, setShowVideo] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
   
   const navigate = useNavigate();
 
   useEffect(() => {
+    // Reset states on ID change
+    setShowVideo(false);
+    setTrailerKey(null);
+    setIsMuted(true);
+
     // Fetch Movie Details
-    fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}&language=en-US`).then(res => res.json()).then(data => { setMovie(data); if (type === 'tv') setActiveTab('episodes'); else setActiveTab('related'); }).catch(err => console.error(err));
+    fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}&language=en-US`)
+        .then(res => res.json())
+        .then(data => { 
+            setMovie(data); 
+            if (type === 'tv') setActiveTab('episodes'); 
+            else setActiveTab('related'); 
+        })
+        .catch(err => console.error(err));
+        
     // Fetch Related
-    fetch(`${BASE_URL}/${type}/${id}/recommendations?api_key=${TMDB_API_KEY}&language=en-US`).then(res => res.json()).then(data => { if (data.results.length > 0) setRelatedMovies(data.results); else return fetch(`${BASE_URL}/${type}/${id}/similar?api_key=${TMDB_API_KEY}&language=en-US`); }).then(res => { if (res) return res.json(); }).then(data => { if (data && data.results) setRelatedMovies(data.results); }).catch(err => console.error(err));
+    fetch(`${BASE_URL}/${type}/${id}/recommendations?api_key=${TMDB_API_KEY}&language=en-US`)
+        .then(res => res.json())
+        .then(data => { 
+            if (data.results.length > 0) setRelatedMovies(data.results); 
+            else return fetch(`${BASE_URL}/${type}/${id}/similar?api_key=${TMDB_API_KEY}&language=en-US`); 
+        })
+        .then(res => { if (res) return res.json(); })
+        .then(data => { if (data && data.results) setRelatedMovies(data.results); })
+        .catch(err => console.error(err));
     
-    // NEW: Fetch Trailer for Details Page
+    // Fetch Trailer & Start Auto-Play Timer
     fetch(`${BASE_URL}/${type}/${id}/videos?api_key=${TMDB_API_KEY}`)
         .then(res => res.json())
         .then(data => {
             const trailer = data.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube') || data.results?.find(v => v.site === 'YouTube');
-            if (trailer) setTrailerKey(trailer.key);
+            if (trailer) {
+                setTrailerKey(trailer.key);
+                // Wait 3 seconds before fading in the video for a smooth feel
+                setTimeout(() => setShowVideo(true), 3000);
+            }
         });
 
   }, [type, id]);
 
-  useEffect(() => { if (type === 'tv' && id) { fetch(`${BASE_URL}/tv/${id}/season/${selectedSeason}?api_key=${TMDB_API_KEY}&language=en-US`).then(res => res.json()).then(data => setSeasonData(data)).catch(err => console.error(err)); } }, [type, id, selectedSeason]);
+  useEffect(() => { 
+      if (type === 'tv' && id) { 
+          fetch(`${BASE_URL}/tv/${id}/season/${selectedSeason}?api_key=${TMDB_API_KEY}&language=en-US`)
+            .then(res => res.json())
+            .then(data => setSeasonData(data))
+            .catch(err => console.error(err)); 
+      } 
+  }, [type, id, selectedSeason]);
 
   if (!movie) return <div className="min-h-screen w-full bg-[#00050D]" />;
 
   return (
     <div className="min-h-screen bg-[#00050D] relative text-white font-sans overflow-x-hidden">
-      {/* Background Image */}
-      <div className="absolute inset-0 h-[100vh] w-full z-0"><img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover" alt="" /><div className="absolute inset-0 bg-gradient-to-t from-[#00050D] via-[#00050D]/60 to-transparent" /><div className="absolute inset-0 bg-gradient-to-r from-[#00050D] via-[#00050D]/80 to-transparent" /></div>
       
-      {/* NEW: Trailer Overlay Modal */}
-      {showTrailer && trailerKey && (
-          <div className="fixed inset-0 z-[200] bg-black/90 flex items-center justify-center p-4 animate-in backdrop-blur-sm">
-              <div className="relative w-full max-w-5xl aspect-video bg-black rounded-lg overflow-hidden shadow-2xl border border-white/10">
-                  <button onClick={() => setShowTrailer(false)} className="absolute top-4 right-4 z-50 p-2 bg-black/50 hover:bg-white/20 rounded-full text-white transition"><X size={24} /></button>
-                  <iframe 
-                      src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&rel=0`} 
-                      className="w-full h-full" 
-                      allowFullScreen 
-                      allow="autoplay; encrypted-media"
-                      title="Trailer"
-                  />
+      {/* BACKGROUND MEDIA AREA */}
+      <div className="absolute inset-0 h-[100vh] w-full z-0 overflow-hidden">
+          {/* 1. Static Backdrop Image (Fade out when video plays) */}
+          <div className={`absolute inset-0 transition-opacity duration-1000 ${showVideo ? 'opacity-0' : 'opacity-100'}`}>
+              <img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover" alt="" />
+          </div>
+
+          {/* 2. Auto-Playing Background Video */}
+          {showVideo && trailerKey && (
+              <div className="absolute inset-0 animate-in fade-in duration-1000 pointer-events-none">
+                 <iframe 
+                    src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`}
+                    className="w-full h-full scale-[1.5]" // Scale 1.5 to remove black bars/letterboxing
+                    allow="autoplay; encrypted-media"
+                    frameBorder="0"
+                    title="Background Trailer"
+                 />
               </div>
+          )}
+
+          {/* 3. Gradient Overlays for Readability */}
+          <div className="absolute inset-0 bg-gradient-to-t from-[#00050D] via-[#00050D]/60 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#00050D] via-[#00050D]/80 to-transparent" />
+      </div>
+
+      {/* VOLUME CONTROL (Floating) */}
+      {showVideo && trailerKey && (
+          <div className="absolute top-[35%] right-8 md:right-16 z-50 animate-in">
+              <button 
+                onClick={() => setIsMuted(!isMuted)} 
+                className="w-12 h-12 rounded-full border-2 border-white/20 bg-black/30 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/10 hover:border-white transition group"
+              >
+                  {isMuted ? <VolumeX size={24} className="text-gray-300 group-hover:text-white" /> : <Volume2 size={24} />}
+              </button>
           </div>
       )}
 
+      {/* FOREGROUND CONTENT */}
       <div className="relative z-10 pt-[140px] px-8 md:px-16 max-w-[1400px]">
         {/* Title & Metadata */}
         <h1 className="text-4xl md:text-6xl font-extrabold mb-6 tracking-tight drop-shadow-2xl max-w-4xl leading-tight">{movie.title || movie.name}</h1>
@@ -1025,13 +1079,6 @@ const MovieDetail = () => {
         <div className="flex items-center gap-4 mb-8">
             <button onClick={() => navigate(`/watch/${type}/${id}`)} className="bg-[#00A8E1] hover:bg-[#008ebf] text-white h-[56px] pl-8 pr-9 rounded-md font-bold text-[17px] flex items-center gap-3 transition-transform hover:scale-105 shadow-[0_0_30px_rgba(0,168,225,0.3)]"><Play fill="white" size={24} /> <span>Play {type === 'tv' && 'S1 E1'}</span></button>
             
-            {/* NEW: Trailer Button */}
-            {trailerKey && (
-                <button onClick={() => setShowTrailer(true)} className="bg-[#42474d]/60 hover:bg-[#42474d] text-white h-[56px] px-6 rounded-md font-bold text-[17px] flex items-center gap-3 transition border border-[#8197a4]/30 backdrop-blur-sm hover:border-white">
-                    <span className="uppercase tracking-wide">Trailer</span>
-                </button>
-            )}
-
             <div className="flex gap-4">
                 <button className="w-[56px] h-[56px] rounded-full bg-[#42474d]/60 border border-[#8197a4]/30 flex flex-col items-center justify-center hover:bg-[#42474d] hover:border-white transition group backdrop-blur-sm"><Plus size={26} className="text-white" /></button>
                 <button className="w-[56px] h-[56px] rounded-full bg-[#42474d]/60 border border-[#8197a4]/30 flex flex-col items-center justify-center hover:bg-[#42474d] hover:border-white transition group backdrop-blur-sm"><Download size={24} className="text-white" /></button>
