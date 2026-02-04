@@ -120,3 +120,120 @@ body {
 .animate-row-enter {
   animation: slideUpFade 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
 }
+/* ... existing css ... */
+
+/* --- NEW PRIME CARD LOGIC --- */
+
+/* Card Container */
+.prime-card {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
+  z-index: 10;
+}
+
+/* Hover lift */
+.prime-card:hover {
+  transform: scale(1.06) translateY(-4px);
+  z-index: 30;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+}
+
+/* Overlay */
+.prime-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to top,
+    rgba(15, 23, 30, 0.95),
+    rgba(15, 23, 30, 0.15) 60%
+  );
+  opacity: 0;
+  transition: opacity 0.18s ease;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 12px;
+}
+
+.prime-card:hover .prime-overlay {
+  opacity: 1;
+}
+
+/* Actions (Buttons) */
+.prime-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 6px;
+  transform: translateY(8px);
+  opacity: 0;
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+
+.prime-card:hover .prime-actions {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+/* Buttons Styling */
+.prime-actions button {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.18);
+  color: white;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: background 0.2s;
+}
+
+.prime-actions button:hover {
+  background: rgba(255, 255, 255, 0.35);
+  transform: scale(1.1);
+}
+
+.prime-actions button.play-btn {
+  background: white;
+  color: black;
+}
+.prime-actions button.play-btn:hover {
+  background: #00A8E1;
+  color: white;
+}
+
+/* Meta info */
+.prime-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #cdd3d8;
+  transform: translateY(10px);
+  opacity: 0;
+  transition: transform 0.2s ease 0.05s, opacity 0.2s ease 0.05s;
+}
+
+.prime-card:hover .prime-meta {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+/* Rank Number Positioning for Ranked Cards */
+.rank-number {
+  position: absolute;
+  left: -70px;
+  bottom: 0;
+  font-size: 100px;
+  font-weight: 900;
+  color: #19222b;
+  -webkit-text-stroke: 2px #5a6b7c;
+  line-height: 0.8;
+  z-index: -1;
+}
