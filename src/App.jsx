@@ -26,7 +26,41 @@ const GlobalStyles = () => (
     }
 
     .rank-number { position: absolute; left: -70px; bottom: 0; font-size: 100px; font-weight: 900; color: #19222b; -webkit-text-stroke: 2px #5a6069; z-index: 0; font-family: sans-serif; letter-spacing: -5px; line-height: 0.8; }
-    .glow-hover:hover { box-shadow: 0 0 20px rgba(255, 255, 255, 0.1); }
+    
+    /* Enhanced Glow Animations */
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 0 10px rgba(0, 168, 225, 0.2); border-color: rgba(0, 168, 225, 0.3); }
+      50% { box-shadow: 0 0 20px rgba(0, 168, 225, 0.6); border-color: rgba(0, 168, 225, 0.8); }
+    }
+    
+    .animate-glow {
+      animation: pulse-glow 2s infinite;
+    }
+
+    /* Cinematic Border Glow for Cards */
+    .glow-card {
+        position: relative;
+        z-index: 1;
+    }
+    .glow-card::before {
+        content: "";
+        position: absolute;
+        inset: -2px;
+        border-radius: 14px;
+        padding: 2px;
+        background: linear-gradient(45deg, transparent, rgba(0,168,225,0.3), transparent);
+        -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+        -webkit-mask-composite: xor;
+        mask-composite: exclude;
+        opacity: 0.5;
+        transition: opacity 0.3s ease;
+    }
+    .glow-card:hover::before {
+        background: linear-gradient(45deg, #00A8E1, #ffffff, #00A8E1);
+        opacity: 1;
+        box-shadow: 0 0 20px rgba(0,168,225,0.5);
+    }
+
     @keyframes row-enter { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
     .animate-row-enter { animation: row-enter 0.6s ease-out forwards; }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -297,17 +331,12 @@ const Navbar = ({ isPrimeOnly }) => {
     const isActive = location.pathname === path;
     
     // Glass Effect Active State
-    // - bg-white/10: Gives the translucent glass tint over the dark navbar
-    // - backdrop-blur-md: Blurs the background behind (glass effect)
-    // - rounded-lg: "Square box" look (less rounded than pill)
-    // - border-white/10: Subtle glass edge
     if (isActive) {
-      return "text-white font-bold bg-white/10 backdrop-blur-md border border-white/10 rounded-lg px-5 py-2 text-[15px] transition-all duration-300 ease-in-out shadow-[0_8px_32px_0_rgba(0,0,0,0.36)]";
+      return "text-white font-bold bg-white/10 backdrop-blur-md border border-white/10 rounded-lg px-5 py-2 text-[15px] transition-all duration-300 ease-in-out shadow-[0_0_15px_rgba(0,168,225,0.4)]";
     }
     
     // Inactive State with Smooth Hover
-    // - hover:bg-white/5: Adds a faint glass effect on hover for smooth switching
-    return "text-[#c7cbd1] font-medium text-[15px] hover:text-white hover:bg-white/5 hover:backdrop-blur-sm rounded-lg px-4 py-2 transition-all duration-300 ease-in-out cursor-pointer";
+    return "text-[#c7cbd1] font-medium text-[15px] hover:text-white hover:bg-white/5 hover:backdrop-blur-sm rounded-lg px-4 py-2 transition-all duration-300 ease-in-out cursor-pointer hover:shadow-[0_0_10px_rgba(255,255,255,0.1)]";
   };
 
   return (
@@ -386,8 +415,40 @@ const Navbar = ({ isPrimeOnly }) => {
 const SportsPage = () => {
     const [channels, setChannels] = useState([]);
     const [displayedChannels, setDisplayedChannels] = useState([]);
-    const [categories, setCategories] = useState(['All']);
-    const [activeCategory, setActiveCategory] = useState('All');
+    // Precise Category Tree
+    const CATEGORIES_TREE = {
+        'All': [],
+        'General Entertainment': [
+            'Entertainment', 
+            'GEC (General Entertainment Channels)', 
+            'Lifestyle', 
+            'Music', 
+            'Comedy'
+        ],
+        'News': [
+            'News', 
+            'News (International)', 
+            'News (National)', 
+            'News (Regional)', 
+            'Business News', 
+            'Political News'
+        ],
+        'Sports': [
+            'Sports', 
+            'Live Sports', 
+            'Cricket', 
+            'Football (Soccer)', 
+            'Basketball', 
+            'Tennis', 
+            'Motorsports', 
+            'Wrestling (WWE / AEW / UFC)', 
+            'Sports Events (PPV)'
+        ]
+    };
+
+    const [activeMainCategory, setActiveMainCategory] = useState('All');
+    const [activeSubCategory, setActiveSubCategory] = useState('All');
+    
     const [searchQuery, setSearchQuery] = useState("");
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -395,9 +456,47 @@ const SportsPage = () => {
     const itemsPerPage = 60;
     const navigate = useNavigate();
 
-    // Robust M3U Playlist
     const PLAYLIST_URL = 'https://iptv-org.github.io/iptv/index.m3u';
     
+    // Advanced Normalization for the Requested Categories
+    const normalizeCategory = (groupName) => {
+        if (!groupName) return 'Entertainment';
+        const lower = groupName.toLowerCase();
+        
+        // --- Sports ---
+        if (lower.includes('cricket')) return 'Cricket';
+        if (lower.includes('football') || lower.includes('soccer') || lower.includes('premier league') || lower.includes('laliga') || lower.includes('bundesliga')) return 'Football (Soccer)';
+        if (lower.includes('basket') || lower.includes('nba')) return 'Basketball';
+        if (lower.includes('tennis') || lower.includes('wimbledon') || lower.includes('atp')) return 'Tennis';
+        if (lower.includes('motor') || lower.includes('racing') || lower.includes('f1') || lower.includes('formula') || lower.includes('nascar')) return 'Motorsports';
+        if (lower.includes('wwe') || lower.includes('ufc') || lower.includes('wrestling') || lower.includes('boxing') || lower.includes('fight') || lower.includes('aew') || lower.includes('mma')) return 'Wrestling (WWE / AEW / UFC)';
+        if (lower.includes('ppv') || lower.includes('event')) return 'Sports Events (PPV)';
+        if (lower.includes('sport')) return 'Live Sports';
+
+        // --- News ---
+        if (lower.includes('business') || lower.includes('finance') || lower.includes('market') || lower.includes('bloomberg') || lower.includes('cnbc')) return 'Business News';
+        if (lower.includes('politics') || lower.includes('parliament') || lower.includes('c-span')) return 'Political News';
+        if (lower.includes('international') || lower.includes('world') || lower.includes('global') || lower.includes('cnn') || lower.includes('bbc') || lower.includes('al jazeera')) return 'News (International)';
+        if (lower.includes('national')) return 'News (National)';
+        if (lower.includes('regional') || lower.includes('local')) return 'News (Regional)';
+        if (lower.includes('news')) return 'News'; 
+
+        // --- Entertainment ---
+        if (lower.includes('music') || lower.includes('hits') || lower.includes('mtv') || lower.includes('vh1')) return 'Music';
+        if (lower.includes('comedy') || lower.includes('funny') || lower.includes('standup')) return 'Comedy';
+        if (lower.includes('lifestyle') || lower.includes('fashion') || lower.includes('travel') || lower.includes('food') || lower.includes('cooking') || lower.includes('tlc')) return 'Lifestyle';
+        if (lower.includes('gec') || lower.includes('sony') || lower.includes('star') || lower.includes('colors') || lower.includes('zee') || lower.includes('hbo') || lower.includes('amc')) return 'GEC (General Entertainment Channels)';
+        
+        return 'Entertainment'; 
+    };
+
+    const getParentCategory = (subCat) => {
+        for (const [main, subs] of Object.entries(CATEGORIES_TREE)) {
+            if (subs.includes(subCat)) return main;
+        }
+        return 'General Entertainment';
+    };
+
     useEffect(() => {
         setLoading(true);
         setError(null);
@@ -410,7 +509,6 @@ const SportsPage = () => {
             .then(data => {
                 const lines = data.split('\n');
                 const parsed = [];
-                const categorySet = new Set(['All']);
                 let current = {};
 
                 for (let i = 0; i < lines.length; i++) {
@@ -420,10 +518,15 @@ const SportsPage = () => {
                         const logoMatch = line.match(/tvg-logo="([^"]*)"/);
                         const groupMatch = line.match(/group-title="([^"]*)"/);
                         const name = line.split(',').pop().trim();
-                        const group = groupMatch ? groupMatch[1].trim() : 'Uncategorized';
+                        const rawGroup = groupMatch ? groupMatch[1].trim() : 'Uncategorized';
+                        const normalizedGroup = normalizeCategory(rawGroup);
 
-                        categorySet.add(group);
-                        current = { name, logo: logoMatch ? logoMatch[1] : null, group };
+                        current = { 
+                            name, 
+                            logo: logoMatch ? logoMatch[1] : null, 
+                            group: normalizedGroup,
+                            parentGroup: getParentCategory(normalizedGroup)
+                        };
                     } else if (line.startsWith('http') && current.name) {
                         current.url = line;
                         parsed.push(current);
@@ -434,11 +537,8 @@ const SportsPage = () => {
                 if (parsed.length === 0) {
                     throw new Error("No channels found in playlist.");
                 }
-
-                const sortedCats = ['All', ...Array.from(categorySet).filter(c => c !== 'All').sort()];
                 
                 setChannels(parsed);
-                setCategories(sortedCats);
                 setLoading(false);
             })
             .catch(e => {
@@ -451,27 +551,30 @@ const SportsPage = () => {
     // Filter Logic
     useEffect(() => {
         let filtered = channels;
-        if (activeCategory !== 'All') {
-            filtered = filtered.filter(c => c.group === activeCategory);
+
+        if (activeMainCategory !== 'All') {
+            filtered = filtered.filter(c => c.parentGroup === activeMainCategory);
         }
+
+        if (activeSubCategory !== 'All') {
+            filtered = filtered.filter(c => c.group === activeSubCategory);
+        }
+
         if (searchQuery.trim()) {
             const lowerQ = searchQuery.toLowerCase();
             filtered = filtered.filter(c => c.name.toLowerCase().includes(lowerQ));
         }
         
-        // Calculate pagination based on current page
         const startIndex = (currentPage - 1) * itemsPerPage;
         const endIndex = startIndex + itemsPerPage;
         
         setDisplayedChannels(filtered.slice(startIndex, endIndex));
-    }, [activeCategory, searchQuery, channels, currentPage]);
+    }, [activeMainCategory, activeSubCategory, searchQuery, channels, currentPage]);
 
-    // Reset page on filter change
     useEffect(() => {
         setCurrentPage(1);
-    }, [activeCategory, searchQuery]);
+    }, [activeMainCategory, activeSubCategory, searchQuery]);
 
-    // Keyboard Navigation for Pagination
     useEffect(() => {
         const handleKeyDown = (e) => {
             if (e.key === 'ArrowRight') {
@@ -485,12 +588,14 @@ const SportsPage = () => {
     }, []);
 
     const totalPages = Math.ceil(
-        (activeCategory === 'All' && !searchQuery 
+        (activeMainCategory === 'All' && activeSubCategory === 'All' && !searchQuery 
             ? channels.length 
-            : channels.filter(c => 
-                (activeCategory === 'All' || c.group === activeCategory) && 
-                (c.name.toLowerCase().includes(searchQuery.toLowerCase()))
-              ).length
+            : channels.filter(c => {
+                const matchMain = activeMainCategory === 'All' || c.parentGroup === activeMainCategory;
+                const matchSub = activeSubCategory === 'All' || c.group === activeSubCategory;
+                const matchSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase());
+                return matchMain && matchSub && matchSearch;
+              }).length
         ) / itemsPerPage
     );
 
@@ -498,7 +603,7 @@ const SportsPage = () => {
         <div className="pt-24 px-4 md:px-12 min-h-screen pb-20">
             <div className="flex flex-col md:flex-row justify-between items-end gap-6 mb-8">
                 <div>
-                    <h2 className="text-3xl font-bold text-white flex items-center gap-2">
+                    <h2 className="text-3xl font-bold text-white flex items-center gap-2 glow-text">
                         <Monitor className="text-[#00A8E1]" /> Live TV
                     </h2>
                     <p className="text-gray-400 text-sm mt-1">
@@ -510,7 +615,7 @@ const SportsPage = () => {
                         <input 
                             type="text" 
                             placeholder="Find channel..." 
-                            className="w-full bg-[#19222b] border border-white/10 rounded-lg px-4 py-3 pl-10 text-white focus:border-[#00A8E1] outline-none font-medium"
+                            className="w-full bg-[#19222b] border border-white/10 rounded-lg px-4 py-3 pl-10 text-white focus:border-[#00A8E1] outline-none font-medium transition-all duration-300 focus:shadow-[0_0_15px_rgba(0,168,225,0.4)]"
                             value={searchQuery}
                             onChange={e => setSearchQuery(e.target.value)}
                         />
@@ -520,28 +625,62 @@ const SportsPage = () => {
                 </div>
             </div>
 
+            {/* --- ANIMATED CATEGORY PILLS --- */}
             {!loading && !error && (
-                <div className="flex items-center gap-3 mb-8 overflow-x-auto scrollbar-hide pb-2 mask-linear-fade">
-                    {categories.map(cat => (
-                        <button 
-                            key={cat} 
-                            onClick={() => setActiveCategory(cat)}
-                            className={`px-5 py-2.5 rounded-lg font-bold text-sm whitespace-nowrap transition-all border ${
-                                activeCategory === cat 
-                                ? 'bg-white text-black border-white shadow-lg scale-105' 
-                                : 'bg-[#19222b] text-gray-400 border-transparent hover:border-white/20 hover:text-white'
-                            }`}
-                        >
-                            {cat}
-                        </button>
-                    ))}
+                <div className="flex flex-col gap-4 mb-8">
+                    {/* Level 1: Main Groups */}
+                    <div className="flex items-center gap-3 overflow-x-auto scrollbar-hide pb-2 px-2">
+                        {['All', ...Object.keys(CATEGORIES_TREE).filter(k => k !== 'All')].map(cat => (
+                            <button 
+                                key={cat} 
+                                onClick={() => { setActiveMainCategory(cat); setActiveSubCategory('All'); }}
+                                className={`px-6 py-2.5 rounded-lg font-bold text-sm whitespace-nowrap transition-all duration-300 border relative overflow-hidden group ${
+                                    activeMainCategory === cat 
+                                    ? 'bg-[#00A8E1] text-white border-transparent shadow-[0_0_20px_rgba(0,168,225,0.6)] scale-105' 
+                                    : 'bg-[#19222b] text-gray-400 border-transparent hover:text-white hover:bg-[#333c46] hover:shadow-[0_0_15px_rgba(255,255,255,0.1)] hover:scale-105'
+                                }`}
+                            >
+                                <span className="relative z-10">{cat}</span>
+                                {activeMainCategory === cat && <div className="absolute inset-0 bg-white/20 animate-pulse"></div>}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Level 2: Sub Groups */}
+                    {activeMainCategory !== 'All' && CATEGORIES_TREE[activeMainCategory] && (
+                        <div className="flex items-center gap-3 overflow-x-auto scrollbar-hide pb-2 px-2 animate-in fade-in slide-in-from-top-2">
+                            <button 
+                                onClick={() => setActiveSubCategory('All')}
+                                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all duration-300 border hover:scale-105 ${
+                                    activeSubCategory === 'All' 
+                                    ? 'bg-white text-black border-white shadow-[0_0_15px_rgba(255,255,255,0.4)]' 
+                                    : 'bg-transparent text-gray-400 border-gray-700 hover:border-white hover:text-white'
+                                }`}
+                            >
+                                All {activeMainCategory}
+                            </button>
+                            {CATEGORIES_TREE[activeMainCategory].map(sub => (
+                                <button 
+                                    key={sub} 
+                                    onClick={() => setActiveSubCategory(sub)}
+                                    className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all duration-300 border hover:scale-105 ${
+                                        activeSubCategory === sub 
+                                        ? 'bg-[#00A8E1] text-white border-[#00A8E1] shadow-[0_0_15px_rgba(0,168,225,0.5)]' 
+                                        : 'bg-[#19222b] text-gray-400 border-gray-800 hover:border-[#00A8E1] hover:text-[#00A8E1]'
+                                    }`}
+                                >
+                                    {sub}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                 </div>
             )}
 
             {loading ? (
                 <div className="h-80 flex flex-col items-center justify-center text-[#00A8E1] gap-4">
                     <Loader className="animate-spin" size={48} />
-                    <div className="text-gray-400 text-sm font-medium">Fetching global channels feed...</div>
+                    <div className="text-gray-400 text-sm font-medium animate-pulse">Fetching global channels feed...</div>
                 </div>
             ) : error ? (
                 <div className="h-60 flex flex-col items-center justify-center text-red-500 gap-2 border border-dashed border-white/10 rounded-xl">
@@ -561,25 +700,25 @@ const SportsPage = () => {
                             <div 
                                 key={idx} 
                                 onClick={() => navigate('/watch/sport/iptv', { state: { streamUrl: channel.url, title: channel.name, logo: channel.logo, group: channel.group } })}
-                                className="bg-[#19222b] hover:bg-[#232d38] rounded-xl overflow-hidden cursor-pointer group hover:-translate-y-1 transition-all border border-white/5 hover:border-[#00A8E1]/40 shadow-lg relative"
+                                className="bg-[#19222b] hover:bg-[#232d38] rounded-xl overflow-hidden cursor-pointer group hover:-translate-y-2 transition-all duration-300 shadow-lg hover:shadow-[0_0_30px_rgba(0,168,225,0.3)] relative glow-card border border-white/5"
                             >
-                                <div className="aspect-video bg-black/40 flex items-center justify-center p-4 relative">
+                                <div className="aspect-video bg-black/40 flex items-center justify-center p-4 relative group-hover:bg-black/20 transition-colors">
                                     {channel.logo ? (
-                                        <img src={channel.logo} className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-300" alt={channel.name} onError={e => e.target.style.display='none'} />
+                                        <img src={channel.logo} className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-300 drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]" alt={channel.name} onError={e => e.target.style.display='none'} />
                                     ) : (
-                                        <Signal className="text-gray-700" size={32} />
+                                        <Signal className="text-gray-700 group-hover:text-[#00A8E1] transition-colors" size={32} />
                                     )}
-                                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                                        <div className="bg-[#00A8E1] p-3 rounded-full shadow-xl transform scale-75 group-hover:scale-100 transition-transform">
+                                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-300 backdrop-blur-sm">
+                                        <div className="bg-[#00A8E1] p-3 rounded-full shadow-[0_0_20px_#00A8E1] transform scale-50 group-hover:scale-100 transition-transform duration-300">
                                             <Play fill="white" className="text-white" size={20} />
                                         </div>
                                     </div>
                                 </div>
-                                <div className="p-3">
-                                    <h3 className="text-gray-200 text-xs font-bold truncate group-hover:text-white">{channel.name}</h3>
+                                <div className="p-3 bg-[#19222b] group-hover:bg-[#1f2933] transition-colors border-t border-white/5">
+                                    <h3 className="text-gray-200 text-xs font-bold truncate group-hover:text-[#00A8E1] transition-colors">{channel.name}</h3>
                                     <div className="flex items-center gap-1.5 mt-1">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
-                                        <p className="text-[#00A8E1] text-[10px] font-bold truncate uppercase">{channel.group}</p>
+                                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shadow-[0_0_5px_#22c55e]"></span>
+                                        <p className="text-gray-500 text-[10px] font-bold truncate uppercase group-hover:text-white transition-colors">{channel.group}</p>
                                     </div>
                                 </div>
                             </div>
@@ -591,14 +730,13 @@ const SportsPage = () => {
                         <button 
                             disabled={currentPage === 1}
                             onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                            className="p-2 rounded-full bg-[#19222b] hover:bg-[#333c46] disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors"
+                            className="p-3 rounded-full bg-[#19222b] hover:bg-[#333c46] hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] disabled:opacity-50 disabled:cursor-not-allowed text-white transition-all duration-300"
                         >
                             <ChevronLeft size={24} />
                         </button>
                         
-                        <div className="flex gap-2 overflow-x-auto max-w-[300px] scrollbar-hide px-2">
+                        <div className="flex gap-2 overflow-x-auto max-w-[300px] scrollbar-hide px-2 items-center">
                             {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                                // Logic to show window of pages around current
                                 let pageNum = currentPage - 2 + i;
                                 if (pageNum <= 0) pageNum = i + 1;
                                 if (pageNum > totalPages) return null;
@@ -607,10 +745,10 @@ const SportsPage = () => {
                                     <button 
                                         key={pageNum}
                                         onClick={() => setCurrentPage(pageNum)}
-                                        className={`w-10 h-10 rounded-full font-bold text-sm transition-all ${
+                                        className={`w-10 h-10 rounded-full font-bold text-sm transition-all duration-300 ${
                                             currentPage === pageNum 
-                                            ? 'bg-[#00A8E1] text-white scale-110 shadow-lg' 
-                                            : 'bg-[#19222b] text-gray-400 hover:text-white hover:bg-[#333c46]'
+                                            ? 'bg-[#00A8E1] text-white scale-110 shadow-[0_0_15px_#00A8E1]' 
+                                            : 'bg-[#19222b] text-gray-400 hover:text-white hover:bg-[#333c46] hover:shadow-[0_0_10px_rgba(255,255,255,0.1)]'
                                         }`}
                                     >
                                         {pageNum}
@@ -622,12 +760,12 @@ const SportsPage = () => {
                         <button 
                             disabled={currentPage >= totalPages}
                             onClick={() => setCurrentPage(p => p + 1)}
-                            className="p-2 rounded-full bg-[#19222b] hover:bg-[#333c46] disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors"
+                            className="p-3 rounded-full bg-[#19222b] hover:bg-[#333c46] hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] disabled:opacity-50 disabled:cursor-not-allowed text-white transition-all duration-300"
                         >
                             <ChevronRight size={24} />
                         </button>
                     </div>
-                    <div className="text-center text-gray-500 text-xs pb-8">
+                    <div className="text-center text-gray-500 text-xs pb-8 animate-pulse">
                         Page {currentPage} of {totalPages} • Use Arrow Keys &larr; &rarr; to navigate
                     </div>
                 </>
@@ -641,7 +779,6 @@ const SportsPlayer = () => {
     const location = useLocation();
     const videoRef = useRef(null);
     const { streamUrl, title, logo, group } = location.state || {};
-    const [isPlaying, setIsPlaying] = useState(true);
     const [isMuted, setIsMuted] = useState(false);
 
     useEffect(() => {
@@ -689,7 +826,7 @@ const SportsPlayer = () => {
                     </div>
                 </div>
                 <div className="pointer-events-auto">
-                    <button onClick={() => { setIsMuted(!isMuted); videoRef.current.muted = !isMuted; }} className="w-12 h-12 rounded-full bg-black/40 hover:bg-white/20 backdrop-blur-md flex items-center justify-center text-white transition border border-white/10">
+                    <button onClick={() => { setIsMuted(!isMuted); videoRef.current.muted = !isMuted; }} className="w-12 h-12 rounded-full bg-black/40 hover:bg-white/20 backdrop-blur-md flex items-center justify-center text-white transition border border-white/10 hover:shadow-[0_0_15px_rgba(255,255,255,0.2)]">
                         {isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}
                     </button>
                 </div>
@@ -705,7 +842,6 @@ const SportsPlayer = () => {
                     playsInline
                 ></video>
                 
-                {/* Simulated Metadata Overlay on Pause/Hover (Optional Enhancement) */}
                 <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-black/90 to-transparent pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end px-8 pb-8">
                     <div className="text-white/80 text-sm font-medium">
                         Streaming via secure HLS protocol • {new Date().toLocaleTimeString()}
@@ -891,7 +1027,7 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
         className={`
             relative w-full h-full rounded-xl overflow-hidden cursor-pointer bg-[#19222b] shadow-xl
             transform transition-all duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1)
-            border border-white/5 ring-1 ring-white/5
+            border border-white/5 ring-1 ring-white/5 glow-card
             ${originClass}
         `}
         style={{
