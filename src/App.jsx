@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useLocation, useParams, Link } from 'react-router-dom';
-import { Search, User, Play, Info, Plus, ChevronRight, ChevronLeft, Download, Share2, CheckCircle2, Calendar, Clock, ThumbsUp, Ban, ChevronDown, Grip, Loader, List, ArrowLeft, X, Volume2, VolumeX, Trophy, Radio, Signal } from 'lucide-react';
+import { Search, Play, Info, Plus, ChevronRight, ChevronLeft, Download, Share2, CheckCircle2, ThumbsUp, ChevronDown, Grip, Loader, List, ArrowLeft, X, Volume2, VolumeX, Trophy, Signal, Clock, Ban } from 'lucide-react';
 import './App.css';
 
 // --- CONFIGURATION ---
@@ -9,7 +9,7 @@ const BASE_URL = "https://api.themoviedb.org/3";
 const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
 const IMAGE_ORIGINAL_URL = "https://image.tmdb.org/t/p/original";
 const VIDSRC_BASE = "https://vidsrc.su"; 
-const LIVESPORT_BASE = "https://livesport.su"; // Empty to use Proxy
+const LIVESPORT_BASE = ""; // Empty to use Proxy
 
 // STRICT PRIME FILTERS
 const PRIME_PROVIDER_IDS = "9|119"; 
@@ -296,7 +296,6 @@ const SportsPage = () => {
     const [loading, setLoading] = useState(true);
     const navigate = useNavigate();
 
-    // Fetch Sports
     useEffect(() => {
         fetch(`${LIVESPORT_BASE}/api/sports`)
             .then(res => {
@@ -310,7 +309,6 @@ const SportsPage = () => {
             .catch(e => console.error("Error fetching sports:", e));
     }, []);
 
-    // Fetch Matches based on Category
     useEffect(() => {
         setLoading(true);
         setMatches([]); 
@@ -347,7 +345,6 @@ const SportsPage = () => {
 
     const isLive = (date) => {
         const now = Date.now();
-        // Assume match lasts 2 hours (7200000 ms)
         return activeCategory === 'live' || (date && date < now && date + 7200000 > now); 
     };
 
@@ -431,7 +428,6 @@ const SportsPlayer = () => {
     const [showStreamList, setShowStreamList] = useState(false);
 
     useEffect(() => {
-        // Fetch detail using proxy
         fetch(`${LIVESPORT_BASE}/api/matches/${id}/detail`)
             .then(res => {
                 if (!res.ok) throw new Error("Match not found");
@@ -449,7 +445,6 @@ const SportsPlayer = () => {
                 setLoading(false);
             });
         
-        // Fetch Title Info (Optional backup if detail doesn't have it)
         fetch(`${LIVESPORT_BASE}/api/matches/live`)
             .then(res => res.json())
             .then(matches => {
@@ -511,7 +506,6 @@ const SportsPlayer = () => {
                     </div>
                 )}
 
-                {/* Stream Switcher Overlay */}
                 {showStreamList && (
                     <div className="absolute top-4 right-4 w-72 bg-[#19222b]/95 backdrop-blur-md border border-gray-700 rounded-lg shadow-2xl overflow-hidden animate-in fade-in slide-in-from-right-10 z-[60]">
                         <div className="p-3 border-b border-white/10 flex justify-between items-center">
@@ -540,7 +534,7 @@ const SportsPlayer = () => {
     );
 };
 
-// --- HERO SECTION WITH HOVER PLAYBACK LOGIC ---
+// --- HERO SECTION ---
 const Hero = ({ isPrimeOnly }) => {
   const [movies, setMovies] = useState([]);
   const [currentSlide, setCurrentSlide] = useState(0);
@@ -548,7 +542,6 @@ const Hero = ({ isPrimeOnly }) => {
   const [showVideo, setShowVideo] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   
-  // Refs for tracking hover state and timers
   const playTimeout = useRef(null);
   const stopTimeout = useRef(null);
   const isHovering = useRef(false);
@@ -556,22 +549,15 @@ const Hero = ({ isPrimeOnly }) => {
   const navigate = useNavigate();
   const theme = getTheme(isPrimeOnly);
 
-  // 1. Fetch Top 5 Movies
   useEffect(() => { 
       const endpoint = isPrimeOnly 
         ? `/discover/movie?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc`
         : `/trending/all/day?api_key=${TMDB_API_KEY}`;
-      
-      fetch(`${BASE_URL}${endpoint}`)
-        .then(res => res.json())
-        .then(data => setMovies(data.results.slice(0, 5))); 
+      fetch(`${BASE_URL}${endpoint}`).then(res => res.json()).then(data => setMovies(data.results.slice(0, 5))); 
   }, [isPrimeOnly]);
 
-  // 2. Load Trailer Key on Slide Change
   useEffect(() => {
       if (movies.length === 0) return;
-      
-      // Reset Video State on Slide Change
       setShowVideo(false);
       setTrailerKey(null);
       clearTimeout(playTimeout.current);
@@ -580,36 +566,28 @@ const Hero = ({ isPrimeOnly }) => {
       const movie = movies[currentSlide];
       const mediaType = movie.media_type || 'movie';
 
-      // Fetch Trailer
       fetch(`${BASE_URL}/${mediaType}/${movie.id}/videos?api_key=${TMDB_API_KEY}`)
         .then(res => res.json())
         .then(data => {
             const trailer = data.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube') || data.results?.find(v => v.site === 'YouTube');
             if (trailer) {
                 setTrailerKey(trailer.key);
-                // If mouse is ALREADY hovering when slide changes, restart start timer
-                if (isHovering.current) {
-                    playTimeout.current = setTimeout(() => setShowVideo(true), 4000);
-                }
+                if (isHovering.current) playTimeout.current = setTimeout(() => setShowVideo(true), 4000);
             }
         });
   }, [currentSlide, movies]);
 
   const handleMouseEnter = () => {
       isHovering.current = true;
-      clearTimeout(stopTimeout.current); // Cancel any pending stop
-      clearTimeout(playTimeout.current); // Reset start timer
-      
-      // Start 4s timer to play video
+      clearTimeout(stopTimeout.current);
+      clearTimeout(playTimeout.current);
       playTimeout.current = setTimeout(() => setShowVideo(true), 4000);
   };
 
   const handleMouseLeave = () => {
       isHovering.current = false;
-      clearTimeout(playTimeout.current); // Cancel pending play
+      clearTimeout(playTimeout.current);
       clearTimeout(stopTimeout.current);
-      
-      // Start 1s timer to stop video
       stopTimeout.current = setTimeout(() => setShowVideo(false), 1000);
   };
 
@@ -621,89 +599,44 @@ const Hero = ({ isPrimeOnly }) => {
   const movie = movies[currentSlide];
 
   return (
-    <div 
-        className="relative w-full h-[85vh] overflow-hidden group"
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
-    >
-      {/* BACKGROUND IMAGE (Visible when video is hidden) */}
+    <div className="relative w-full h-[85vh] overflow-hidden group" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
       <div className={`absolute inset-0 transition-opacity duration-700 ${showVideo ? 'opacity-0' : 'opacity-100'}`}>
         <img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover" alt="" />
       </div>
-
-      {/* VIDEO PLAYER (Conditionally Rendered to stop audio when removed) */}
       {showVideo && trailerKey && (
           <div className="absolute inset-0 animate-in pointer-events-none">
-             <iframe 
-                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`}
-                className="w-full h-full scale-[1.3]" 
-                allow="autoplay; encrypted-media"
-                frameBorder="0"
-                title="Hero Trailer"
-             ></iframe>
+             <iframe src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} className="w-full h-full scale-[1.3]" allow="autoplay; encrypted-media" frameBorder="0" title="Hero Trailer"></iframe>
           </div>
       )}
-
-      {/* GRADIENTS */}
       <div className="absolute inset-0 bg-gradient-to-r from-[#00050D] via-[#00050D]/40 to-transparent" />
       <div className="absolute inset-0 bg-gradient-to-t from-[#00050D] via-transparent to-transparent" />
-
-      {/* INFO CONTENT */}
       <div className="absolute top-[25%] left-[4%] max-w-[600px] z-30 animate-row-enter">
-        <h1 className="text-5xl md:text-7xl font-extrabold text-white mb-4 drop-shadow-[0_4px_10px_rgba(0,0,0,0.8)] tracking-tight leading-tight">
-            {movie.title || movie.name}
-        </h1>
-        
+        <h1 className="text-5xl md:text-7xl font-extrabold text-white mb-4 drop-shadow-[0_4px_10px_rgba(0,0,0,0.8)] tracking-tight leading-tight">{movie.title || movie.name}</h1>
         <div className="flex items-center gap-3 text-[#a9b7c1] font-bold text-sm mb-6">
            {isPrimeOnly && <span className={`${theme.color} tracking-wide`}>Included with Prime</span>}
            <span className="bg-[#33373d]/80 text-white px-1.5 py-0.5 rounded text-xs border border-gray-600 backdrop-blur-md">UHD</span>
            <span className="bg-[#33373d]/80 text-white px-1.5 py-0.5 rounded text-xs border border-gray-600 backdrop-blur-md">16+</span>
         </div>
-        
         <p className="text-lg text-white font-medium line-clamp-3 mb-8 opacity-90 drop-shadow-md text-shadow-sm">{movie.overview}</p>
-        
         <div className="flex items-center gap-4">
-            <button onClick={() => navigate(`/watch/${movie.media_type || 'movie'}/${movie.id}`)} className={`${theme.bg} ${theme.hoverBg} text-white h-14 pl-8 pr-8 rounded-md font-bold text-lg flex items-center gap-3 transition transform hover:scale-105 ${theme.shadow}`}>
-                <Play fill="white" size={24} /> 
-                {isPrimeOnly ? "Play" : "Rent or Play"}
-            </button>
-            <button className="w-14 h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm group">
-                <Plus size={28} className="text-gray-200 group-hover:text-white" />
-            </button>
-            <button onClick={() => navigate(`/detail/${movie.media_type || 'movie'}/${movie.id}`)} className="w-14 h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm group">
-                <Info size={28} className="text-gray-200 group-hover:text-white" />
-            </button>
+            <button onClick={() => navigate(`/watch/${movie.media_type || 'movie'}/${movie.id}`)} className={`${theme.bg} ${theme.hoverBg} text-white h-14 pl-8 pr-8 rounded-md font-bold text-lg flex items-center gap-3 transition transform hover:scale-105 ${theme.shadow}`}><Play fill="white" size={24} /> {isPrimeOnly ? "Play" : "Rent or Play"}</button>
+            <button className="w-14 h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm group"><Plus size={28} className="text-gray-200 group-hover:text-white" /></button>
+            <button onClick={() => navigate(`/detail/${movie.media_type || 'movie'}/${movie.id}`)} className="w-14 h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm group"><Info size={28} className="text-gray-200 group-hover:text-white" /></button>
         </div>
       </div>
-
-      {/* MUTE BUTTON */}
       <div className="absolute top-32 right-[4%] z-40">
-          <button 
-            onClick={() => setIsMuted(!isMuted)} 
-            className="w-12 h-12 rounded-full border-2 border-white/20 bg-black/20 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/10 hover:border-white transition"
-          >
-              {isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}
-          </button>
+          <button onClick={() => setIsMuted(!isMuted)} className="w-12 h-12 rounded-full border-2 border-white/20 bg-black/20 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/10 hover:border-white transition">{isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}</button>
       </div>
-
-      {/* CAROUSEL ARROWS */}
-      <button onClick={prevSlide} className="absolute left-4 top-1/2 -translate-y-1/2 z-40 p-2 rounded-full bg-black/20 hover:bg-black/50 text-white/50 hover:text-white transition backdrop-blur-sm border border-transparent hover:border-white/30">
-          <ChevronLeft size={40} />
-      </button>
-      <button onClick={nextSlide} className="absolute right-4 top-1/2 -translate-y-1/2 z-40 p-2 rounded-full bg-black/20 hover:bg-black/50 text-white/50 hover:text-white transition backdrop-blur-sm border border-transparent hover:border-white/30">
-          <ChevronRight size={40} />
-      </button>
-
-      {/* DOTS */}
+      <button onClick={prevSlide} className="absolute left-4 top-1/2 -translate-y-1/2 z-40 p-2 rounded-full bg-black/20 hover:bg-black/50 text-white/50 hover:text-white transition backdrop-blur-sm border border-transparent hover:border-white/30"><ChevronLeft size={40} /></button>
+      <button onClick={nextSlide} className="absolute right-4 top-1/2 -translate-y-1/2 z-40 p-2 rounded-full bg-black/20 hover:bg-black/50 text-white/50 hover:text-white transition backdrop-blur-sm border border-transparent hover:border-white/30"><ChevronRight size={40} /></button>
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-40">
-          {movies.map((_, idx) => (
-              <div key={idx} className={`w-2 h-2 rounded-full transition-all ${idx === currentSlide ? 'bg-white w-4' : 'bg-gray-500'}`} />
-          ))}
+          {movies.map((_, idx) => (<div key={idx} className={`w-2 h-2 rounded-full transition-all ${idx === currentSlide ? 'bg-white w-4' : 'bg-gray-500'}`} />))}
       </div>
     </div>
   );
 };
 
+// --- MOVIE CARD COMPONENT (FIXED: HTML+CSS STYLE) ---
 const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank, isPrimeOnly }) => {
   const navigate = useNavigate();
   const [trailerKey, setTrailerKey] = useState(null);
@@ -712,17 +645,19 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
   const isPoster = variant === 'vertical';
   const isRanked = variant === 'ranked';
   const imageUrl = isPoster || isRanked ? movie.poster_path : movie.backdrop_path;
+  
+  // Base dimensions (CSS logic)
   const baseWidth = isPoster ? 'w-[160px] md:w-[190px]' : isRanked ? 'w-[180px]' : 'w-[240px] md:w-[280px]';
   const baseHeight = isPoster || isRanked ? 'h-[240px] md:h-[280px]' : 'h-[140px] md:h-[160px]';
-  
-  // Expanded width only for inner absolute card
-  const expandedWidth = isPoster || isRanked ? 'w-[220px]' : 'w-[340px]'; 
   const cardMargin = isRanked ? 'ml-[70px]' : ''; 
 
+  // Fetch Trailer on Hover
   useEffect(() => {
     if (isHovered && !isPoster && !isRanked) { 
         const mediaType = movie.media_type || itemType || 'movie';
-        fetch(`${BASE_URL}/${mediaType}/${movie.id}/videos?api_key=${TMDB_API_KEY}`).then(res => res.json()).then(data => {
+        fetch(`${BASE_URL}/${mediaType}/${movie.id}/videos?api_key=${TMDB_API_KEY}`)
+          .then(res => res.json())
+          .then(data => {
               const trailer = data.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube') || data.results?.find(v => v.site === 'YouTube');
               if (trailer) setTrailerKey(trailer.key);
           }).catch(err => console.error(err));
@@ -730,61 +665,70 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
   }, [isHovered, movie, itemType, isPoster, isRanked]);
 
   return (
-    // WRAPPER: Always stays the same size (baseWidth). Relative position for inner absolute positioning.
     <div 
-      className={`relative flex-shrink-0 z-0 ${baseWidth} ${cardMargin}`}
+      className={`
+        relative flex-shrink-0 rounded-lg overflow-hidden bg-[#19222b] cursor-pointer 
+        transition-all duration-300 ease-in-out shadow-lg group 
+        ${baseWidth} ${cardMargin}
+        hover:scale-110 hover:z-50 hover:shadow-[0_10px_20px_rgba(0,0,0,0.7)]
+      `}
       style={{ height: baseHeight }}
       onMouseEnter={() => onHover(movie.id)}
       onMouseLeave={onLeave}
+      onClick={() => navigate(`/detail/${movie.media_type || itemType || 'movie'}/${movie.id}`)}
     >
       {isRanked && <span className="rank-number">{rank}</span>}
       
-      {/* INNER CARD: Expands absolutely on hover */}
-      <div 
-        className={`
-          transition-all duration-300 ease-in-out cursor-pointer rounded-lg overflow-hidden bg-[#19222b] shadow-xl
-          ${isHovered 
-              ? `absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 ${expandedWidth} z-50 scale-110 shadow-[0_0_40px_rgba(0,0,0,0.8)] border ${theme.border}` 
-              : 'w-full h-full relative z-0 scale-100'}
-        `}
-        // Allow height to grow on hover to fit description, otherwise fixed
-        style={{ height: isHovered && !isPoster && !isRanked ? 'auto' : '100%' }}
-        onClick={() => navigate(`/detail/${movie.media_type || itemType || 'movie'}/${movie.id}`)}
-      >
-        <div className={`relative w-full ${!isPoster && !isRanked ? 'aspect-video' : 'h-full'}`}>
-            {isHovered && trailerKey && !isPoster && !isRanked ? (
-               <iframe className="w-full h-full object-cover pointer-events-none scale-125" src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} title="Trailer" allow="autoplay; encrypted-media" frameBorder="0"></iframe>
-            ) : (
-               <img src={`${IMAGE_BASE_URL}${imageUrl}`} alt={movie.title} className="w-full h-full object-cover opacity-95 hover:opacity-100 transition-opacity" />
-            )}
-            {!isPoster && !isRanked && <div className="absolute inset-0 bg-gradient-to-t from-[#19222b] via-transparent to-transparent"></div>}
-            {!isHovered && !isPoster && !isRanked && isPrimeOnly && (
-                <div className="absolute bottom-2 left-3"><span className={`text-[10px] font-black tracking-widest ${theme.color} uppercase drop-shadow-md`}>PRIME</span></div>
-            )}
-        </div>
-
-        {/* DETAILS SECTION (Only visible on hover) */}
-        {isHovered && !isPoster && !isRanked && (
-            <div className="p-3 flex flex-col gap-2 animate-in bg-[#1a242f] rounded-b-lg">
-                <div className="flex items-center gap-2 mb-1">
-                    <button className="w-8 h-8 bg-white rounded-full flex items-center justify-center hover:bg-gray-200 transition"><Play fill="black" size={12} className="text-black ml-0.5" /></button>
-                    <button className="w-8 h-8 border border-gray-500 rounded-full flex items-center justify-center hover:border-white transition bg-[#333c46]/50"><Plus size={16} className="text-white" /></button>
-                    <button className="w-8 h-8 border border-gray-500 rounded-full flex items-center justify-center hover:border-white transition bg-[#333c46]/50"><ThumbsUp size={14} className="text-white" /></button>
-                    <button className="w-8 h-8 border border-gray-500 rounded-full flex items-center justify-center ml-auto hover:border-white transition bg-[#333c46]/50"><Info size={16} className="text-white" /></button>
-                </div>
-                <h3 className="text-sm font-bold text-white leading-tight">{movie.title || movie.name}</h3>
-                <div className="flex items-center gap-2 text-[11px] font-bold text-[#a9b7c1]">
-                    {isPrimeOnly && <span className={theme.color}>Included with Prime</span>}
-                    <span className="text-[#00A8E1] flex items-center gap-1">⭐ {movie.vote_average?.toFixed(1)}</span>
-                    <span className="bg-[#33373d] px-1 rounded border border-gray-600 text-white">16+</span>
-                    <span className="border border-gray-600 px-1 rounded text-[9px] text-gray-400">HD</span>
-                </div>
-                <p className="text-[10px] text-gray-300 line-clamp-3 leading-relaxed mt-1">
-                    {movie.overview}
-                </p>
-            </div>
-        )}
+      {/* Media Layer */}
+      <div className="w-full h-full relative">
+          {/* Show Trailer Iframe if Hovered & Available (Auto-Play Logic) */}
+          {isHovered && trailerKey && !isPoster && !isRanked ? (
+             <iframe 
+               className="w-full h-full object-cover pointer-events-none scale-125" 
+               src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} 
+               title="Trailer" 
+               allow="autoplay; encrypted-media" 
+               frameBorder="0"
+             ></iframe>
+          ) : (
+             <img 
+               src={`${IMAGE_BASE_URL}${imageUrl}`} 
+               alt={movie.title} 
+               className="w-full h-full object-cover opacity-95 group-hover:opacity-100 transition-opacity" 
+             />
+          )}
+          
+          {/* Gradient Overlay for Text Readability */}
+          {!isPoster && !isRanked && <div className="absolute inset-0 bg-gradient-to-t from-[#19222b] via-transparent to-transparent opacity-60 group-hover:opacity-40 transition-opacity"></div>}
+          
+          {/* Prime Badge */}
+          {!isHovered && !isPoster && !isRanked && isPrimeOnly && (
+              <div className="absolute bottom-2 left-3"><span className={`text-[10px] font-black tracking-widest ${theme.color} uppercase drop-shadow-md`}>PRIME</span></div>
+          )}
       </div>
+
+      {/* Details Overlay (Slides Up on Hover) */}
+      {!isPoster && !isRanked && (
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-[#0f171e] via-[#0f171e]/95 to-transparent p-4 translate-y-full transition-transform duration-300 group-hover:translate-y-0">
+            <div className="flex items-center gap-2 mb-2">
+                <button className="w-8 h-8 bg-white rounded-full flex items-center justify-center hover:bg-gray-200 transition"><Play fill="black" size={12} className="text-black ml-0.5" /></button>
+                <button className="w-8 h-8 border border-gray-500 rounded-full flex items-center justify-center hover:border-white transition bg-[#333c46]/50"><Plus size={16} className="text-white" /></button>
+                <button className="w-8 h-8 border border-gray-500 rounded-full flex items-center justify-center ml-auto hover:border-white transition bg-[#333c46]/50"><Info size={16} className="text-white" /></button>
+            </div>
+            
+            <h3 className="text-sm font-bold text-white leading-tight mb-1 truncate">{movie.title || movie.name}</h3>
+            
+            <div className="flex items-center gap-2 text-[10px] font-bold text-[#a9b7c1] mb-1">
+                <span className="text-[#00A8E1]">⭐ {movie.vote_average?.toFixed(1)}</span>
+                <span>{movie.release_date?.split('-')[0] || movie.first_air_date?.split('-')[0]}</span>
+                <span className="bg-[#33373d] px-1 rounded border border-gray-600 text-white">16+</span>
+            </div>
+            
+            <p className="text-[10px] text-gray-400 line-clamp-2 leading-relaxed">
+                {movie.overview}
+            </p>
+        </div>
+      )}
     </div>
   );
 };
@@ -801,13 +745,14 @@ const Row = ({ title, fetchUrl, variant = 'standard', itemType = 'movie', isPrim
   const handleLeave = () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); setHoveredId(null); };
 
   return (
-    <div className="mb-6 pl-4 md:pl-12 relative z-20 group/row animate-row-enter">
+    <div className="mb-2 pl-4 md:pl-12 relative z-20 group/row animate-row-enter">
       <h3 className="text-[19px] font-bold text-white mb-2 flex items-center gap-2">
           {variant === 'ranked' ? <span className={theme.color}>Top 10</span> : <span className={theme.color}>{theme.name}</span>} 
           {title}
           <ChevronRight size={18} className="text-[#8197a4] opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer"/>
       </h3>
-      <div className={`row-container ${variant === 'vertical' ? 'vertical' : ''} scrollbar-hide`}>
+      {/* Added py-10 padding to prevent clipping when cards scale up */}
+      <div className={`row-container ${variant === 'vertical' ? 'vertical' : ''} scrollbar-hide py-10 -my-10`}>
         {movies.length > 0 && movies.map((movie, index) => ( 
            (movie.backdrop_path || movie.poster_path) && 
            <MovieCard key={movie.id} movie={movie} variant={variant} itemType={itemType} rank={index + 1} isHovered={hoveredId === movie.id} onHover={handleHover} onLeave={handleLeave} isPrimeOnly={isPrimeOnly} /> 
