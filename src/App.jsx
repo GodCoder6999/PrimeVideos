@@ -717,27 +717,28 @@ const Hero = ({ isPrimeOnly }) => {
 };
 
 // --- MOVIE CARD COMPONENT ---
-// Target: 360px x 440px | Ultra Clean Layout
-// Logic: Base 200px * Scale 1.8 = 360px Width
-const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank, isPrimeOnly }) => {
+// Target: 360px x 440px | Smart Origin Expansion (Fixes Left Cut-off)
+const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank, isPrimeOnly, isFirst, isLast }) => {
   const navigate = useNavigate();
   const [trailerKey, setTrailerKey] = useState(null);
   
-  // Force Poster/Vertical orientation
+  // Force Poster orientation
   const imageUrl = movie.poster_path || movie.backdrop_path;
   
   // Dimensions Configuration
   const baseWidth = 'w-[160px] md:w-[200px]';
-  const aspectRatio = 'aspect-[360/440]'; // Exact ratio
+  const aspectRatio = 'aspect-[360/440]'; 
   const cardMargin = variant === 'ranked' ? 'ml-[70px]' : ''; 
+
+  // Determine Transform Origin based on position
+  // First card expands right (origin-left), Last card expands left (origin-right)
+  const originClass = isFirst ? 'origin-left' : isLast ? 'origin-right' : 'origin-center';
 
   // Mock Metadata
   const rating = movie.vote_average ? Math.round(movie.vote_average * 10) + "%" : "98%";
   const year = movie.release_date?.split('-')[0] || "2024";
   const duration = movie.media_type === 'tv' ? '1 Season' : '2h 15m';
-  const genres = ["Action", "Drama"].join(" • ");
 
-  // Fetch trailer on hover
   useEffect(() => {
     if (isHovered) { 
         const mediaType = movie.media_type || itemType || 'movie';
@@ -766,10 +767,10 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
         className={`
             relative w-full h-full rounded-xl overflow-hidden cursor-pointer bg-[#19222b] shadow-xl
             transform transition-all duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1)
-            origin-center border border-white/5 ring-1 ring-white/5
+            border border-white/5 ring-1 ring-white/5
+            ${originClass}
         `}
         style={{
-            // Scale 1.8x = 360px width from 200px base
             transform: isHovered ? 'scale(1.8)' : 'scale(1)',
             boxShadow: isHovered ? '0 25px 50px rgba(0,0,0,0.8)' : '0 4px 6px rgba(0,0,0,0.1)',
         }}
@@ -778,7 +779,6 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
         <div className={`w-full h-full relative bg-black transition-transform duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1) ${isHovered ? 'scale-[1.02]' : 'scale-100'}`}>
             {isHovered && trailerKey ? (
                <div className="absolute inset-0 w-full h-full overflow-hidden">
-                   {/* Centered Video: Covers Height, Centers Width */}
                    <iframe 
                       className="absolute top-0 left-1/2 -translate-x-1/2 h-full w-[177%] max-w-none pointer-events-none" 
                       src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} 
@@ -792,7 +792,7 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
             )}
         </div>
 
-        {/* OVERLAY LAYER (Ultra Clean) */}
+        {/* OVERLAY LAYER */}
         <div 
             className={`
                 absolute inset-0 flex flex-col justify-end px-4 py-5 text-white
@@ -821,7 +821,7 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
                 </button>
             </div>
 
-            {/* Metadata Line 1 */}
+            {/* Metadata */}
             <div className="flex items-center gap-1.5 text-[6px] font-medium text-gray-300 mb-1">
                 <span className="text-[#46d369] font-bold">{rating} Match</span>
                 <span className="text-gray-600 text-[5px]">•</span>
@@ -831,7 +831,7 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
                 <span className="ml-auto border border-white/20 px-1 rounded-[2px] text-[5px] text-gray-400">U/A 13+</span>
             </div>
 
-            {/* NEW: Video Quality Badges */}
+            {/* Video Quality Badges */}
             <div className="flex items-center gap-1 mb-2 opacity-80">
                 <span className="bg-white/10 text-[4.5px] font-bold px-1 py-0.5 rounded-[2px] text-gray-200">4K UHD</span>
                 <span className="bg-white/10 text-[4.5px] font-bold px-1 py-0.5 rounded-[2px] text-gray-200">HDR10</span>
@@ -854,7 +854,16 @@ const Row = ({ title, fetchUrl, variant = 'standard', itemType = 'movie', isPrim
   const timeoutRef = useRef(null);
   const theme = getTheme(isPrimeOnly);
 
-  useEffect(() => { fetch(`${BASE_URL}${fetchUrl}`).then(res => res.json()).then(data => setMovies(data.results || [])).catch(err => console.error(err)); }, [fetchUrl]);
+  useEffect(() => { 
+      fetch(`${BASE_URL}${fetchUrl}`)
+        .then(res => res.json())
+        .then(data => {
+            // Filter out items without images to ensure 'first' and 'last' logic matches visual reality
+            const validResults = (data.results || []).filter(m => m.backdrop_path || m.poster_path);
+            setMovies(validResults);
+        })
+        .catch(err => console.error(err)); 
+  }, [fetchUrl]);
 
   const handleHover = (id) => { if (timeoutRef.current) clearTimeout(timeoutRef.current); timeoutRef.current = setTimeout(() => setHoveredId(id), 400); };
   const handleLeave = () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); setHoveredId(null); };
@@ -867,9 +876,21 @@ const Row = ({ title, fetchUrl, variant = 'standard', itemType = 'movie', isPrim
           <ChevronRight size={18} className="text-[#8197a4] opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer"/>
       </h3>
       <div className={`row-container ${variant === 'vertical' ? 'vertical' : ''} scrollbar-hide`}>
-        {movies.length > 0 && movies.map((movie, index) => ( 
-           (movie.backdrop_path || movie.poster_path) && 
-           <MovieCard key={movie.id} movie={movie} variant={variant} itemType={itemType} rank={index + 1} isHovered={hoveredId === movie.id} onHover={handleHover} onLeave={handleLeave} isPrimeOnly={isPrimeOnly} /> 
+        {movies.map((movie, index) => ( 
+           <MovieCard 
+               key={movie.id} 
+               movie={movie} 
+               variant={variant} 
+               itemType={itemType} 
+               rank={index + 1} 
+               isHovered={hoveredId === movie.id} 
+               onHover={handleHover} 
+               onLeave={handleLeave} 
+               isPrimeOnly={isPrimeOnly}
+               // SMART POSITIONING PROPS
+               isFirst={index === 0}
+               isLast={index === movies.length - 1}
+           /> 
         ))}
       </div>
     </div>
