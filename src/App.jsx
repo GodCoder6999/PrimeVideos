@@ -822,43 +822,49 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
 
         {/* Expanded Details (Visible on Hover) */}
         {isHovered && (
-            <div className="p-3 flex flex-col gap-2.5 bg-[#0f1014] animate-in fade-in slide-in-from-bottom-2">
+            <div className="p-4 flex flex-col gap-3 bg-[#0f1014] animate-in fade-in slide-in-from-bottom-2 h-auto">
                 
-                {/* Provider Line */}
-                <div className="flex items-center gap-1.5 text-[10px] font-bold text-[#00A8E1]">
-                    <CheckCircle2 size={12} className="fill-current" />
+                {/* Title */}
+                <h3 className="text-white font-bold text-base leading-tight drop-shadow-md">{movie.title || movie.name}</h3>
+
+                {/* Platform/Provider Line */}
+                <div className="flex items-center gap-1.5 text-[11px] font-medium text-[#00A8E1]">
+                    <CheckCircle2 size={14} className="fill-current" />
                     <span>Included with Prime</span>
                 </div>
 
-                {/* Controls */}
-                <div className="flex items-center gap-2">
-                    <button className="flex-1 bg-white hover:bg-gray-200 text-black text-xs font-bold py-2 rounded-md transition-colors flex items-center justify-center gap-2">
-                        <Play fill="black" size={14} /> Play
+                {/* Interactive Controls Row */}
+                <div className="flex items-center gap-3">
+                    <button className="flex-1 bg-white hover:bg-gray-200 text-black text-xs font-extrabold py-3 rounded-md transition-colors flex items-center justify-center gap-2 uppercase tracking-wide">
+                        <Play fill="black" size={16} /> Play
                     </button>
-                    <button className="w-8 h-8 rounded-full border border-gray-600 hover:border-white flex items-center justify-center transition-colors bg-[#1e293b]">
-                        <Plus size={16} className="text-white" />
+                    <button className="w-10 h-10 rounded-full border border-gray-600 hover:border-white hover:bg-white/10 flex items-center justify-center transition-all bg-transparent group/btn">
+                        <List size={20} className="text-white group-hover/btn:text-white" />
                     </button>
-                    <button className="w-8 h-8 rounded-full border border-gray-600 hover:border-white flex items-center justify-center transition-colors bg-[#1e293b]">
-                        <Info size={16} className="text-white" />
+                    <button className="w-10 h-10 rounded-full border border-gray-600 hover:border-white hover:bg-white/10 flex items-center justify-center transition-all bg-transparent group/btn">
+                        <Plus size={20} className="text-white group-hover/btn:text-white" />
+                    </button>
+                    <button className="w-10 h-10 rounded-full border border-gray-600 hover:border-white hover:bg-white/10 flex items-center justify-center transition-all bg-transparent group/btn">
+                        <Ban size={18} className="text-white group-hover/btn:text-white" />
                     </button>
                 </div>
 
-                {/* Trending/Genre */}
-                <div className="flex items-center gap-1.5 text-[10px] font-bold text-[#46d369]">
-                    <TrendingUp size={12} />
+                {/* Ranking / Category Indicator */}
+                <div className="flex items-center gap-2 text-[11px] font-bold text-[#46d369]">
+                    <TrendingUp size={14} />
                     <span>#{rank || Math.floor(Math.random() * 10) + 1} in Movies</span>
                 </div>
 
-                {/* Metadata Badges */}
-                <div className="flex items-center gap-2 text-[10px] font-bold text-gray-300">
-                    <span className="bg-[#33373d] px-1.5 py-0.5 rounded-[3px] border border-white/10">U/A 13+</span>
-                    <span className="bg-[#33373d] px-1.5 py-0.5 rounded-[3px] border border-white/10">{movie.release_date?.split('-')[0] || "2024"}</span>
-                    <span className="text-gray-400">2 h 15 min</span>
+                {/* Content Classification & Runtime */}
+                <div className="flex items-center gap-3 text-[11px] font-semibold text-gray-300">
+                    <span className="bg-[#33373d] text-[#d6d6d6] px-1.5 py-0.5 rounded-[3px] border border-white/10">U/A 13+</span>
+                    <span>{movie.release_date?.split('-')[0] || "2024"}</span>
+                    <span className="text-gray-400">2h 15m</span>
                 </div>
 
                 {/* Description */}
-                <p className="text-gray-400 text-[10px] line-clamp-3 leading-relaxed font-medium">
-                    {movie.overview}
+                <p className="text-gray-400 text-[11px] line-clamp-3 leading-relaxed font-normal">
+                    {movie.overview || "No description available."}
                 </p>
             </div>
         )}
@@ -998,9 +1004,6 @@ const MovieDetail = () => {
     </div>
   );
 };
-
-// ... (Rest of component unchanged) ...
-// (Player and Wrappers are same as previous, re-added for completeness)
 
 const Player = () => {
   const { type, id } = useParams();
