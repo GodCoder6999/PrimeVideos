@@ -106,9 +106,13 @@ const useInfiniteRows = (type = 'movie', isPrimeOnly = true) => {
   const [deck, setDeck] = useState([]); 
   const [deckIndex, setDeckIndex] = useState(0); 
 
+  // Helper to generate API URLs
   const getUrl = (category, pageNum) => {
+      // If the global type is 'all', rely on the category's specific type
+      const targetType = category.type || (type === 'all' ? 'movie' : type);
+      
       if (isPrimeOnly) {
-          let base = `/discover/${category.type || type}?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&page=${pageNum}`;
+          let base = `/discover/${targetType}?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&page=${pageNum}`;
           if (category.variant === 'ranked' || category.sort) base += `&sort_by=${category.sort || 'popularity.desc'}`;
           else if (category.year) base += `&primary_release_year=${category.year}&sort_by=popularity.desc`;
           else if (category.genre) base += `&with_genres=${category.genre}&sort_by=popularity.desc`;
@@ -116,7 +120,7 @@ const useInfiniteRows = (type = 'movie', isPrimeOnly = true) => {
           return base;
       } 
       else {
-          let base = `/discover/${category.type || type}?api_key=${TMDB_API_KEY}&page=${pageNum}`;
+          let base = `/discover/${targetType}?api_key=${TMDB_API_KEY}&page=${pageNum}`;
           if (category.endpoint) return `/${category.endpoint}?api_key=${TMDB_API_KEY}&page=${pageNum}`; 
           if (category.year) base += `&primary_release_year=${category.year}&sort_by=popularity.desc`;
           else if (category.genre) base += `&with_genres=${category.genre}&sort_by=popularity.desc`;
@@ -126,22 +130,59 @@ const useInfiniteRows = (type = 'movie', isPrimeOnly = true) => {
   };
 
   useEffect(() => {
-      const initialDeck = shuffleDeck([...CATEGORY_DECK]);
+      // 1. FILTER THE DECK BASED ON TAB TYPE
+      // If type is 'all', show everything. If 'movie' or 'tv', filter strictly.
+      const filteredDeck = type === 'all' 
+        ? [...CATEGORY_DECK] 
+        : CATEGORY_DECK.filter(item => item.type === type);
+      
+      const initialDeck = shuffleDeck(filteredDeck);
       setDeck(initialDeck);
+
+      // 2. CONFIGURE INITIAL ROWS (HERO & TOP 10)
+      let heroUrl, topUrl, heroTitle;
+
+      if (type === 'tv') {
+          heroTitle = "Trending TV Shows";
+          heroUrl = isPrimeOnly 
+            ? `/discover/tv?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc&page=1`
+            : `/trending/tv/day?api_key=${TMDB_API_KEY}`;
+          topUrl = isPrimeOnly
+            ? `/discover/tv?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc&page=1`
+            : `/tv/top_rated?api_key=${TMDB_API_KEY}`;
+      } else if (type === 'movie') {
+          heroTitle = "Trending Movies";
+          heroUrl = isPrimeOnly 
+            ? `/discover/movie?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc&page=1`
+            : `/trending/movie/day?api_key=${TMDB_API_KEY}`;
+          topUrl = isPrimeOnly
+            ? `/discover/movie?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc&page=1`
+            : `/movie/top_rated?api_key=${TMDB_API_KEY}`;
+      } else {
+          // 'all' / Mixed Home
+          heroTitle = isPrimeOnly ? "Prime - Recommended" : "Trending Now";
+          heroUrl = isPrimeOnly
+            ? `/discover/movie?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc&page=1`
+            : `/trending/all/day?api_key=${TMDB_API_KEY}`;
+          topUrl = isPrimeOnly
+            ? `/discover/movie?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc&page=1`
+            : `/trending/all/day?api_key=${TMDB_API_KEY}`;
+      }
+
       const initialRows = [
           { 
               id: 'trending_hero', 
-              title: isPrimeOnly ? "Prime - Recommended for you" : "Trending Now", 
-              fetchUrl: getUrl({ type, variant: 'standard' }, 1), 
+              title: heroTitle, 
+              fetchUrl: heroUrl, 
               variant: 'standard', 
-              itemType: type 
+              itemType: type === 'all' ? 'movie' : type 
           },
           { 
               id: 'top_10', 
               title: isPrimeOnly ? "Top 10 on Prime" : "Top 10 Globally", 
-              fetchUrl: getUrl({ type, variant: 'ranked' }, 1), 
+              fetchUrl: topUrl, 
               variant: 'ranked', 
-              itemType: type 
+              itemType: type === 'all' ? 'movie' : type 
           },
       ];
       setRows(initialRows);
@@ -167,7 +208,7 @@ const useInfiniteRows = (type = 'movie', isPrimeOnly = true) => {
         setDeckIndex(prev => prev + 3); 
         setLoading(false); 
     }, 600);
-  }, [loading, deck, deckIndex, isPrimeOnly]);
+  }, [loading, deck, deckIndex, isPrimeOnly, type]); // Added type to dependency
    
   return { rows, loadMore, loading };
 };
@@ -1424,7 +1465,8 @@ const Player = () => {
 };
 
 // --- MAIN WRAPPERS ---
-const Home = ({ isPrimeOnly }) => { const { rows, loadMore } = useInfiniteRows('movie', isPrimeOnly); return <><Hero isPrimeOnly={isPrimeOnly} /><div className="-mt-10 relative z-20 pb-20">{rows.map(row => <Row key={row.id} title={row.title} fetchUrl={row.fetchUrl} variant={row.variant} itemType={row.itemType} isPrimeOnly={isPrimeOnly} />)}<InfiniteScrollTrigger onIntersect={loadMore} /></div></>; };
+// Change 'movie' to 'all'
+const Home = ({ isPrimeOnly }) => { const { rows, loadMore } = useInfiniteRows('all', isPrimeOnly); return <><Hero isPrimeOnly={isPrimeOnly} /><div className="-mt-10 relative z-20 pb-20">{rows.map(row => <Row key={row.id} title={row.title} fetchUrl={row.fetchUrl} variant={row.variant} itemType={row.itemType} isPrimeOnly={isPrimeOnly} />)}<InfiniteScrollTrigger onIntersect={loadMore} /></div></>; };
 const MoviesPage = ({ isPrimeOnly }) => { const { rows, loadMore } = useInfiniteRows('movie', isPrimeOnly); return <><Hero isPrimeOnly={isPrimeOnly} /><div className="-mt-10 relative z-20 pb-20">{rows.map(row => <Row key={row.id} title={row.title} fetchUrl={row.fetchUrl} variant={row.variant} itemType={row.itemType} isPrimeOnly={isPrimeOnly} />)}<InfiniteScrollTrigger onIntersect={loadMore} /></div></>; };
 const TVPage = ({ isPrimeOnly }) => { const { rows, loadMore } = useInfiniteRows('tv', isPrimeOnly); return <><Hero isPrimeOnly={isPrimeOnly} /><div className="-mt-10 relative z-20 pb-20">{rows.map(row => <Row key={row.id} title={row.title} fetchUrl={row.fetchUrl} variant={row.variant} itemType={row.itemType} isPrimeOnly={isPrimeOnly} />)}<InfiniteScrollTrigger onIntersect={loadMore} /></div></>; };
 const LiveTV = () => <div className="pt-32 px-12 text-white">Live TV</div>;
