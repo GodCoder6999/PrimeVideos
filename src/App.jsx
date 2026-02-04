@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useLocation, useParams, Link } from 'react-router-dom';
-import { Search, User, Play, Info, Plus, ChevronRight, ChevronLeft, Download, Share2, CheckCircle2, Calendar, Clock, ThumbsUp, Ban, ChevronDown, Grip, Loader, List, ArrowLeft, X, Volume2, VolumeX, Trophy, Radio, Signal } from 'lucide-react';
+import { Search, Play, Info, Plus, ChevronRight, ChevronLeft, Download, Share2, CheckCircle2, ThumbsUp, ChevronDown, Grip, Loader, List, ArrowLeft, X, Volume2, VolumeX, Trophy, Signal, Clock, Ban } from 'lucide-react';
 import './App.css';
 
 // --- CONFIGURATION ---
@@ -715,6 +715,8 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
   const imageUrl = isPoster || isRanked ? movie.poster_path : movie.backdrop_path;
   const baseWidth = isPoster ? 'w-[160px] md:w-[190px]' : isRanked ? 'w-[180px]' : 'w-[240px] md:w-[280px]';
   const baseHeight = isPoster || isRanked ? 'h-[240px] md:h-[280px]' : 'h-[140px] md:h-[160px]';
+  
+  // Expanded width only for inner absolute card
   const expandedWidth = isPoster || isRanked ? 'w-[220px]' : 'w-[340px]'; 
   const cardMargin = isRanked ? 'ml-[70px]' : ''; 
 
@@ -729,17 +731,27 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
   }, [isHovered, movie, itemType, isPoster, isRanked]);
 
   return (
+    // WRAPPER: Always stays the same size (baseWidth). Relative position for inner absolute positioning.
     <div 
-      className={`relative flex-shrink-0 transition-all duration-300 ease-in-out cursor-pointer group/card ${cardMargin}
-        ${isHovered ? `${expandedWidth} z-50 scale-110` : `${baseWidth} z-0 scale-100`}
-      `}
-      style={{ height: isHovered && !isPoster && !isRanked ? 'auto' : baseHeight, transformOrigin: 'center center' }}
+      className={`relative flex-shrink-0 z-0 ${baseWidth} ${cardMargin}`}
+      style={{ height: baseHeight }}
       onMouseEnter={() => onHover(movie.id)}
       onMouseLeave={onLeave}
-      onClick={() => navigate(`/detail/${movie.media_type || itemType || 'movie'}/${movie.id}`)}
     >
       {isRanked && <span className="rank-number">{rank}</span>}
-      <div className={`w-full h-full rounded-lg overflow-hidden bg-[#19222b] shadow-xl transition-all duration-300 ${isHovered ? `shadow-[0_0_40px_rgba(0,0,0,0.8)] border ${theme.border}` : ''} glow-hover`}>
+      
+      {/* INNER CARD: Expands absolutely on hover */}
+      <div 
+        className={`
+          transition-all duration-300 ease-in-out cursor-pointer rounded-lg overflow-hidden bg-[#19222b] shadow-xl
+          ${isHovered 
+              ? `absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 ${expandedWidth} z-50 scale-110 shadow-[0_0_40px_rgba(0,0,0,0.8)] border ${theme.border}` 
+              : 'w-full h-full relative z-0 scale-100'}
+        `}
+        // Allow height to grow on hover to fit description, otherwise fixed
+        style={{ height: isHovered && !isPoster && !isRanked ? 'auto' : '100%' }}
+        onClick={() => navigate(`/detail/${movie.media_type || itemType || 'movie'}/${movie.id}`)}
+      >
         <div className={`relative w-full ${!isPoster && !isRanked ? 'aspect-video' : 'h-full'}`}>
             {isHovered && trailerKey && !isPoster && !isRanked ? (
                <iframe className="w-full h-full object-cover pointer-events-none scale-125" src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} title="Trailer" allow="autoplay; encrypted-media" frameBorder="0"></iframe>
@@ -751,8 +763,10 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
                 <div className="absolute bottom-2 left-3"><span className={`text-[10px] font-black tracking-widest ${theme.color} uppercase drop-shadow-md`}>PRIME</span></div>
             )}
         </div>
+
+        {/* DETAILS SECTION (Only visible on hover) */}
         {isHovered && !isPoster && !isRanked && (
-            <div className="p-3 flex flex-col gap-2 animate-in bg-[#1a242f] rounded-b-lg shadow-lg">
+            <div className="p-3 flex flex-col gap-2 animate-in bg-[#1a242f] rounded-b-lg">
                 <div className="flex items-center gap-2 mb-1">
                     <button className="w-8 h-8 bg-white rounded-full flex items-center justify-center hover:bg-gray-200 transition"><Play fill="black" size={12} className="text-black ml-0.5" /></button>
                     <button className="w-8 h-8 border border-gray-500 rounded-full flex items-center justify-center hover:border-white transition bg-[#333c46]/50"><Plus size={16} className="text-white" /></button>
@@ -761,12 +775,12 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
                 </div>
                 <h3 className="text-sm font-bold text-white leading-tight">{movie.title || movie.name}</h3>
                 <div className="flex items-center gap-2 text-[11px] font-bold text-[#a9b7c1]">
+                    {isPrimeOnly && <span className={theme.color}>Included with Prime</span>}
                     <span className="text-[#00A8E1] flex items-center gap-1">⭐ {movie.vote_average?.toFixed(1)}</span>
-                    <span>{movie.release_date?.split('-')[0] || movie.first_air_date?.split('-')[0]}</span>
                     <span className="bg-[#33373d] px-1 rounded border border-gray-600 text-white">16+</span>
                     <span className="border border-gray-600 px-1 rounded text-[9px] text-gray-400">HD</span>
                 </div>
-                <p className="text-[10px] text-gray-300 line-clamp-3 leading-relaxed">
+                <p className="text-[10px] text-gray-300 line-clamp-3 leading-relaxed mt-1">
                     {movie.overview}
                 </p>
             </div>
