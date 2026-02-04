@@ -8,16 +8,27 @@ const GlobalStyles = () => (
     .scrollbar-hide::-webkit-scrollbar { display: none; }
     .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
     .nav-gradient { background: linear-gradient(180deg, rgba(0,5,13,0.7) 10%, transparent); }
-    /* Increased vertical padding to allow cards to scale up without clipping */
-    .row-container { display: flex; overflow-y: hidden; overflow-x: scroll; padding: 40px 0 60px 0; gap: 16px; scroll-behavior: smooth; }
+    
+    /* FIX: Huge padding prevents vertical clipping when cards scale up */
+    .row-container { 
+        display: flex; 
+        overflow-y: hidden; /* Standard scroll behavior */
+        overflow-x: scroll; 
+        padding: 150px 4% 150px 4%; /* Increased padding for scale space */
+        margin-top: -100px; /* Pull back up to correct visual layout */
+        margin-bottom: -50px;
+        gap: 16px; 
+        scroll-behavior: smooth; 
+        position: relative;
+    }
+
     .rank-number { position: absolute; left: -70px; bottom: 0; font-size: 100px; font-weight: 900; color: #19222b; -webkit-text-stroke: 2px #5a6069; z-index: 0; font-family: sans-serif; letter-spacing: -5px; line-height: 0.8; }
-    .glow-hover:hover { box-shadow: 0 0 20px rgba(255, 255, 255, 0.1); }
+    
     @keyframes row-enter { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
     .animate-row-enter { animation: row-enter 0.6s ease-out forwards; }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     .animate-in { animation: fadeIn 0.3s ease-out forwards; }
     
-    /* Text Gradient for Titles */
     .text-gradient {
         background: linear-gradient(to bottom, #ffffff 0%, #e0e0e0 100%);
         -webkit-background-clip: text;
@@ -706,29 +717,26 @@ const Hero = ({ isPrimeOnly }) => {
 };
 
 // --- MOVIE CARD COMPONENT ---
-// Re-engineered to fix neighbor shifting and overflow issues.
-// --- MOVIE CARD COMPONENT ---
-// Refined: Taller (16:10), Cleaner Spacing, Detailed Overlay
-// --- MOVIE CARD COMPONENT ---
-// Target Expansion: 548px x 730px
-// Logic: Base width 200px * Scale 2.74 = 548px
+// Fixed Overlap & Rich Details Expansion
 const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank, isPrimeOnly }) => {
   const navigate = useNavigate();
   const [trailerKey, setTrailerKey] = useState(null);
   
-  // Force Vertical Poster mode to match 548x730 orientation
+  // Force Poster orientation for vertical design
   const imageUrl = movie.poster_path || movie.backdrop_path;
   
   // Dimensions Configuration
-  // Base width: 200px (Desktop)
-  // Aspect Ratio: 548/730 (approx 0.75)
+  // Base width: 200px (Desktop) -> Scales to ~548px
   const baseWidth = 'w-[160px] md:w-[200px]';
-  const aspectRatio = 'aspect-[548/730]'; 
+  const aspectRatio = 'aspect-[2/3]'; 
   const cardMargin = variant === 'ranked' ? 'ml-[70px]' : ''; 
 
-  // Mock Metadata
-  const rating = movie.vote_average ? Math.round(movie.vote_average * 10) + "%" : "NEW";
+  // Mock Metadata for "Rich Details"
+  const rating = movie.vote_average ? Math.round(movie.vote_average * 10) + "%" : "98%";
   const year = movie.release_date?.split('-')[0] || "2024";
+  const duration = movie.media_type === 'tv' ? '1 Season' : '2h 15m';
+  // Mock Genres (You can map these from IDs if you have the list)
+  const genres = ["Action", "Adventure", "Sci-Fi"].join(" • ");
 
   // Fetch trailer on hover
   useEffect(() => {
@@ -745,11 +753,12 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
 
   return (
     <div 
-      className={`relative flex-shrink-0 ${baseWidth} ${aspectRatio} ${cardMargin} group z-10`}
+      className={`relative flex-shrink-0 ${baseWidth} ${aspectRatio} ${cardMargin} group transition-all duration-300`}
       onMouseEnter={() => onHover(movie.id)}
       onMouseLeave={onLeave}
       onClick={() => navigate(`/detail/${movie.media_type || itemType || 'movie'}/${movie.id}`)}
-      style={{ zIndex: isHovered ? 100 : 10 }} // Ensure it pops above everything
+      // CRITICAL: High z-index on hover ensures overlap
+      style={{ zIndex: isHovered ? 100 : 10 }} 
     >
       {/* Rank Number */}
       {variant === 'ranked' && <span className="rank-number">{rank}</span>}
@@ -757,14 +766,14 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
       {/* CARD CONTAINER */}
       <div 
         className={`
-            relative w-full h-full rounded-xl overflow-hidden cursor-pointer bg-[#19222b] shadow-xl border border-white/5
+            relative w-full h-full rounded-xl overflow-hidden cursor-pointer bg-[#19222b] shadow-xl
             transform transition-all duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1)
-            origin-center
+            origin-center border border-white/10
         `}
         style={{
-            // Apply the precise scale to hit 548x730 from a 200px base
+            // Scale 2.74x = 548px width from 200px base
             transform: isHovered ? 'scale(2.74)' : 'scale(1)',
-            boxShadow: isHovered ? '0 30px 60px rgba(0,0,0,0.8)' : '0 4px 6px rgba(0,0,0,0.1)'
+            boxShadow: isHovered ? '0 40px 80px rgba(0,0,0,0.95)' : '0 4px 6px rgba(0,0,0,0.1)',
         }}
       >
         {/* MEDIA LAYER */}
@@ -782,53 +791,71 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
             )}
         </div>
 
-        {/* OVERLAY LAYER - Scaled down text to compensate for the 2.74x zoom */}
+        {/* RICH DETAIL OVERLAY (Scaled Down Text) */}
+        {/* We use tiny text sizes because they get multiplied by 2.74 */}
         <div 
             className={`
                 absolute inset-0 flex flex-col justify-end px-3 py-4 text-white
-                bg-gradient-to-t from-[#0f171e] via-[#0f171e]/80 to-transparent
+                bg-gradient-to-t from-[#0f171e] via-[#0f171e]/90 to-transparent
                 transition-all duration-300 ease-out
                 ${isHovered ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}
             `}
         >
-            {/* We use smaller text classes because the container is zoomed 2.74x */}
-            
-            {/* Title Area */}
-            <div className="mb-1">
-                <h3 className="font-black text-[6px] leading-tight text-white drop-shadow-md line-clamp-2 uppercase tracking-wide">
-                    {movie.title || movie.name}
-                </h3>
+            {/* Prime Logo / Header */}
+            <div className="mb-1 opacity-90">
+               <span className="text-[3px] font-black tracking-[0.2em] text-[#00A8E1] uppercase">Prime Video</span>
             </div>
 
-            {/* Metadata Badges */}
-            <div className="flex items-center gap-1 text-[4px] font-bold text-gray-300 mb-1">
-                <span className="text-[#00A8E1] flex items-center gap-0.5">
-                     <CheckCircle2 size={4} className="fill-current" /> Prime
-                </span>
-                <span className="text-gray-400">•</span>
-                <span className="text-[#46d369]">{rating} Match</span>
-                <span className="text-gray-400">•</span>
-                <span>{year}</span>
-                <span className="bg-white/10 px-0.5 rounded-[1px] border border-white/10 text-[3px]">HD</span>
-            </div>
+            {/* Title */}
+            <h3 className="font-extrabold text-[7px] leading-tight text-white drop-shadow-md line-clamp-2 mb-1.5 w-[90%]">
+                {movie.title || movie.name}
+            </h3>
 
-            {/* Description */}
-            <p className="text-[3.5px] text-gray-400 line-clamp-3 leading-relaxed mb-2 font-medium">
-                {movie.overview || "Experience the drama, action, and excitement."}
-            </p>
-
-            {/* Action Buttons */}
-            <div className="flex items-center gap-1 mt-auto">
-                <button className="flex-1 bg-white hover:bg-gray-200 text-black text-[4px] font-black py-1 rounded-[2px] transition-colors flex items-center justify-center gap-1 uppercase tracking-wider">
-                    <Play fill="black" size={5} /> Play
+            {/* Action Buttons Row */}
+            <div className="flex items-center gap-1.5 mb-2">
+                <button className="flex-1 bg-white hover:bg-[#d6d6d6] text-black text-[3.5px] font-bold py-1.5 rounded-[2px] transition-colors flex items-center justify-center gap-1 uppercase tracking-wider">
+                    <Play fill="black" size={4} /> Play
                 </button>
-                <button className="w-4 h-4 rounded-full bg-white/10 hover:bg-white/20 border-[0.5px] border-white/20 hover:border-white transition flex items-center justify-center backdrop-blur-sm">
+                <button className="w-5 h-5 rounded-full bg-[#42474d]/80 hover:bg-[#42474d] border-[0.5px] border-white/30 hover:border-white transition flex items-center justify-center">
                     <Plus size={6} className="text-white" />
                 </button>
-                <button className="w-4 h-4 rounded-full bg-white/10 hover:bg-white/20 border-[0.5px] border-white/20 hover:border-white transition flex items-center justify-center backdrop-blur-sm">
-                    <Info size={6} className="text-white" />
+                <button className="w-5 h-5 rounded-full bg-[#42474d]/80 hover:bg-[#42474d] border-[0.5px] border-white/30 hover:border-white transition flex items-center justify-center">
+                    <Download size={5} className="text-white" />
                 </button>
             </div>
+
+            {/* Metadata Line */}
+            <div className="flex items-center gap-1 text-[3.5px] font-bold text-gray-300 mb-1">
+                <span className="text-[#00A8E1] flex items-center gap-0.5">
+                     <CheckCircle2 size={3.5} className="fill-current" /> Included with Prime
+                </span>
+                <span className="text-gray-500">|</span>
+                <span className="text-white">U/A 13+</span>
+                <span className="text-gray-500">|</span>
+                <span className="bg-white/20 px-0.5 rounded-[1px] text-white">4K UHD</span>
+                <span className="bg-white/20 px-0.5 rounded-[1px] text-white">HDR10</span>
+            </div>
+
+            {/* Second Metadata Line */}
+            <div className="flex items-center gap-1 text-[3.5px] font-medium text-gray-400 mb-1.5">
+                <span className="text-white font-bold">{year}</span>
+                <span>•</span>
+                <span>{duration}</span>
+                <span>•</span>
+                <span>{genres}</span>
+            </div>
+
+            {/* Synopsis */}
+            <p className="text-[3px] text-gray-300 line-clamp-3 leading-relaxed mb-2 w-[95%]">
+                {movie.overview || "Join the adventure in this critically acclaimed masterpiece. Experience the drama, action, and excitement available only on Prime Video."}
+            </p>
+
+            {/* Footer Details */}
+            <div className="flex gap-2 text-[3px] text-gray-500 font-medium mt-auto">
+                <p><span className="text-gray-400">Audio:</span> English, Hindi, Tamil...</p>
+                <p><span className="text-gray-400">Subtitles:</span> English [CC]...</p>
+            </div>
+
         </div>
       </div>
     </div>
