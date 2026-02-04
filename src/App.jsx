@@ -9,21 +9,21 @@ const GlobalStyles = () => (
     .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
     .nav-gradient { background: linear-gradient(180deg, rgba(0,5,13,0.7) 10%, transparent); }
     
-    /* FIX: Huge padding prevents vertical clipping when cards scale up */
+    /* Adjusted padding for 360x440px expansion (Vertical overflow ~100px) */
     .row-container { 
         display: flex; 
-        overflow-y: hidden; /* Standard scroll behavior */
+        overflow-y: hidden; 
         overflow-x: scroll; 
-        padding: 150px 4% 150px 4%; /* Increased padding for scale space */
-        margin-top: -100px; /* Pull back up to correct visual layout */
-        margin-bottom: -50px;
+        padding: 100px 4%; /* Optimized padding for this specific scale */
+        margin-top: -60px;
+        margin-bottom: -20px;
         gap: 16px; 
         scroll-behavior: smooth; 
         position: relative;
     }
 
     .rank-number { position: absolute; left: -70px; bottom: 0; font-size: 100px; font-weight: 900; color: #19222b; -webkit-text-stroke: 2px #5a6069; z-index: 0; font-family: sans-serif; letter-spacing: -5px; line-height: 0.8; }
-    
+    .glow-hover:hover { box-shadow: 0 0 20px rgba(255, 255, 255, 0.1); }
     @keyframes row-enter { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
     .animate-row-enter { animation: row-enter 0.6s ease-out forwards; }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -718,25 +718,26 @@ const Hero = ({ isPrimeOnly }) => {
 
 // --- MOVIE CARD COMPONENT ---
 // Fixed Overlap & Rich Details Expansion
+// --- MOVIE CARD COMPONENT ---
+// Target: 360px x 440px | Ultra Clean Layout
+// Logic: Base 200px * Scale 1.8 = 360px Width
 const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank, isPrimeOnly }) => {
   const navigate = useNavigate();
   const [trailerKey, setTrailerKey] = useState(null);
   
-  // Force Poster orientation for vertical design
+  // Force Poster/Vertical orientation
   const imageUrl = movie.poster_path || movie.backdrop_path;
   
   // Dimensions Configuration
-  // Base width: 200px (Desktop) -> Scales to ~548px
   const baseWidth = 'w-[160px] md:w-[200px]';
-  const aspectRatio = 'aspect-[2/3]'; 
+  const aspectRatio = 'aspect-[360/440]'; // Exact ratio
   const cardMargin = variant === 'ranked' ? 'ml-[70px]' : ''; 
 
-  // Mock Metadata for "Rich Details"
+  // Mock Metadata
   const rating = movie.vote_average ? Math.round(movie.vote_average * 10) + "%" : "98%";
   const year = movie.release_date?.split('-')[0] || "2024";
   const duration = movie.media_type === 'tv' ? '1 Season' : '2h 15m';
-  // Mock Genres (You can map these from IDs if you have the list)
-  const genres = ["Action", "Adventure", "Sci-Fi"].join(" • ");
+  const genres = ["Action", "Drama"].join(" • ");
 
   // Fetch trailer on hover
   useEffect(() => {
@@ -757,7 +758,6 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
       onMouseEnter={() => onHover(movie.id)}
       onMouseLeave={onLeave}
       onClick={() => navigate(`/detail/${movie.media_type || itemType || 'movie'}/${movie.id}`)}
-      // CRITICAL: High z-index on hover ensures overlap
       style={{ zIndex: isHovered ? 100 : 10 }} 
     >
       {/* Rank Number */}
@@ -768,19 +768,19 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
         className={`
             relative w-full h-full rounded-xl overflow-hidden cursor-pointer bg-[#19222b] shadow-xl
             transform transition-all duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1)
-            origin-center border border-white/10
+            origin-center border border-white/5 ring-1 ring-white/5
         `}
         style={{
-            // Scale 2.74x = 548px width from 200px base
-            transform: isHovered ? 'scale(2.74)' : 'scale(1)',
-            boxShadow: isHovered ? '0 40px 80px rgba(0,0,0,0.95)' : '0 4px 6px rgba(0,0,0,0.1)',
+            // Scale 1.8x = 360px width from 200px base
+            transform: isHovered ? 'scale(1.8)' : 'scale(1)',
+            boxShadow: isHovered ? '0 25px 50px rgba(0,0,0,0.8)' : '0 4px 6px rgba(0,0,0,0.1)',
         }}
       >
         {/* MEDIA LAYER */}
         <div className={`w-full h-full transition-transform duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1) ${isHovered ? 'scale-[1.05]' : 'scale-100'}`}>
             {isHovered && trailerKey ? (
                <iframe 
-                  className="w-full h-full object-cover pointer-events-none scale-[1.5]"
+                  className="w-full h-full object-cover pointer-events-none scale-[1.35]"
                   src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} 
                   title="Trailer" 
                   allow="autoplay; encrypted-media" 
@@ -791,71 +791,49 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
             )}
         </div>
 
-        {/* RICH DETAIL OVERLAY (Scaled Down Text) */}
-        {/* We use tiny text sizes because they get multiplied by 2.74 */}
+        {/* OVERLAY LAYER (Ultra Clean) */}
         <div 
             className={`
-                absolute inset-0 flex flex-col justify-end px-3 py-4 text-white
+                absolute inset-0 flex flex-col justify-end px-4 py-5 text-white
                 bg-gradient-to-t from-[#0f171e] via-[#0f171e]/90 to-transparent
                 transition-all duration-300 ease-out
                 ${isHovered ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}
             `}
         >
-            {/* Prime Logo / Header */}
-            <div className="mb-1 opacity-90">
-               <span className="text-[3px] font-black tracking-[0.2em] text-[#00A8E1] uppercase">Prime Video</span>
+            {/* PRIME TAG */}
+            <div className="mb-2 opacity-90">
+               <span className="text-[5px] font-black tracking-[0.2em] text-[#00A8E1] uppercase bg-[#00A8E1]/10 px-1 py-0.5 rounded-sm">Prime</span>
             </div>
 
-            {/* Title */}
-            <h3 className="font-extrabold text-[7px] leading-tight text-white drop-shadow-md line-clamp-2 mb-1.5 w-[90%]">
+            {/* Title - Larger and bolder for readability */}
+            <h3 className="font-extrabold text-[10px] leading-[1.2] text-white drop-shadow-md line-clamp-2 mb-2 w-[90%]">
                 {movie.title || movie.name}
             </h3>
 
-            {/* Action Buttons Row */}
-            <div className="flex items-center gap-1.5 mb-2">
-                <button className="flex-1 bg-white hover:bg-[#d6d6d6] text-black text-[3.5px] font-bold py-1.5 rounded-[2px] transition-colors flex items-center justify-center gap-1 uppercase tracking-wider">
-                    <Play fill="black" size={4} /> Play
+            {/* Action Buttons - Clean circular layout */}
+            <div className="flex items-center gap-2 mb-3">
+                <button className="bg-white hover:bg-[#d6d6d6] text-black text-[6px] font-bold h-6 px-3 rounded-[3px] transition-colors flex items-center justify-center gap-1 uppercase tracking-wider">
+                    <Play fill="black" size={6} /> Play
                 </button>
-                <button className="w-5 h-5 rounded-full bg-[#42474d]/80 hover:bg-[#42474d] border-[0.5px] border-white/30 hover:border-white transition flex items-center justify-center">
-                    <Plus size={6} className="text-white" />
-                </button>
-                <button className="w-5 h-5 rounded-full bg-[#42474d]/80 hover:bg-[#42474d] border-[0.5px] border-white/30 hover:border-white transition flex items-center justify-center">
-                    <Download size={5} className="text-white" />
+                <button className="w-6 h-6 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white transition flex items-center justify-center">
+                    <Plus size={8} className="text-white" />
                 </button>
             </div>
 
-            {/* Metadata Line */}
-            <div className="flex items-center gap-1 text-[3.5px] font-bold text-gray-300 mb-1">
-                <span className="text-[#00A8E1] flex items-center gap-0.5">
-                     <CheckCircle2 size={3.5} className="fill-current" /> Included with Prime
-                </span>
-                <span className="text-gray-500">|</span>
-                <span className="text-white">U/A 13+</span>
-                <span className="text-gray-500">|</span>
-                <span className="bg-white/20 px-0.5 rounded-[1px] text-white">4K UHD</span>
-                <span className="bg-white/20 px-0.5 rounded-[1px] text-white">HDR10</span>
-            </div>
-
-            {/* Second Metadata Line */}
-            <div className="flex items-center gap-1 text-[3.5px] font-medium text-gray-400 mb-1.5">
-                <span className="text-white font-bold">{year}</span>
-                <span>•</span>
+            {/* Metadata Line - Ultra Clean spacing */}
+            <div className="flex items-center gap-1.5 text-[6px] font-medium text-gray-300 mb-1.5">
+                <span className="text-[#46d369] font-bold">{rating} Match</span>
+                <span className="text-gray-600 text-[5px]">•</span>
+                <span className="text-white">{year}</span>
+                <span className="text-gray-600 text-[5px]">•</span>
                 <span>{duration}</span>
-                <span>•</span>
-                <span>{genres}</span>
+                <span className="ml-auto border border-white/20 px-1 rounded-[2px] text-[5px] text-gray-400">U/A 13+</span>
             </div>
 
-            {/* Synopsis */}
-            <p className="text-[3px] text-gray-300 line-clamp-3 leading-relaxed mb-2 w-[95%]">
-                {movie.overview || "Join the adventure in this critically acclaimed masterpiece. Experience the drama, action, and excitement available only on Prime Video."}
+            {/* Description - Subtle */}
+            <p className="text-[5.5px] text-gray-400 line-clamp-2 leading-relaxed font-medium">
+                {movie.overview || "Stream this title now on Prime Video."}
             </p>
-
-            {/* Footer Details */}
-            <div className="flex gap-2 text-[3px] text-gray-500 font-medium mt-auto">
-                <p><span className="text-gray-400">Audio:</span> English, Hindi, Tamil...</p>
-                <p><span className="text-gray-400">Subtitles:</span> English [CC]...</p>
-            </div>
-
         </div>
       </div>
     </div>
