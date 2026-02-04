@@ -707,24 +707,26 @@ const Hero = ({ isPrimeOnly }) => {
 
 // --- MOVIE CARD COMPONENT ---
 // Re-engineered to fix neighbor shifting and overflow issues.
+// --- MOVIE CARD COMPONENT ---
+// Refined: Taller (16:10), Cleaner Spacing, Detailed Overlay
 const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank, isPrimeOnly }) => {
   const navigate = useNavigate();
   const [trailerKey, setTrailerKey] = useState(null);
-  const theme = getTheme(isPrimeOnly);
-
+  
   const isPoster = variant === 'vertical';
   const isRanked = variant === 'ranked';
   const imageUrl = isPoster || isRanked ? movie.poster_path : movie.backdrop_path;
   
-  // Base Dimensions
-  const baseWidth = isPoster ? 'w-[160px] md:w-[200px]' : isRanked ? 'w-[180px]' : 'w-[240px] md:w-[280px]';
-  const aspectRatio = isPoster || isRanked ? 'aspect-[2/3]' : 'aspect-video';
+  // Adjusted Dimensions: 16/10 aspect ratio for standard cards gives more vertical room
+  const baseWidth = isPoster ? 'w-[160px] md:w-[200px]' : isRanked ? 'w-[180px]' : 'w-[260px] md:w-[300px]';
+  const aspectRatio = isPoster || isRanked ? 'aspect-[2/3]' : 'aspect-[16/10]'; 
   const cardMargin = isRanked ? 'ml-[70px]' : ''; 
 
-  // Mock Data for Badges
-  const rating = movie.vote_average ? movie.vote_average.toFixed(1) : "N/A";
-  
-  // Fetch trailer only when hovered
+  // Mock Metadata
+  const rating = movie.vote_average ? Math.round(movie.vote_average * 10) + "%" : "NEW";
+  const year = movie.release_date?.split('-')[0] || "2024";
+
+  // Fetch trailer on hover
   useEffect(() => {
     if (isHovered && !isPoster && !isRanked) { 
         const mediaType = movie.media_type || itemType || 'movie';
@@ -739,7 +741,7 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
 
   return (
     <div 
-      className={`relative flex-shrink-0 ${baseWidth} ${aspectRatio} ${cardMargin} group`}
+      className={`relative flex-shrink-0 ${baseWidth} ${aspectRatio} ${cardMargin} group z-10 transition-z duration-300 ${isHovered ? 'z-50' : 'z-10'}`}
       onMouseEnter={() => onHover(movie.id)}
       onMouseLeave={onLeave}
       onClick={() => navigate(`/detail/${movie.media_type || itemType || 'movie'}/${movie.id}`)}
@@ -750,63 +752,67 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
       {/* CARD CONTAINER */}
       <div 
         className={`
-            relative w-full h-full rounded-xl overflow-hidden cursor-pointer bg-[#0f1014] shadow-xl border border-white/5
-            transform transition-all duration-[350ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]
-            ${isHovered ? 'scale-[1.08] shadow-[0_20px_40px_rgba(0,0,0,0.6)] z-50' : 'scale-100 z-10'}
+            relative w-full h-full rounded-xl overflow-hidden cursor-pointer bg-[#19222b] shadow-xl border border-white/5
+            transform transition-all duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1)
+            ${isHovered ? 'scale-[1.08] shadow-[0_25px_50px_rgba(0,0,0,0.7)] ring-1 ring-white/20' : 'scale-100'}
         `}
       >
-        {/* MEDIA (Image/Video) - Scales independently */}
-        <div className={`w-full h-full transition-transform duration-[350ms] ease-[cubic-bezier(0.2,0.8,0.2,1)] ${isHovered ? 'scale-[1.1]' : 'scale-100'}`}>
+        {/* MEDIA LAYER */}
+        <div className={`w-full h-full transition-transform duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1) ${isHovered ? 'scale-[1.1]' : 'scale-100'}`}>
             {!isPoster && !isRanked && isHovered && trailerKey ? (
                <iframe 
-                  className="w-full h-full object-cover pointer-events-none scale-[1.35]" // Extra scale for video to cover edges
+                  className="w-full h-full object-cover pointer-events-none scale-[1.4]"
                   src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} 
                   title="Trailer" 
                   allow="autoplay; encrypted-media" 
                   frameBorder="0"
-               ></iframe>
+               />
             ) : (
                <img src={`${IMAGE_BASE_URL}${imageUrl}`} alt={movie.title} className="w-full h-full object-cover" loading="lazy" />
             )}
         </div>
 
-        {/* OVERLAY - Hover Reveal */}
+        {/* OVERLAY LAYER (The "Clean" Detail View) */}
         <div 
             className={`
-                absolute inset-0 flex flex-col justify-end p-4 text-white
-                bg-gradient-to-t from-black/95 via-black/60 to-transparent
+                absolute inset-0 flex flex-col justify-end px-5 py-6 text-white
+                bg-gradient-to-t from-[#0f171e] via-[#0f171e]/90 to-transparent
                 transition-all duration-300 ease-out
-                ${isHovered ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3'}
+                ${isHovered ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}
             `}
         >
-            {/* Title */}
-            <h3 className="font-bold text-base leading-tight drop-shadow-md mb-2">{movie.title || movie.name}</h3>
-
-            {/* Quick Metadata */}
-            <div className="flex items-center gap-2 text-[10px] font-bold text-gray-300 mb-3">
-                <span className="text-[#46d369]">{rating} Match</span>
-                <span className="border border-white/20 px-1 rounded">HD</span>
-                <span>{movie.release_date?.split('-')[0] || "2024"}</span>
+            {/* Title Area */}
+            <div className="mb-2">
+                <h3 className="font-extrabold text-lg leading-tight text-white drop-shadow-md line-clamp-1">
+                    {movie.title || movie.name}
+                </h3>
             </div>
 
-            {/* Included with Prime Tag */}
-            {isPrimeOnly && (
-                <div className="flex items-center gap-1.5 text-[11px] font-medium text-[#00A8E1] mb-3">
-                    <CheckCircle2 size={14} className="fill-current" />
-                    <span>Included with Prime</span>
-                </div>
-            )}
+            {/* Metadata Badges */}
+            <div className="flex items-center gap-2.5 text-[11px] font-bold text-gray-300 mb-3">
+                <span className="text-[#00A8E1] flex items-center gap-1">
+                     <CheckCircle2 size={12} className="fill-current" /> Included with Prime
+                </span>
+                <span className="text-gray-400">•</span>
+                <span>{year}</span>
+                <span className="bg-white/10 px-1.5 py-0.5 rounded border border-white/10 text-[10px]">U/A 13+</span>
+            </div>
 
-            {/* Action Buttons */}
-            <div className="flex items-center gap-2">
-                <button className="flex-1 bg-white text-black text-[10px] font-extrabold py-2 rounded hover:bg-gray-200 transition flex items-center justify-center gap-1 uppercase tracking-wide">
-                    <Play fill="black" size={12} /> Play
+            {/* Description (Added Detail) */}
+            <p className="text-[11px] text-gray-400 line-clamp-2 leading-relaxed mb-4 font-medium">
+                {movie.overview || "Watch this amazing title on Prime Video. Experience the drama, action, and excitement."}
+            </p>
+
+            {/* Action Buttons (Clean Spacing) */}
+            <div className="flex items-center gap-3 mt-auto">
+                <button className="flex-1 bg-white hover:bg-gray-200 text-black text-[11px] font-black py-2.5 rounded-[4px] transition-colors flex items-center justify-center gap-2 uppercase tracking-wide">
+                    <Play fill="black" size={14} /> Play
                 </button>
-                <button className="p-2 rounded-full border border-gray-500 hover:border-white hover:bg-white/20 transition">
-                    <Plus size={14} className="text-white" />
+                <button className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white transition flex items-center justify-center backdrop-blur-sm">
+                    <Plus size={18} className="text-white" />
                 </button>
-                <button className="p-2 rounded-full border border-gray-500 hover:border-white hover:bg-white/20 transition">
-                    <Info size={14} className="text-white" />
+                <button className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white transition flex items-center justify-center backdrop-blur-sm">
+                    <Info size={18} className="text-white" />
                 </button>
             </div>
         </div>
