@@ -1,35 +1,20 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useLocation, useParams, Link } from 'react-router-dom';
 import { Search, Play, Info, Plus, ChevronRight, ChevronLeft, Download, Share2, CheckCircle2, ThumbsUp, ChevronDown, Grip, Loader, List, ArrowLeft, X, Volume2, VolumeX, Trophy, Signal, Clock, Ban } from 'lucide-react';
-
-// --- CSS STYLES ---
-const GlobalStyles = () => (
-  <style>{`
-    .scrollbar-hide::-webkit-scrollbar { display: none; }
-    .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
-    .nav-gradient { background: linear-gradient(180deg, rgba(0,5,13,0.7) 10%, transparent); }
-    .row-container { display: flex; overflow-y: hidden; overflow-x: scroll; padding: 20px 0 20px 0; gap: 10px; }
-    .rank-number { position: absolute; left: -70px; bottom: 0; font-size: 100px; font-weight: 900; color: #19222b; -webkit-text-stroke: 2px #5a6069; z-index: 10; font-family: sans-serif; letter-spacing: -5px; line-height: 0.8; }
-    .glow-hover:hover { box-shadow: 0 0 20px rgba(255, 255, 255, 0.1); }
-    @keyframes row-enter { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-    .animate-row-enter { animation: row-enter 0.6s ease-out forwards; }
-    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-    .animate-in { animation: fadeIn 0.3s ease-out forwards; }
-  `}</style>
-);
+import './App.css';
 
 // --- CONFIGURATION ---
 const TMDB_API_KEY = "09ca3ca71692ba80b848d268502d24ed";
 const BASE_URL = "https://api.themoviedb.org/3";
 const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
 const IMAGE_ORIGINAL_URL = "https://image.tmdb.org/t/p/original";
-const VIDFAST_BASE = "https://vidfast.pro";
+const VIDSRC_BASE = "https://vidsrc.su"; 
 // IMPORTANT: Leave empty to use the vite.config.js / vercel.json proxy
 const LIVESPORT_BASE = ""; 
 
 // STRICT PRIME FILTERS
 const PRIME_PROVIDER_IDS = "9|119"; 
-const PRIME_REGION = "IN";      
+const PRIME_REGION = "IN";     
 
 const ScrollToTop = () => {
   const { pathname } = useLocation();
@@ -149,7 +134,7 @@ const useInfiniteRows = (type = 'movie', isPrimeOnly = true) => {
         setLoading(false); 
     }, 600);
   }, [loading, deck, deckIndex, isPrimeOnly]);
-   
+  
   return { rows, loadMore, loading };
 };
 
@@ -303,273 +288,78 @@ const Navbar = ({ isPrimeOnly }) => {
   );
 };
 
-// --- SPORTS COMPONENTS ---
+// --- MOVIE CARD (UPDATED TO NEW LOGIC) ---
+const MovieCard = ({ movie, variant, itemType, rank, isPrimeOnly }) => {
+  const navigate = useNavigate();
 
-const SportsPage = () => {
-    const [sports, setSports] = useState([]);
-    const [matches, setMatches] = useState([]);
-    const [activeCategory, setActiveCategory] = useState('live'); 
-    const [loading, setLoading] = useState(true);
-    const navigate = useNavigate();
+  const isPoster = variant === 'vertical';
+  const isRanked = variant === 'ranked';
+  const imageUrl = isPoster || isRanked ? movie.poster_path : movie.backdrop_path;
 
-    // Fetch Sports
-    useEffect(() => {
-        fetch(`${LIVESPORT_BASE}/api/sports`)
-            .then(res => {
-                if (!res.ok) throw new Error("Network response was not ok");
-                return res.json();
-            })
-            .then(data => {
-                if (Array.isArray(data)) setSports(data);
-                else setSports([]);
-            })
-            .catch(e => console.error("Error fetching sports:", e));
-    }, []);
+  // Determine width classes based on variant (mimicking previous logic but using new container)
+  const widthClass = isPoster 
+    ? 'w-[160px] md:w-[190px] aspect-[2/3]' 
+    : isRanked 
+        ? 'w-[180px] aspect-[2/3] ml-[70px]' 
+        : 'w-[240px] md:w-[280px] aspect-video';
 
-    // Fetch Matches based on Category
-    useEffect(() => {
-        setLoading(true);
-        setMatches([]); 
-        let endpoint = "";
-        if (activeCategory === 'live') endpoint = "/api/matches/live";
-        else if (activeCategory === 'popular') endpoint = "/api/matches/popular";
-        else endpoint = `/api/matches/${activeCategory}`;
-
-        fetch(`${LIVESPORT_BASE}${endpoint}`)
-            .then(res => {
-                if (!res.ok) throw new Error("Network response was not ok");
-                return res.json();
-            })
-            .then(data => {
-                if (Array.isArray(data)) {
-                    setMatches(data);
-                } else {
-                    console.warn("API returned non-array for matches:", data);
-                    setMatches([]);
-                }
-                setLoading(false);
-            })
-            .catch(e => {
-                console.error("Error fetching matches:", e);
-                setMatches([]);
-                setLoading(false);
-            });
-    }, [activeCategory]);
-
-    const formatTime = (timestamp) => {
-        if (!timestamp) return "TBD";
-        // API says timestamp is in milliseconds, so direct Date() works
-        return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    };
-
-    const isLive = (date) => {
-        const now = Date.now();
-        // Assume match lasts 2 hours (7200000 ms)
-        return activeCategory === 'live' || (date && date < now && date + 7200000 > now); 
-    };
-
-    return (
-        <div className="pt-24 px-4 md:px-12 min-h-screen pb-20">
-            <div className="flex items-center gap-4 mb-8 overflow-x-auto scrollbar-hide pb-2">
-                <button onClick={() => setActiveCategory('live')} className={`flex items-center gap-2 px-5 py-2.5 rounded-full font-bold text-sm transition-all whitespace-nowrap ${activeCategory === 'live' ? 'bg-[#E50914] text-white shadow-lg shadow-red-900/40' : 'bg-[#19222b] text-gray-300 hover:bg-[#333c46] hover:text-white'}`}>
-                    <Signal size={16} className={activeCategory === 'live' ? "animate-pulse" : ""} /> Live Now
-                </button>
-                <button onClick={() => setActiveCategory('popular')} className={`flex items-center gap-2 px-5 py-2.5 rounded-full font-bold text-sm transition-all whitespace-nowrap ${activeCategory === 'popular' ? 'bg-[#00A8E1] text-white shadow-lg shadow-blue-900/40' : 'bg-[#19222b] text-gray-300 hover:bg-[#333c46] hover:text-white'}`}>
-                    <Trophy size={16} /> Popular
-                </button>
-                <div className="w-px h-6 bg-gray-700 mx-2"></div>
-                {sports.map(sport => (
-                    <button key={sport.id} onClick={() => setActiveCategory(sport.id)} className={`px-5 py-2.5 rounded-full font-bold text-sm transition-all whitespace-nowrap capitalize ${activeCategory === sport.id ? 'bg-white text-black' : 'bg-[#19222b] text-gray-300 hover:bg-[#333c46] hover:text-white'}`}>
-                        {sport.name}
-                    </button>
-                ))}
-            </div>
-
-            <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
-                {activeCategory === 'live' ? "Live Matches" : activeCategory === 'popular' ? "Trending Matches" : `${sports.find(s=>s.id === activeCategory)?.name || 'Sport'} Matches`}
-                {loading && <Loader className="animate-spin ml-3 text-[#00A8E1]" size={20} />}
-            </h2>
-
-            {loading ? (
-                <div className="h-60 flex items-center justify-center text-gray-500">Loading matches...</div>
-            ) : matches.length === 0 ? (
-                <div className="h-60 flex items-center justify-center text-gray-500 flex-col gap-2">
-                    <Trophy size={48} className="opacity-20" />
-                    <p>No matches found in this category.</p>
-                </div>
-            ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                    {matches.map((match, idx) => (
-                        <div key={match.id || idx} onClick={() => navigate(`/watch/sport/${match.id}`)} className="bg-[#19222b] hover:bg-[#232d38] rounded-xl p-0 overflow-hidden cursor-pointer transition-all duration-300 group hover:-translate-y-1 hover:shadow-2xl border border-transparent hover:border-[#00A8E1]/30">
-                            <div className="h-32 bg-gradient-to-br from-[#0f171e] to-[#1a242f] relative p-4 flex items-center justify-between">
-                                <div className="flex flex-col items-center gap-2 w-[40%] text-center">
-                                    <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center p-2 backdrop-blur-sm">
-                                        {match.teams?.home?.badge ? <img src={match.teams.home.badge} className="w-full h-full object-contain" alt="" /> : <span className="text-xs font-bold">{match.teams?.home?.name?.[0] || 'H'}</span>}
-                                    </div>
-                                    <span className="text-xs font-bold text-gray-300 line-clamp-1">{match.teams?.home?.name || "Home"}</span>
-                                </div>
-                                <div className="flex flex-col items-center justify-center gap-1 w-[20%]">
-                                    <span className="text-xs font-black text-[#5a6b7c]">VS</span>
-                                </div>
-                                <div className="flex flex-col items-center gap-2 w-[40%] text-center">
-                                    <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center p-2 backdrop-blur-sm">
-                                        {match.teams?.away?.badge ? <img src={match.teams.away.badge} className="w-full h-full object-contain" alt="" /> : <span className="text-xs font-bold">{match.teams?.away?.name?.[0] || 'A'}</span>}
-                                    </div>
-                                    <span className="text-xs font-bold text-gray-300 line-clamp-1">{match.teams?.away?.name || "Away"}</span>
-                                </div>
-                                {isLive(match.date) && (
-                                    <div className="absolute top-2 right-2 flex items-center gap-1 bg-[#E50914] text-white text-[9px] font-black px-1.5 py-0.5 rounded tracking-widest animate-pulse">
-                                        LIVE
-                                    </div>
-                                )}
-                            </div>
-                            <div className="p-4 border-t border-white/5">
-                                <h3 className="font-bold text-white text-sm mb-2 line-clamp-1 group-hover:text-[#00A8E1] transition">{match.title || "Unknown Match"}</h3>
-                                <div className="flex items-center justify-between text-xs text-[#8197a4] font-medium">
-                                    <span className="capitalize flex items-center gap-1"><Trophy size={12} /> {match.category || "Sport"}</span>
-                                    <span className="flex items-center gap-1"><Clock size={12} /> {formatTime(match.date)}</span>
-                                </div>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </div>
-    );
-};
-
-const SportsPlayer = () => {
-    const { id } = useParams();
-    const navigate = useNavigate();
-    const [streams, setStreams] = useState([]);
-    const [activeStream, setActiveStream] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [matchTitle, setMatchTitle] = useState("Loading Match...");
-    const [showStreamList, setShowStreamList] = useState(false);
-
-    useEffect(() => {
-        // Fetch detail using proxy
-        fetch(`${LIVESPORT_BASE}/api/matches/${id}/detail`)
-            .then(res => {
-                if (!res.ok) throw new Error("Match not found");
-                return res.json();
-            })
-            .then(data => {
-                if (data.sources && Array.isArray(data.sources) && data.sources.length > 0) {
-                    setStreams(data.sources);
-                    setActiveStream(data.sources[0]);
-                }
-                setLoading(false);
-            })
-            .catch(e => {
-                console.error("Error loading stream:", e);
-                setLoading(false);
-            });
+  return (
+    <div
+      className={`prime-card ${widthClass} flex-shrink-0`}
+      onClick={() => navigate(`/detail/${movie.media_type || itemType || 'movie'}/${movie.id}`)}
+    >
+        {isRanked && <span className="rank-number">{rank}</span>}
         
-        // Fetch Title Info (Optional backup if detail doesn't have it)
-        fetch(`${LIVESPORT_BASE}/api/matches/live`)
-            .then(res => res.json())
-            .then(matches => {
-                if(Array.isArray(matches)) {
-                    const found = matches.find(m => m.id === id);
-                    if (found) setMatchTitle(found.title);
-                    else {
-                          fetch(`${LIVESPORT_BASE}/api/matches/popular`).then(r=>r.json()).then(pop => {
-                             if(Array.isArray(pop)) {
-                                 const pFound = pop.find(m => m.id === id);
-                                 if (pFound) setMatchTitle(pFound.title);
-                                 else setMatchTitle("Live Sport Stream");
-                             }
-                          });
-                     }
-                }
-            })
-            .catch(() => setMatchTitle("Live Sport Stream"));
+        <img
+            src={`${IMAGE_BASE_URL}${imageUrl}`}
+            alt={movie.title || movie.name}
+            className="w-full h-full object-cover" 
+            loading="lazy"
+        />
 
-    }, [id]);
-
-    return (
-        <div className="fixed inset-0 bg-black z-[200] flex flex-col">
-            <div className="h-16 bg-[#19222b] flex items-center px-4 justify-between shrink-0 border-b border-white/10 relative z-50">
-                <div className="flex items-center gap-4">
-                    <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-white transition"><ArrowLeft size={24} /></button>
-                    <div>
-                        <h1 className="text-white font-bold text-lg leading-tight">{matchTitle}</h1>
-                        <div className="text-[#00A8E1] text-xs font-bold flex items-center gap-1">LIVE BROADCAST</div>
-                    </div>
-                </div>
-                
-                {streams.length > 1 && (
-                    <button onClick={() => setShowStreamList(!showStreamList)} className="flex items-center gap-2 bg-[#00A8E1] hover:bg-[#008ebf] text-white px-4 py-2 rounded-md text-sm font-bold transition">
-                        <Signal size={16} /> Switch Stream
-                    </button>
-                )}
+        <div className="prime-overlay">
+            <div className="prime-actions">
+                <button 
+                    className="play-btn" 
+                    onClick={(e) => { e.stopPropagation(); navigate(`/watch/${movie.media_type || itemType || 'movie'}/${movie.id}`); }}
+                >
+                    <Play size={16} fill="currentColor" />
+                </button>
+                <button className="add" onClick={(e) => e.stopPropagation()}>
+                    <Plus size={20} />
+                </button>
+                <button className="info" onClick={(e) => { e.stopPropagation(); navigate(`/detail/${movie.media_type || itemType || 'movie'}/${movie.id}`); }}>
+                    <Info size={20} />
+                </button>
             </div>
-
-            <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden">
-                {loading ? (
-                    <div className="text-white flex flex-col items-center gap-3">
-                        <Loader className="animate-spin text-[#00A8E1]" size={40} />
-                        <p className="text-sm text-gray-400">Locating secure stream...</p>
-                    </div>
-                ) : activeStream ? (
-                    <iframe 
-                        src={activeStream.embedUrl} 
-                        className="w-full h-full border-0" 
-                        allowFullScreen 
-                        allow="autoplay; encrypted-media"
-                        title="Sports Player"
-                    />
-                ) : (
-                    <div className="text-center text-gray-500">
-                        <Ban size={48} className="mx-auto mb-4 opacity-50" />
-                        <p>No active streams found for this match.</p>
-                        <button onClick={() => navigate(-1)} className="mt-4 text-[#00A8E1] hover:underline">Go Back</button>
-                    </div>
-                )}
-
-                {/* Stream Switcher Overlay */}
-                {showStreamList && (
-                    <div className="absolute top-4 right-4 w-72 bg-[#19222b]/95 backdrop-blur-md border border-gray-700 rounded-lg shadow-2xl overflow-hidden animate-in fade-in slide-in-from-right-10 z-[60]">
-                        <div className="p-3 border-b border-white/10 flex justify-between items-center">
-                            <span className="font-bold text-white text-sm">Select Source</span>
-                            <X size={16} className="text-gray-400 cursor-pointer hover:text-white" onClick={() => setShowStreamList(false)} />
-                        </div>
-                        <div className="max-h-[300px] overflow-y-auto">
-                            {streams.map((stream, idx) => (
-                                <div 
-                                    key={stream.id || idx} 
-                                    onClick={() => { setActiveStream(stream); setShowStreamList(false); }}
-                                    className={`p-3 border-b border-white/5 cursor-pointer hover:bg-white/5 transition flex items-center justify-between ${activeStream === stream ? 'bg-[#00A8E1]/10 border-l-4 border-l-[#00A8E1]' : 'border-l-4 border-l-transparent'}`}
-                                >
-                                    <div>
-                                        <div className="text-white font-bold text-sm">Stream {stream.streamNo}</div>
-                                        <div className="text-xs text-gray-400 capitalize">{stream.language || 'Unknown Language'}</div>
-                                    </div>
-                                    {stream.hd && <span className="bg-[#333] text-xs text-white px-1.5 py-0.5 rounded border border-gray-600">HD</span>}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
+            
+            <div className="prime-meta">
+                 <h3 className="font-bold text-white text-sm leading-tight drop-shadow-md line-clamp-1">{movie.title || movie.name}</h3>
+                 <div className="flex items-center gap-2 text-[11px] font-bold mt-1 text-gray-300">
+                    {isPrimeOnly && <span className="text-[#00A8E1]">Prime</span>}
+                    <span>{movie.release_date?.split('-')[0] || movie.first_air_date?.split('-')[0] || "2024"}</span>
+                    <span className="bg-white/20 px-1 rounded border border-white/20">U/A 13+</span>
+                 </div>
+                 <p className="line-clamp-2 text-[10px] text-gray-400 leading-tight mt-1">{movie.overview}</p>
             </div>
         </div>
-    );
+    </div>
+  );
 };
 
-// --- HERO SECTION WITH HOVER PLAYBACK LOGIC ---
+// --- HERO SECTION ---
 const Hero = ({ isPrimeOnly }) => {
   const [movies, setMovies] = useState([]);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [trailerKey, setTrailerKey] = useState(null);
   const [showVideo, setShowVideo] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
-   
+  
   // Refs for tracking hover state and timers
   const playTimeout = useRef(null);
   const stopTimeout = useRef(null);
   const isHovering = useRef(false);
-   
+  
   const navigate = useNavigate();
   const theme = getTheme(isPrimeOnly);
 
@@ -721,83 +511,11 @@ const Hero = ({ isPrimeOnly }) => {
   );
 };
 
-const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank, isPrimeOnly }) => {
-  const navigate = useNavigate();
-  const [trailerKey, setTrailerKey] = useState(null);
-  const theme = getTheme(isPrimeOnly);
-
-  const isPoster = variant === 'vertical';
-  const isRanked = variant === 'ranked';
-  const imageUrl = isPoster || isRanked ? movie.poster_path : movie.backdrop_path;
-  const baseWidth = isPoster ? 'w-[160px] md:w-[190px]' : isRanked ? 'w-[180px]' : 'w-[240px] md:w-[280px]';
-  const baseHeight = isPoster || isRanked ? 'h-[240px] md:h-[280px]' : 'h-[140px] md:h-[160px]';
-  const expandedWidth = isPoster || isRanked ? 'w-[220px]' : 'w-[340px]'; 
-  const cardMargin = isRanked ? 'ml-[70px]' : ''; 
-
-  useEffect(() => {
-    if (isHovered && !isPoster && !isRanked) { 
-        const mediaType = movie.media_type || itemType || 'movie';
-        fetch(`${BASE_URL}/${mediaType}/${movie.id}/videos?api_key=${TMDB_API_KEY}`).then(res => res.json()).then(data => {
-              const trailer = data.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube') || data.results?.find(v => v.site === 'YouTube');
-              if (trailer) setTrailerKey(trailer.key);
-          }).catch(err => console.error(err));
-    } else { setTrailerKey(null); }
-  }, [isHovered, movie, itemType, isPoster, isRanked]);
-
-  return (
-    <div 
-      className={`relative flex-shrink-0 transition-all duration-300 ease-in-out cursor-pointer group/card ${cardMargin}
-        ${isHovered ? `${expandedWidth} z-50 scale-110` : `${baseWidth} z-0 scale-100`}
-      `}
-      style={{ height: isHovered && !isPoster && !isRanked ? 'auto' : baseHeight, transformOrigin: 'center center' }}
-      onMouseEnter={() => onHover(movie.id)}
-      onMouseLeave={onLeave}
-      onClick={() => navigate(`/detail/${movie.media_type || itemType || 'movie'}/${movie.id}`)}
-    >
-      {isRanked && <span className="rank-number">{rank}</span>}
-      <div className={`w-full h-full rounded-lg overflow-hidden bg-[#19222b] shadow-xl transition-all duration-300 ${isHovered ? `shadow-[0_0_40px_rgba(0,0,0,0.8)] border ${theme.border}` : ''} glow-hover`}>
-        <div className={`relative w-full ${!isPoster && !isRanked ? 'aspect-video' : 'h-full'}`}>
-            {isHovered && trailerKey && !isPoster && !isRanked ? (
-               <iframe className="w-full h-full object-cover pointer-events-none scale-125" src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} title="Trailer" allow="autoplay; encrypted-media" frameBorder="0"></iframe>
-            ) : (
-               <img src={`${IMAGE_BASE_URL}${imageUrl}`} alt={movie.title} className="w-full h-full object-cover opacity-95 hover:opacity-100 transition-opacity" />
-            )}
-            {!isPoster && !isRanked && <div className="absolute inset-0 bg-gradient-to-t from-[#19222b] via-transparent to-transparent"></div>}
-            {!isHovered && !isPoster && !isRanked && isPrimeOnly && (
-                <div className="absolute bottom-2 left-3"><span className={`text-[10px] font-black tracking-widest ${theme.color} uppercase drop-shadow-md`}>PRIME</span></div>
-            )}
-        </div>
-        {isHovered && !isPoster && !isRanked && (
-            <div className="p-3 flex flex-col gap-2 animate-in bg-[#1a242f]">
-                <div className="flex items-center gap-2">
-                    <button className="w-8 h-8 bg-white rounded-full flex items-center justify-center hover:bg-gray-200 transition"><Play fill="black" size={12} className="text-black ml-0.5" /></button>
-                    <button className="w-8 h-8 border border-gray-500 rounded-full flex items-center justify-center hover:border-white transition bg-[#333c46]/50"><Plus size={16} className="text-white" /></button>
-                    <button className="w-8 h-8 border border-gray-500 rounded-full flex items-center justify-center hover:border-white transition bg-[#333c46]/50"><ThumbsUp size={14} className="text-white" /></button>
-                    <button className="w-8 h-8 border border-gray-500 rounded-full flex items-center justify-center ml-auto hover:border-white transition bg-[#333c46]/50"><ChevronDown size={16} className="text-white" /></button>
-                </div>
-                <div className="flex items-center gap-2 text-[10px] font-bold text-[#a9b7c1]">
-                    {isPrimeOnly && <span className={theme.color}>Included with Prime</span>}
-                    <span className="bg-[#33373d] px-1 rounded border border-gray-600 text-white">16+</span>
-                    <span className="border border-gray-600 px-1 rounded text-[9px] text-gray-400">HD</span>
-                </div>
-                <div className="flex items-center gap-1.5 flex-wrap"><span className="text-[11px] font-bold text-white leading-tight line-clamp-1">{movie.title || movie.name}</span></div>
-            </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
 const Row = ({ title, fetchUrl, variant = 'standard', itemType = 'movie', isPrimeOnly }) => {
   const [movies, setMovies] = useState([]);
-  const [hoveredId, setHoveredId] = useState(null);
-  const timeoutRef = useRef(null);
   const theme = getTheme(isPrimeOnly);
 
   useEffect(() => { fetch(`${BASE_URL}${fetchUrl}`).then(res => res.json()).then(data => setMovies(data.results || [])).catch(err => console.error(err)); }, [fetchUrl]);
-
-  const handleHover = (id) => { if (timeoutRef.current) clearTimeout(timeoutRef.current); timeoutRef.current = setTimeout(() => setHoveredId(id), 400); };
-  const handleLeave = () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); setHoveredId(null); };
 
   return (
     <div className="mb-6 pl-4 md:pl-12 relative z-20 group/row animate-row-enter">
@@ -809,7 +527,7 @@ const Row = ({ title, fetchUrl, variant = 'standard', itemType = 'movie', isPrim
       <div className={`row-container ${variant === 'vertical' ? 'vertical' : ''} scrollbar-hide`}>
         {movies.length > 0 && movies.map((movie, index) => ( 
            (movie.backdrop_path || movie.poster_path) && 
-           <MovieCard key={movie.id} movie={movie} variant={variant} itemType={itemType} rank={index + 1} isHovered={hoveredId === movie.id} onHover={handleHover} onLeave={handleLeave} isPrimeOnly={isPrimeOnly} /> 
+           <MovieCard key={movie.id} movie={movie} variant={variant} itemType={itemType} rank={index + 1} isPrimeOnly={isPrimeOnly} /> 
         ))}
       </div>
     </div>
@@ -822,7 +540,7 @@ const SearchResults = ({ isPrimeOnly }) => {
   const query = new URLSearchParams(useLocation().search).get('q'); 
   const theme = getTheme(isPrimeOnly);
   const navigate = useNavigate();
-   
+  
   useEffect(() => { 
       if (query) {
           setLoading(true);
@@ -920,25 +638,267 @@ const MovieDetail = () => {
   );
 };
 
-const Player = () => {
-  const { type, id } = useParams();
-  const navigate = useNavigate();
-  const location = useLocation();
+// --- SPORTS COMPONENTS ---
+const SportsPage = () => {
+    const [sports, setSports] = useState([]);
+    const [matches, setMatches] = useState([]);
+    const [activeCategory, setActiveCategory] = useState('live'); 
+    const [loading, setLoading] = useState(true);
+    const navigate = useNavigate();
 
-  // Parse query parameters to get the specific season/episode if clicked from Detail page
-  // Default to 1 if not present
-  const queryParams = new URLSearchParams(location.search);
-  
-  // State for playback
-  const [season, setSeason] = useState(Number(queryParams.get('season')) || 1);
-  const [episode, setEpisode] = useState(Number(queryParams.get('episode')) || 1);
-  
-  // State for UI
+    // Fetch Sports
+    useEffect(() => {
+        fetch(`${LIVESPORT_BASE}/api/sports`)
+            .then(res => {
+                if (!res.ok) throw new Error("Network response was not ok");
+                return res.json();
+            })
+            .then(data => {
+                if (Array.isArray(data)) setSports(data);
+                else setSports([]);
+            })
+            .catch(e => console.error("Error fetching sports:", e));
+    }, []);
+
+    // Fetch Matches based on Category
+    useEffect(() => {
+        setLoading(true);
+        setMatches([]); 
+        let endpoint = "";
+        if (activeCategory === 'live') endpoint = "/api/matches/live";
+        else if (activeCategory === 'popular') endpoint = "/api/matches/popular";
+        else endpoint = `/api/matches/${activeCategory}`;
+
+        fetch(`${LIVESPORT_BASE}${endpoint}`)
+            .then(res => {
+                if (!res.ok) throw new Error("Network response was not ok");
+                return res.json();
+            })
+            .then(data => {
+                if (Array.isArray(data)) {
+                    setMatches(data);
+                } else {
+                    console.warn("API returned non-array for matches:", data);
+                    setMatches([]);
+                }
+                setLoading(false);
+            })
+            .catch(e => {
+                console.error("Error fetching matches:", e);
+                setMatches([]);
+                setLoading(false);
+            });
+    }, [activeCategory]);
+
+    const formatTime = (timestamp) => {
+        if (!timestamp) return "TBD";
+        return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    };
+
+    const isLive = (date) => {
+        const now = Date.now();
+        // Assume match lasts 2 hours
+        return activeCategory === 'live' || (date && date < now && date + 7200000 > now); 
+    };
+
+    return (
+        <div className="pt-24 px-4 md:px-12 min-h-screen pb-20">
+            <div className="flex items-center gap-4 mb-8 overflow-x-auto scrollbar-hide pb-2">
+                <button onClick={() => setActiveCategory('live')} className={`flex items-center gap-2 px-5 py-2.5 rounded-full font-bold text-sm transition-all whitespace-nowrap ${activeCategory === 'live' ? 'bg-[#E50914] text-white shadow-lg shadow-red-900/40' : 'bg-[#19222b] text-gray-300 hover:bg-[#333c46] hover:text-white'}`}>
+                    <Signal size={16} className={activeCategory === 'live' ? "animate-pulse" : ""} /> Live Now
+                </button>
+                <button onClick={() => setActiveCategory('popular')} className={`flex items-center gap-2 px-5 py-2.5 rounded-full font-bold text-sm transition-all whitespace-nowrap ${activeCategory === 'popular' ? 'bg-[#00A8E1] text-white shadow-lg shadow-blue-900/40' : 'bg-[#19222b] text-gray-300 hover:bg-[#333c46] hover:text-white'}`}>
+                    <Trophy size={16} /> Popular
+                </button>
+                <div className="w-px h-6 bg-gray-700 mx-2"></div>
+                {sports.map(sport => (
+                    <button key={sport.id} onClick={() => setActiveCategory(sport.id)} className={`px-5 py-2.5 rounded-full font-bold text-sm transition-all whitespace-nowrap capitalize ${activeCategory === sport.id ? 'bg-white text-black' : 'bg-[#19222b] text-gray-300 hover:bg-[#333c46] hover:text-white'}`}>
+                        {sport.name}
+                    </button>
+                ))}
+            </div>
+
+            <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
+                {activeCategory === 'live' ? "Live Matches" : activeCategory === 'popular' ? "Trending Matches" : `${sports.find(s=>s.id === activeCategory)?.name || 'Sport'} Matches`}
+                {loading && <Loader className="animate-spin ml-3 text-[#00A8E1]" size={20} />}
+            </h2>
+
+            {loading ? (
+                <div className="h-60 flex items-center justify-center text-gray-500">Loading matches...</div>
+            ) : matches.length === 0 ? (
+                <div className="h-60 flex items-center justify-center text-gray-500 flex-col gap-2">
+                    <Trophy size={48} className="opacity-20" />
+                    <p>No matches found in this category.</p>
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    {matches.map((match, idx) => (
+                        <div key={match.id || idx} onClick={() => navigate(`/watch/sport/${match.id}`)} className="bg-[#19222b] hover:bg-[#232d38] rounded-xl p-0 overflow-hidden cursor-pointer transition-all duration-300 group hover:-translate-y-1 hover:shadow-2xl border border-transparent hover:border-[#00A8E1]/30">
+                            <div className="h-32 bg-gradient-to-br from-[#0f171e] to-[#1a242f] relative p-4 flex items-center justify-between">
+                                <div className="flex flex-col items-center gap-2 w-[40%] text-center">
+                                    <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center p-2 backdrop-blur-sm">
+                                        {match.teams?.home?.badge ? <img src={match.teams.home.badge} className="w-full h-full object-contain" alt="" /> : <span className="text-xs font-bold">{match.teams?.home?.name?.[0] || 'H'}</span>}
+                                    </div>
+                                    <span className="text-xs font-bold text-gray-300 line-clamp-1">{match.teams?.home?.name || "Home"}</span>
+                                </div>
+                                <div className="flex flex-col items-center justify-center gap-1 w-[20%]">
+                                    <span className="text-xs font-black text-[#5a6b7c]">VS</span>
+                                </div>
+                                <div className="flex flex-col items-center gap-2 w-[40%] text-center">
+                                    <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center p-2 backdrop-blur-sm">
+                                        {match.teams?.away?.badge ? <img src={match.teams.away.badge} className="w-full h-full object-contain" alt="" /> : <span className="text-xs font-bold">{match.teams?.away?.name?.[0] || 'A'}</span>}
+                                    </div>
+                                    <span className="text-xs font-bold text-gray-300 line-clamp-1">{match.teams?.away?.name || "Away"}</span>
+                                </div>
+                                {isLive(match.date) && (
+                                    <div className="absolute top-2 right-2 flex items-center gap-1 bg-[#E50914] text-white text-[9px] font-black px-1.5 py-0.5 rounded tracking-widest animate-pulse">
+                                        LIVE
+                                    </div>
+                                )}
+                            </div>
+                            <div className="p-4 border-t border-white/5">
+                                <h3 className="font-bold text-white text-sm mb-2 line-clamp-1 group-hover:text-[#00A8E1] transition">{match.title || "Unknown Match"}</h3>
+                                <div className="flex items-center justify-between text-xs text-[#8197a4] font-medium">
+                                    <span className="capitalize flex items-center gap-1"><Trophy size={12} /> {match.category || "Sport"}</span>
+                                    <span className="flex items-center gap-1"><Clock size={12} /> {formatTime(match.date)}</span>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
+const SportsPlayer = () => {
+    const { id } = useParams();
+    const navigate = useNavigate();
+    const [streams, setStreams] = useState([]);
+    const [activeStream, setActiveStream] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [matchTitle, setMatchTitle] = useState("Loading Match...");
+    const [showStreamList, setShowStreamList] = useState(false);
+
+    useEffect(() => {
+        // Fetch detail using proxy
+        fetch(`${LIVESPORT_BASE}/api/matches/${id}/detail`)
+            .then(res => {
+                if (!res.ok) throw new Error("Match not found");
+                return res.json();
+            })
+            .then(data => {
+                if (data.sources && Array.isArray(data.sources) && data.sources.length > 0) {
+                    setStreams(data.sources);
+                    setActiveStream(data.sources[0]);
+                }
+                setLoading(false);
+            })
+            .catch(e => {
+                console.error("Error loading stream:", e);
+                setLoading(false);
+            });
+        
+        // Fetch Title Info (Optional backup if detail doesn't have it)
+        fetch(`${LIVESPORT_BASE}/api/matches/live`)
+            .then(res => res.json())
+            .then(matches => {
+                if(Array.isArray(matches)) {
+                    const found = matches.find(m => m.id === id);
+                    if (found) setMatchTitle(found.title);
+                    else {
+                         fetch(`${LIVESPORT_BASE}/api/matches/popular`).then(r=>r.json()).then(pop => {
+                             if(Array.isArray(pop)) {
+                                 const pFound = pop.find(m => m.id === id);
+                                 if (pFound) setMatchTitle(pFound.title);
+                                 else setMatchTitle("Live Sport Stream");
+                             }
+                         });
+                    }
+                }
+            })
+            .catch(() => setMatchTitle("Live Sport Stream"));
+
+    }, [id]);
+
+    return (
+        <div className="fixed inset-0 bg-black z-[200] flex flex-col">
+            <div className="h-16 bg-[#19222b] flex items-center px-4 justify-between shrink-0 border-b border-white/10 relative z-50">
+                <div className="flex items-center gap-4">
+                    <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-white transition"><ArrowLeft size={24} /></button>
+                    <div>
+                        <h1 className="text-white font-bold text-lg leading-tight">{matchTitle}</h1>
+                        <div className="text-[#00A8E1] text-xs font-bold flex items-center gap-1">LIVE BROADCAST</div>
+                    </div>
+                </div>
+                
+                {streams.length > 1 && (
+                    <button onClick={() => setShowStreamList(!showStreamList)} className="flex items-center gap-2 bg-[#00A8E1] hover:bg-[#008ebf] text-white px-4 py-2 rounded-md text-sm font-bold transition">
+                        <Signal size={16} /> Switch Stream
+                    </button>
+                )}
+            </div>
+
+            <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden">
+                {loading ? (
+                    <div className="text-white flex flex-col items-center gap-3">
+                        <Loader className="animate-spin text-[#00A8E1]" size={40} />
+                        <p className="text-sm text-gray-400">Locating secure stream...</p>
+                    </div>
+                ) : activeStream ? (
+                    <iframe 
+                        src={activeStream.embedUrl} 
+                        className="w-full h-full border-0" 
+                        allowFullScreen 
+                        allow="autoplay; encrypted-media"
+                        title="Sports Player"
+                    />
+                ) : (
+                    <div className="text-center text-gray-500">
+                        <Ban size={48} className="mx-auto mb-4 opacity-50" />
+                        <p>No active streams found for this match.</p>
+                        <button onClick={() => navigate(-1)} className="mt-4 text-[#00A8E1] hover:underline">Go Back</button>
+                    </div>
+                )}
+
+                {/* Stream Switcher Overlay */}
+                {showStreamList && (
+                    <div className="absolute top-4 right-4 w-72 bg-[#19222b]/95 backdrop-blur-md border border-gray-700 rounded-lg shadow-2xl overflow-hidden animate-in fade-in slide-in-from-right-10 z-[60]">
+                        <div className="p-3 border-b border-white/10 flex justify-between items-center">
+                            <span className="font-bold text-white text-sm">Select Source</span>
+                            <X size={16} className="text-gray-400 cursor-pointer hover:text-white" onClick={() => setShowStreamList(false)} />
+                        </div>
+                        <div className="max-h-[300px] overflow-y-auto">
+                            {streams.map((stream, idx) => (
+                                <div 
+                                    key={stream.id || idx} 
+                                    onClick={() => { setActiveStream(stream); setShowStreamList(false); }}
+                                    className={`p-3 border-b border-white/5 cursor-pointer hover:bg-white/5 transition flex items-center justify-between ${activeStream === stream ? 'bg-[#00A8E1]/10 border-l-4 border-l-[#00A8E1]' : 'border-l-4 border-l-transparent'}`}
+                                >
+                                    <div>
+                                        <div className="text-white font-bold text-sm">Stream {stream.streamNo}</div>
+                                        <div className="text-xs text-gray-400 capitalize">{stream.language || 'Unknown Language'}</div>
+                                    </div>
+                                    {stream.hd && <span className="bg-[#333] text-xs text-white px-1.5 py-0.5 rounded border border-gray-600">HD</span>}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+const Player = () => { 
+  const { type, id } = useParams(); 
+  const [season, setSeason] = useState(1);
+  const [episode, setEpisode] = useState(1);
   const [showEpisodes, setShowEpisodes] = useState(false);
   const [seasonData, setSeasonData] = useState(null);
   const [totalSeasons, setTotalSeasons] = useState(1);
+  const navigate = useNavigate();
 
-  // Fetch Total Seasons
   useEffect(() => {
     if (type === 'tv') {
         fetch(`${BASE_URL}/tv/${id}?api_key=${TMDB_API_KEY}`)
@@ -947,7 +907,6 @@ const Player = () => {
     }
   }, [type, id]);
 
-  // Fetch Season Data
   useEffect(() => {
     if (type === 'tv') {
         fetch(`${BASE_URL}/tv/${id}/season/${season}?api_key=${TMDB_API_KEY}`)
@@ -956,130 +915,71 @@ const Player = () => {
     }
   }, [type, id, season]);
 
-  // Handle watch progress syncing (Updated for VIDFAST format)
+  // Handle watch progress syncing
   useEffect(() => {
-    const vidfastOrigins = [
-        'https://vidfast.pro',
-        'https://vidfast.in',
-        'https://vidfast.io',
-        'https://vidfast.me',
-        'https://vidfast.net',
-        'https://vidfast.pm',
-        'https://vidfast.xyz'
-    ];
-
     const handleMessage = (event) => {
-      // Validate origin
-      if (!vidfastOrigins.includes(event.origin) || !event.data) {
-          return;
-      }
-      
-      // Handle MEDIA_DATA event for progress saving (per docs)
-      if (event.data.type === 'MEDIA_DATA') {
-          // Store data exactly as received from VidFast
-          localStorage.setItem('vidFastProgress', JSON.stringify(event.data.data));
-          
-          // Optional: Sync to our internal format 'watch_progress' if needed for other app features
-          try {
-             const STORAGE_KEY = 'watch_progress';
-             const currentProgress = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-             const contentId = event.data.data[Object.keys(event.data.data)[0]].id || id; // extracting ID from the nested structure
-             
-             // Simple fallback to ensure at least some ID matches
-             if(contentId) {
-                currentProgress[contentId] = {
-                   ...currentProgress[contentId],
-                   ...event.data.data,
-                   last_updated: Date.now()
-                };
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(currentProgress));
-             }
-          } catch(e) {
-             // fail silently if internal sync fails
-          }
+      if (event.data?.type === 'MEDIA_DATA') {
+        const mediaData = event.data.data;
+        if (mediaData.id && (mediaData.type === 'movie' || mediaData.type === 'tv')) {
+            const STORAGE_KEY = 'watch_progress';
+            const currentProgress = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+            currentProgress[mediaData.id] = {
+                ...currentProgress[mediaData.id],
+                ...mediaData,
+                last_updated: Date.now()
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(currentProgress));
+            console.log('Progress updated:', mediaData);
+        }
       }
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [id]);
+  }, []);
 
   const getSourceUrl = () => {
-    // Prime Blue Hex for VidFast theme (no #)
-    const themeParam = "theme=00A8E1";
-    
-    if (type === 'tv') {
-      // Structure: https://vidfast.pro/tv/{id}/{season}/{episode}?autoPlay=true&theme=...&nextButton=true&autoNext=true
-      return `${VIDFAST_BASE}/tv/${id}/${season}/${episode}?autoPlay=true&${themeParam}&nextButton=true&autoNext=true`;
-    } else {
-      // Structure: https://vidfast.pro/movie/{id}?autoPlay=true&theme=...
-      return `${VIDFAST_BASE}/movie/${id}?autoPlay=true&${themeParam}`;
-    }
+      const baseParams = "autoplay=true&colour=00A8E1"; // 00A8E1 is Prime Blue
+      return type === 'tv' 
+        ? `${VIDSRC_BASE}/tv/${id}/${season}/${episode}?${baseParams}&autonextepisode=true` 
+        : `${VIDSRC_BASE}/movie/${id}?${baseParams}`;
   };
 
   return (
-    <div className="fixed inset-0 bg-black z-[100] overflow-hidden flex flex-col">
-      {/* Back Button Overlay */}
-      <div className="absolute top-6 left-6 z-[120]">
-        <button 
-          onClick={() => navigate(-1)} 
-          className="bg-black/50 hover:bg-[#00A8E1] text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all"
-        >
-          <ArrowLeft size={24} />
-        </button>
-      </div>
-
-      {/* Episode List Toggle */}
-      {type === 'tv' && (
-        <div className="absolute top-6 right-6 z-[120]">
-            <button onClick={() => setShowEpisodes(!showEpisodes)} className={`p-3 rounded-full backdrop-blur-md border border-white/10 transition-all ${showEpisodes ? 'bg-[#00A8E1] text-white' : 'bg-black/50 hover:bg-[#333c46] text-gray-200'}`}>
-                <List size={24} />
-            </button>
+    <div className="fixed inset-0 bg-black z-[100] overflow-hidden flex">
+        <div className="absolute top-6 left-6 z-[120]">
+            <button onClick={() => navigate(-1)} className="bg-black/50 hover:bg-[#00A8E1] text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all"><ArrowLeft size={24} /></button>
         </div>
-      )}
-
-      {/* Video Player Iframe */}
-      <div className="flex-1 relative w-full h-full bg-black">
-        <iframe
-          src={getSourceUrl()}
-          className="w-full h-full border-none"
-          allowFullScreen
-          allow="encrypted-media"
-          title="Player"
-        ></iframe>
-      </div>
-
-      {/* Episode Sidebar */}
-      {type === 'tv' && (
-        <div className={`fixed right-0 top-0 h-full bg-[#00050D]/95 backdrop-blur-xl border-l border-white/10 transition-all duration-500 ease-in-out z-[110] flex flex-col ${showEpisodes ? 'w-[350px] translate-x-0 shadow-2xl' : 'w-[350px] translate-x-full shadow-none'}`}>
-            <div className="p-6 border-b border-white/10 flex items-center justify-between bg-[#1a242f]/50">
-                <h2 className="font-bold text-white text-lg">Episodes</h2>
-                <div className="relative">
-                    <select value={season} onChange={(e) => setSeason(Number(e.target.value))} className="appearance-none bg-[#00A8E1] text-white font-bold py-1.5 pl-3 pr-8 rounded cursor-pointer text-sm outline-none hover:bg-[#008ebf] transition">
-                        {Array.from({length: totalSeasons}, (_, i) => i + 1).map(s => (<option key={s} value={s} className="bg-[#1a242f]">Season {s}</option>))}
-                    </select>
-                    <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-white pointer-events-none" />
+        {type === 'tv' && (
+            <div className="absolute top-6 right-6 z-[120]">
+                <button onClick={() => setShowEpisodes(!showEpisodes)} className={`p-3 rounded-full backdrop-blur-md border border-white/10 transition-all ${showEpisodes ? 'bg-[#00A8E1] text-white' : 'bg-black/50 hover:bg-[#333c46] text-gray-200'}`}><List size={24} /></button>
+            </div>
+        )}
+        <div className="flex-1 relative h-full bg-black"><iframe src={getSourceUrl()} className="w-full h-full border-none" allowFullScreen allow="autoplay; encrypted-media" title="Player"></iframe></div>
+        {type === 'tv' && (
+            <div className={`fixed right-0 top-0 h-full bg-[#00050D]/95 backdrop-blur-xl border-l border-white/10 transition-all duration-500 ease-in-out z-[110] flex flex-col ${showEpisodes ? 'w-[350px] translate-x-0 shadow-2xl' : 'w-[350px] translate-x-full shadow-none'}`}>
+                <div className="p-6 border-b border-white/10 flex items-center justify-between bg-[#1a242f]/50">
+                    <h2 className="font-bold text-white text-lg">Episodes</h2>
+                    <div className="relative">
+                        <select value={season} onChange={(e) => setSeason(Number(e.target.value))} className="appearance-none bg-[#00A8E1] text-white font-bold py-1.5 pl-3 pr-8 rounded cursor-pointer text-sm outline-none hover:bg-[#008ebf] transition">{Array.from({length: totalSeasons}, (_, i) => i + 1).map(s => (<option key={s} value={s} className="bg-[#1a242f]">Season {s}</option>))}</select>
+                        <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-white pointer-events-none" />
+                    </div>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-hide">
+                    {seasonData?.episodes ? (seasonData.episodes.map(ep => (
+                            <div key={ep.id} onClick={() => setEpisode(ep.episode_number)} className={`flex gap-3 p-2 rounded-lg cursor-pointer transition-all group ${episode === ep.episode_number ? 'bg-[#333c46] border border-[#00A8E1]' : 'hover:bg-[#333c46] border border-transparent'}`}>
+                                <div className="relative w-28 h-16 flex-shrink-0 bg-black rounded overflow-hidden">
+                                    {ep.still_path ? (<img src={`${IMAGE_BASE_URL}${ep.still_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" />) : (<div className="w-full h-full flex items-center justify-center text-gray-600 text-xs">No Img</div>)}
+                                    {episode === ep.episode_number && (<div className="absolute inset-0 bg-black/40 flex items-center justify-center"><Play size={16} fill="white" className="text-white" /></div>)}
+                                </div>
+                                <div className="flex flex-col justify-center min-w-0"><span className={`text-xs font-bold mb-0.5 ${episode === ep.episode_number ? 'text-[#00A8E1]' : 'text-gray-400'}`}>Episode {ep.episode_number}</span><h4 className={`text-sm font-medium truncate leading-tight ${episode === ep.episode_number ? 'text-white' : 'text-gray-300 group-hover:text-white'}`}>{ep.name}</h4><span className="text-[10px] text-gray-500 mt-1">{ep.runtime ? `${ep.runtime}m` : ''}</span></div>
+                            </div>
+                    ))) : (<div className="text-center text-gray-500 mt-10 flex flex-col items-center"><Loader className="animate-spin mb-2" /><span>Loading Season {season}...</span></div>)}
                 </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-hide">
-                {seasonData?.episodes ? (seasonData.episodes.map(ep => (
-                        <div key={ep.id} onClick={() => setEpisode(ep.episode_number)} className={`flex gap-3 p-2 rounded-lg cursor-pointer transition-all group ${episode === ep.episode_number ? 'bg-[#333c46] border border-[#00A8E1]' : 'hover:bg-[#333c46] border border-transparent'}`}>
-                            <div className="relative w-28 h-16 flex-shrink-0 bg-black rounded overflow-hidden">
-                                {ep.still_path ? (<img src={`${IMAGE_BASE_URL}${ep.still_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" />) : (<div className="w-full h-full flex items-center justify-center text-gray-600 text-xs">No Img</div>)}
-                                {episode === ep.episode_number && (<div className="absolute inset-0 bg-black/40 flex items-center justify-center"><Play size={16} fill="white" className="text-white" /></div>)}
-                            </div>
-                            <div className="flex flex-col justify-center min-w-0">
-                                <span className={`text-xs font-bold mb-0.5 ${episode === ep.episode_number ? 'text-[#00A8E1]' : 'text-gray-400'}`}>Episode {ep.episode_number}</span>
-                                <h4 className={`text-sm font-medium truncate leading-tight ${episode === ep.episode_number ? 'text-white' : 'text-gray-300 group-hover:text-white'}`}>{ep.name}</h4>
-                                <span className="text-[10px] text-gray-500 mt-1">{ep.runtime ? `${ep.runtime}m` : ''}</span>
-                            </div>
-                        </div>
-                ))) : (<div className="text-center text-gray-500 mt-10 flex flex-col items-center"><Loader className="animate-spin mb-2" /><span>Loading Season {season}...</span></div>)}
-            </div>
-        </div>
-      )}
+        )}
     </div>
-  );
+  ); 
 };
 
 // --- MAIN WRAPPERS ---
@@ -1092,7 +992,6 @@ const StorePage = () => <div className="pt-32 px-12 text-white">Store</div>;
 function App() {
   return (
     <BrowserRouter>
-      <GlobalStyles />
       <ScrollToTop />
       <div className="bg-[#00050D] min-h-screen text-white font-sans selection:bg-[#00A8E1] selection:text-white">
         <Routes>
