@@ -8,8 +8,9 @@ const GlobalStyles = () => (
     .scrollbar-hide::-webkit-scrollbar { display: none; }
     .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
     .nav-gradient { background: linear-gradient(180deg, rgba(0,5,13,0.7) 10%, transparent); }
-    .row-container { display: flex; overflow-y: hidden; overflow-x: scroll; padding: 20px 0 40px 0; gap: 16px; }
-    .rank-number { position: absolute; left: -70px; bottom: 0; font-size: 100px; font-weight: 900; color: #19222b; -webkit-text-stroke: 2px #5a6069; z-index: 10; font-family: sans-serif; letter-spacing: -5px; line-height: 0.8; }
+    /* Increased vertical padding to allow cards to scale up without clipping */
+    .row-container { display: flex; overflow-y: hidden; overflow-x: scroll; padding: 40px 0 60px 0; gap: 16px; }
+    .rank-number { position: absolute; left: -70px; bottom: 0; font-size: 100px; font-weight: 900; color: #19222b; -webkit-text-stroke: 2px #5a6069; z-index: 0; font-family: sans-serif; letter-spacing: -5px; line-height: 0.8; }
     .glow-hover:hover { box-shadow: 0 0 20px rgba(255, 255, 255, 0.1); }
     @keyframes row-enter { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
     .animate-row-enter { animation: row-enter 0.6s ease-out forwards; }
@@ -173,7 +174,6 @@ const InfiniteScrollTrigger = ({ onIntersect }) => {
 // --- COMPONENTS ---
 
 const Navbar = ({ isPrimeOnly }) => {
-  // ... (No changes to Navbar) ...
   const [scrolled, setScrolled] = useState(false);
   const [query, setQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -311,7 +311,8 @@ const Navbar = ({ isPrimeOnly }) => {
   );
 };
 
-// ... (Sports components unchanged) ...
+// --- SPORTS COMPONENTS ---
+
 const SportsPage = () => {
     const [sports, setSports] = useState([]);
     const [matches, setMatches] = useState([]);
@@ -566,7 +567,6 @@ const SportsPlayer = () => {
 
 // --- HERO SECTION WITH HOVER PLAYBACK LOGIC ---
 const Hero = ({ isPrimeOnly }) => {
-  // ... (No changes to Hero) ...
   const [movies, setMovies] = useState([]);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [trailerKey, setTrailerKey] = useState(null);
@@ -738,15 +738,16 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
   const isRanked = variant === 'ranked';
   const imageUrl = isPoster || isRanked ? movie.poster_path : movie.backdrop_path;
   
-  // Adjusted widths to match the vertical poster style better
-  const baseWidth = isPoster ? 'w-[180px] md:w-[200px]' : isRanked ? 'w-[180px]' : 'w-[240px] md:w-[280px]';
+  // Base Dimensions (Fixed Layout)
+  const baseWidth = isPoster ? 'w-[160px] md:w-[200px]' : isRanked ? 'w-[180px]' : 'w-[240px] md:w-[280px]';
+  const aspectRatio = isPoster || isRanked ? 'aspect-[2/3]' : 'aspect-video';
   const cardMargin = isRanked ? 'ml-[70px]' : ''; 
 
   // Mock Data for Badges
   const rating = movie.vote_average ? movie.vote_average.toFixed(1) : "N/A";
   const views = movie.popularity ? `${Math.floor(movie.popularity * 100)}` : "10K"; 
 
-  // Only fetch trailer for standard cards that expand horizontally
+  // Fetch trailer only when hovered and appropriate type
   useEffect(() => {
     if (isHovered && !isPoster && !isRanked) { 
         const mediaType = movie.media_type || itemType || 'movie';
@@ -757,79 +758,61 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
     } else { setTrailerKey(null); }
   }, [isHovered, movie, itemType, isPoster, isRanked]);
 
-  // Render Horizontal/Standard Card (Old Style, kept for landscape rows)
-  if (!isPoster && !isRanked) {
-      return (
-        <div 
-          className={`relative flex-shrink-0 transition-all duration-300 ease-in-out cursor-pointer group/card ${cardMargin} ${isHovered ? 'w-[340px] z-50 scale-110' : `${baseWidth} z-0 scale-100`}`}
-          style={{ height: isHovered ? 'auto' : 'h-[140px] md:h-[160px]', transformOrigin: 'center center' }}
-          onMouseEnter={() => onHover(movie.id)}
-          onMouseLeave={onLeave}
-          onClick={() => navigate(`/detail/${movie.media_type || itemType || 'movie'}/${movie.id}`)}
-        >
-          <div className={`w-full h-full rounded-lg overflow-hidden bg-[#19222b] shadow-xl transition-all duration-300 ${isHovered ? `shadow-[0_0_40px_rgba(0,0,0,0.8)] border ${theme.border}` : ''} glow-hover`}>
-            <div className={`relative w-full aspect-video`}>
-                {isHovered && trailerKey ? (
-                   <iframe className="w-full h-full object-cover pointer-events-none scale-125" src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} title="Trailer" allow="autoplay; encrypted-media" frameBorder="0"></iframe>
-                ) : (
-                   <img src={`${IMAGE_BASE_URL}${imageUrl}`} alt={movie.title} className="w-full h-full object-cover opacity-95 hover:opacity-100 transition-opacity" />
-                )}
-                <div className="absolute inset-0 bg-gradient-to-t from-[#19222b] via-transparent to-transparent"></div>
-                {!isHovered && isPrimeOnly && (
-                    <div className="absolute bottom-2 left-3"><span className={`text-[10px] font-black tracking-widest ${theme.color} uppercase drop-shadow-md`}>PRIME</span></div>
-                )}
-            </div>
-            {isHovered && (
-                <div className="p-3 flex flex-col gap-2 animate-in bg-[#1a242f]">
-                    <div className="flex items-center gap-2">
-                        <button className="w-8 h-8 bg-white rounded-full flex items-center justify-center hover:bg-gray-200 transition"><Play fill="black" size={12} className="text-black ml-0.5" /></button>
-                        <button className="w-8 h-8 border border-gray-500 rounded-full flex items-center justify-center hover:border-white transition bg-[#333c46]/50"><Plus size={16} className="text-white" /></button>
-                        <button className="w-8 h-8 border border-gray-500 rounded-full flex items-center justify-center hover:border-white transition bg-[#333c46]/50"><ThumbsUp size={14} className="text-white" /></button>
-                    </div>
-                    <div className="flex items-center gap-1.5 flex-wrap"><span className="text-[11px] font-bold text-white leading-tight line-clamp-1">{movie.title || movie.name}</span></div>
-                </div>
-            )}
-          </div>
-        </div>
-      );
-  }
-
-  // Render Vertical/Poster Card (NEW STYLE)
   return (
     <div 
-      className={`relative flex-shrink-0 transition-all duration-300 ease-in-out cursor-pointer group/card ${cardMargin}
-        ${isHovered ? 'z-50 scale-105' : 'z-0 scale-100'}
-        ${baseWidth}
-      `}
-      style={{ height: 'auto', transformOrigin: 'center center' }}
+      className={`relative flex-shrink-0 ${baseWidth} ${aspectRatio} ${cardMargin}`}
       onMouseEnter={() => onHover(movie.id)}
       onMouseLeave={onLeave}
-      onClick={() => navigate(`/detail/${movie.media_type || itemType || 'movie'}/${movie.id}`)}
     >
+      {/* Rank Number (Outside the animated card to stay fixed) */}
       {isRanked && <span className="rank-number">{rank}</span>}
       
-      {/* Main Card Container with styling matching the image */}
-      <div className={`w-full h-full rounded-xl overflow-hidden bg-[#0f1014] shadow-xl border border-white/5 transition-all relative ${isHovered ? 'border-[#3B82F6]/50 shadow-[0_0_30px_rgba(59,130,246,0.2)]' : 'hover:border-white/20'}`}>
-        
-        {/* Image Container */}
-        <div className="relative aspect-[2/3] w-full">
-            <img src={`${IMAGE_BASE_URL}${movie.poster_path}`} alt={movie.title} className="w-full h-full object-cover" />
+      {/* Animated Card Content */}
+      <div 
+        className={`
+            absolute top-0 left-0 w-full rounded-lg bg-[#0f1014] shadow-xl border border-white/5 
+            transition-all duration-500 ease-[cubic-bezier(0.25,0.8,0.25,1)]
+            origin-center cursor-pointer overflow-hidden
+            ${isHovered ? 'z-50 scale-110 shadow-[0_30px_60px_rgba(0,0,0,0.8)] border-[#3B82F6]/50' : 'z-10 scale-100 hover:border-white/20 h-full'}
+        `}
+        style={{ 
+            // When hovered, allow height to expand naturally. When not, force full height of container.
+            height: isHovered ? 'auto' : '100%',
+            minHeight: '100%'
+        }}
+        onClick={() => navigate(`/detail/${movie.media_type || itemType || 'movie'}/${movie.id}`)}
+      >
+        {/* Media Container */}
+        <div className={`relative w-full ${aspectRatio} overflow-hidden`}>
+            {/* Horizontal Video or Image */}
+            {!isPoster && !isRanked && isHovered && trailerKey ? (
+               <iframe className="w-full h-full object-cover pointer-events-none scale-125" src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} title="Trailer" allow="autoplay; encrypted-media" frameBorder="0"></iframe>
+            ) : (
+               <img src={`${IMAGE_BASE_URL}${imageUrl}`} alt={movie.title} className="w-full h-full object-cover transition-opacity" />
+            )}
             
-            {/* Overlay Gradient for Text readability */}
-            <div className={`absolute inset-0 bg-gradient-to-t from-[#0f1014] via-transparent to-transparent opacity-60 transition-opacity ${isHovered ? 'opacity-90' : ''}`} />
+            {/* Overlays */}
+            <div className={`absolute inset-0 bg-gradient-to-t from-[#0f1014] via-transparent to-transparent transition-opacity ${isHovered ? 'opacity-80' : 'opacity-60'}`} />
 
-            {/* Rating Badge (Top Left) */}
-            <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-md px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-white/10 shadow-sm">
-                <span className="text-[#FFD700] text-xs font-bold">{rating}</span>
-            </div>
+            {/* Badges (Only visible on Vertical/Ranked or when hovered on Horizontal) */}
+            {(isPoster || isRanked || isHovered) && (
+                <>
+                    <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-md px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-white/10 shadow-sm">
+                        <span className="text-[#FFD700] text-xs font-bold">{rating}</span>
+                    </div>
+                    <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-md px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-white/10 shadow-sm">
+                        <Eye size={12} className="text-white/70" />
+                        <span className="text-white text-xs font-bold">{views}</span>
+                    </div>
+                </>
+            )}
 
-            {/* View Count Badge (Top Right) */}
-            <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-md px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-white/10 shadow-sm">
-                <Eye size={12} className="text-white/70" />
-                <span className="text-white text-xs font-bold">{views}</span>
-            </div>
-            
-            {/* Title (Always visible at bottom, moves up on hover) */}
+            {/* Prime Tag (Horizontal Standard) */}
+            {!isHovered && !isPoster && !isRanked && isPrimeOnly && (
+                <div className="absolute bottom-2 left-3"><span className={`text-[10px] font-black tracking-widest ${theme.color} uppercase drop-shadow-md`}>PRIME</span></div>
+            )}
+
+            {/* Title (Collapsed State) */}
             {!isHovered && (
                 <div className="absolute bottom-0 left-0 w-full p-3">
                     <h3 className="text-white font-black text-sm uppercase leading-tight truncate text-shadow-sm text-gradient">{movie.title || movie.name}</h3>
@@ -837,23 +820,30 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
             )}
         </div>
 
-        {/* Expanded Details Section (Visible on Hover) */}
+        {/* Expanded Details (Visible on Hover) */}
         {isHovered && (
-            <div className="absolute bottom-0 left-0 w-full bg-[#0f1014]/95 backdrop-blur-xl p-3 flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 border-t border-white/10">
+            <div className="p-3 flex flex-col gap-2 bg-[#0f1014] animate-in fade-in slide-in-from-bottom-2">
                 {/* Title */}
-                <h3 className="text-white font-black text-sm uppercase leading-tight truncate text-gradient">{movie.title || movie.name}</h3>
+                <h3 className="text-white font-black text-sm uppercase leading-tight text-gradient line-clamp-2">{movie.title || movie.name}</h3>
                 
+                {/* Metadata Row */}
+                <div className="flex items-center gap-2 text-[10px] font-bold text-gray-400">
+                    <span className="border border-gray-700 px-1 rounded text-gray-300">HD</span>
+                    <span>{movie.release_date?.split('-')[0] || "2024"}</span>
+                    {isPrimeOnly && <span className="text-[#00A8E1]">Prime</span>}
+                </div>
+
                 {/* Description */}
-                <p className="text-gray-400 text-[10px] line-clamp-2 leading-relaxed font-medium">
-                    {movie.overview || "No description available."}
+                <p className="text-gray-400 text-[10px] line-clamp-3 leading-relaxed font-medium">
+                    {movie.overview || "No description available for this title."}
                 </p>
                 
                 {/* Action Buttons */}
-                <div className="flex gap-2 mt-1">
-                    <button className="flex-1 bg-[#2563EB] hover:bg-[#1d4ed8] text-white text-xs font-bold py-2 rounded-lg transition-colors flex items-center justify-center shadow-lg shadow-blue-900/20">
+                <div className="flex gap-2 mt-2">
+                    <button className="flex-1 bg-[#2563EB] hover:bg-[#1d4ed8] text-white text-xs font-bold py-2 rounded-md transition-colors flex items-center justify-center shadow-lg shadow-blue-900/20">
                         Details
                     </button>
-                    <button className="bg-[#1e293b] hover:bg-[#334155] text-white p-2 rounded-lg transition-colors border border-white/10 flex items-center justify-center">
+                    <button className="bg-[#1e293b] hover:bg-[#334155] text-white w-9 rounded-md transition-colors border border-white/10 flex items-center justify-center">
                         <Bookmark size={16} />
                     </button>
                 </div>
@@ -891,9 +881,6 @@ const Row = ({ title, fetchUrl, variant = 'standard', itemType = 'movie', isPrim
     </div>
   );
 };
-
-// ... (Rest of components: SearchResults, MovieDetail, Player, Wrappers, App unchanged) ...
-// (Re-declaring them here to ensure the full file is complete)
 
 const SearchResults = ({ isPrimeOnly }) => { 
   const [movies, setMovies] = useState([]); 
