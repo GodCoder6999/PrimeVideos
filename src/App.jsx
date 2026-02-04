@@ -9,7 +9,7 @@ const GlobalStyles = () => (
     .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
     .nav-gradient { background: linear-gradient(180deg, rgba(0,5,13,0.7) 10%, transparent); }
     /* Increased vertical padding to allow cards to scale up without clipping */
-    .row-container { display: flex; overflow-y: hidden; overflow-x: scroll; padding: 40px 0 60px 0; gap: 16px; }
+    .row-container { display: flex; overflow-y: hidden; overflow-x: scroll; padding: 40px 0 60px 0; gap: 16px; scroll-behavior: smooth; }
     .rank-number { position: absolute; left: -70px; bottom: 0; font-size: 100px; font-weight: 900; color: #19222b; -webkit-text-stroke: 2px #5a6069; z-index: 0; font-family: sans-serif; letter-spacing: -5px; line-height: 0.8; }
     .glow-hover:hover { box-shadow: 0 0 20px rgba(255, 255, 255, 0.1); }
     @keyframes row-enter { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
@@ -320,7 +320,6 @@ const SportsPage = () => {
     const [loading, setLoading] = useState(true);
     const navigate = useNavigate();
 
-    // Fetch Sports
     useEffect(() => {
         fetch(`${LIVESPORT_BASE}/api/sports`)
             .then(res => {
@@ -334,7 +333,6 @@ const SportsPage = () => {
             .catch(e => console.error("Error fetching sports:", e));
     }, []);
 
-    // Fetch Matches based on Category
     useEffect(() => {
         setLoading(true);
         setMatches([]); 
@@ -366,13 +364,11 @@ const SportsPage = () => {
 
     const formatTime = (timestamp) => {
         if (!timestamp) return "TBD";
-        // API says timestamp is in milliseconds, so direct Date() works
         return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     };
 
     const isLive = (date) => {
         const now = Date.now();
-        // Assume match lasts 2 hours (7200000 ms)
         return activeCategory === 'live' || (date && date < now && date + 7200000 > now); 
     };
 
@@ -456,7 +452,6 @@ const SportsPlayer = () => {
     const [showStreamList, setShowStreamList] = useState(false);
 
     useEffect(() => {
-        // Fetch detail using proxy
         fetch(`${LIVESPORT_BASE}/api/matches/${id}/detail`)
             .then(res => {
                 if (!res.ok) throw new Error("Match not found");
@@ -474,7 +469,6 @@ const SportsPlayer = () => {
                 setLoading(false);
             });
         
-        // Fetch Title Info (Optional backup if detail doesn't have it)
         fetch(`${LIVESPORT_BASE}/api/matches/live`)
             .then(res => res.json())
             .then(matches => {
@@ -536,7 +530,6 @@ const SportsPlayer = () => {
                     </div>
                 )}
 
-                {/* Stream Switcher Overlay */}
                 {showStreamList && (
                     <div className="absolute top-4 right-4 w-72 bg-[#19222b]/95 backdrop-blur-md border border-gray-700 rounded-lg shadow-2xl overflow-hidden animate-in fade-in slide-in-from-right-10 z-[60]">
                         <div className="p-3 border-b border-white/10 flex justify-between items-center">
@@ -573,7 +566,6 @@ const Hero = ({ isPrimeOnly }) => {
   const [showVideo, setShowVideo] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
    
-  // Refs for tracking hover state and timers
   const playTimeout = useRef(null);
   const stopTimeout = useRef(null);
   const isHovering = useRef(false);
@@ -581,7 +573,6 @@ const Hero = ({ isPrimeOnly }) => {
   const navigate = useNavigate();
   const theme = getTheme(isPrimeOnly);
 
-  // 1. Fetch Top 5 Movies
   useEffect(() => { 
       const endpoint = isPrimeOnly 
         ? `/discover/movie?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc`
@@ -592,11 +583,9 @@ const Hero = ({ isPrimeOnly }) => {
         .then(data => setMovies(data.results.slice(0, 5))); 
   }, [isPrimeOnly]);
 
-  // 2. Load Trailer Key on Slide Change
   useEffect(() => {
       if (movies.length === 0) return;
       
-      // Reset Video State on Slide Change
       setShowVideo(false);
       setTrailerKey(null);
       clearTimeout(playTimeout.current);
@@ -605,14 +594,12 @@ const Hero = ({ isPrimeOnly }) => {
       const movie = movies[currentSlide];
       const mediaType = movie.media_type || 'movie';
 
-      // Fetch Trailer
       fetch(`${BASE_URL}/${mediaType}/${movie.id}/videos?api_key=${TMDB_API_KEY}`)
         .then(res => res.json())
         .then(data => {
             const trailer = data.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube') || data.results?.find(v => v.site === 'YouTube');
             if (trailer) {
                 setTrailerKey(trailer.key);
-                // If mouse is ALREADY hovering when slide changes, restart start timer
                 if (isHovering.current) {
                     playTimeout.current = setTimeout(() => setShowVideo(true), 4000);
                 }
@@ -622,19 +609,15 @@ const Hero = ({ isPrimeOnly }) => {
 
   const handleMouseEnter = () => {
       isHovering.current = true;
-      clearTimeout(stopTimeout.current); // Cancel any pending stop
-      clearTimeout(playTimeout.current); // Reset start timer
-      
-      // Start 4s timer to play video
+      clearTimeout(stopTimeout.current);
+      clearTimeout(playTimeout.current);
       playTimeout.current = setTimeout(() => setShowVideo(true), 4000);
   };
 
   const handleMouseLeave = () => {
       isHovering.current = false;
-      clearTimeout(playTimeout.current); // Cancel pending play
+      clearTimeout(playTimeout.current);
       clearTimeout(stopTimeout.current);
-      
-      // Start 1s timer to stop video
       stopTimeout.current = setTimeout(() => setShowVideo(false), 1000);
   };
 
@@ -651,12 +634,10 @@ const Hero = ({ isPrimeOnly }) => {
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
     >
-      {/* BACKGROUND IMAGE (Visible when video is hidden) */}
       <div className={`absolute inset-0 transition-opacity duration-700 ${showVideo ? 'opacity-0' : 'opacity-100'}`}>
         <img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover" alt="" />
       </div>
 
-      {/* VIDEO PLAYER (Conditionally Rendered to stop audio when removed) */}
       {showVideo && trailerKey && (
           <div className="absolute inset-0 animate-in pointer-events-none">
              <iframe 
@@ -669,11 +650,9 @@ const Hero = ({ isPrimeOnly }) => {
           </div>
       )}
 
-      {/* GRADIENTS */}
       <div className="absolute inset-0 bg-gradient-to-r from-[#00050D] via-[#00050D]/40 to-transparent" />
       <div className="absolute inset-0 bg-gradient-to-t from-[#00050D] via-transparent to-transparent" />
 
-      {/* INFO CONTENT */}
       <div className="absolute top-[25%] left-[4%] max-w-[600px] z-30 animate-row-enter">
         <h1 className="text-5xl md:text-7xl font-extrabold text-white mb-4 drop-shadow-[0_4px_10px_rgba(0,0,0,0.8)] tracking-tight leading-tight">
             {movie.title || movie.name}
@@ -701,7 +680,6 @@ const Hero = ({ isPrimeOnly }) => {
         </div>
       </div>
 
-      {/* MUTE BUTTON */}
       <div className="absolute top-32 right-[4%] z-40">
           <button 
             onClick={() => setIsMuted(!isMuted)} 
@@ -711,7 +689,6 @@ const Hero = ({ isPrimeOnly }) => {
           </button>
       </div>
 
-      {/* CAROUSEL ARROWS */}
       <button onClick={prevSlide} className="absolute left-4 top-1/2 -translate-y-1/2 z-40 p-2 rounded-full bg-black/20 hover:bg-black/50 text-white/50 hover:text-white transition backdrop-blur-sm border border-transparent hover:border-white/30">
           <ChevronLeft size={40} />
       </button>
@@ -719,7 +696,6 @@ const Hero = ({ isPrimeOnly }) => {
           <ChevronRight size={40} />
       </button>
 
-      {/* DOTS */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-40">
           {movies.map((_, idx) => (
               <div key={idx} className={`w-2 h-2 rounded-full transition-all ${idx === currentSlide ? 'bg-white w-4' : 'bg-gray-500'}`} />
@@ -729,6 +705,8 @@ const Hero = ({ isPrimeOnly }) => {
   );
 };
 
+// --- MOVIE CARD COMPONENT ---
+// Re-engineered to fix neighbor shifting and overflow issues.
 const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank, isPrimeOnly }) => {
   const navigate = useNavigate();
   const [trailerKey, setTrailerKey] = useState(null);
@@ -738,7 +716,7 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
   const isRanked = variant === 'ranked';
   const imageUrl = isPoster || isRanked ? movie.poster_path : movie.backdrop_path;
   
-  // Base Dimensions (Fixed Layout)
+  // Base Dimensions (Fixed Layout Placeholders)
   const baseWidth = isPoster ? 'w-[160px] md:w-[200px]' : isRanked ? 'w-[180px]' : 'w-[240px] md:w-[280px]';
   const aspectRatio = isPoster || isRanked ? 'aspect-[2/3]' : 'aspect-video';
   const cardMargin = isRanked ? 'ml-[70px]' : ''; 
@@ -788,13 +766,13 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
             {!isPoster && !isRanked && isHovered && trailerKey ? (
                <iframe className="w-full h-full object-cover pointer-events-none scale-125" src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} title="Trailer" allow="autoplay; encrypted-media" frameBorder="0"></iframe>
             ) : (
-               <img src={`${IMAGE_BASE_URL}${imageUrl}`} alt={movie.title} className="w-full h-full object-cover transition-opacity" />
+               <img src={`${IMAGE_BASE_URL}${imageUrl}`} alt={movie.title} className="w-full h-full object-cover transition-opacity" loading="lazy" />
             )}
             
             {/* Overlays */}
             <div className={`absolute inset-0 bg-gradient-to-t from-[#0f1014] via-transparent to-transparent transition-opacity ${isHovered ? 'opacity-80' : 'opacity-60'}`} />
 
-            {/* Badges (Only visible on Vertical/Ranked or when hovered on Horizontal) */}
+            {/* Badges */}
             {(isPoster || isRanked || isHovered) && (
                 <>
                     <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-md px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-white/10 shadow-sm">
@@ -885,7 +863,7 @@ const Row = ({ title, fetchUrl, variant = 'standard', itemType = 'movie', isPrim
   const handleLeave = () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); setHoveredId(null); };
 
   return (
-    <div className="mb-6 pl-4 md:pl-12 relative z-20 group/row animate-row-enter">
+    <div className="mb-6 pl-4 md:pl-12 relative z-20 group/row animate-row-enter hover:z-30 transition-all duration-300">
       <h3 className="text-[19px] font-bold text-white mb-2 flex items-center gap-2">
           {variant === 'ranked' ? <span className={theme.color}>Top 10</span> : <span className={theme.color}>{theme.name}</span>} 
           {title}
