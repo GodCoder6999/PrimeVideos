@@ -717,11 +717,11 @@ const Hero = ({ isPrimeOnly }) => {
 };
 
 // --- MOVIE CARD COMPONENT ---
-// Target: 360px x 440px | Whole Video Visible (Letterboxed) | Smart Origin
+// Target: 360px x 440px | Image Only (No Trailer) | Smart Origin
 const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank, isPrimeOnly, isFirst, isLast }) => {
   const navigate = useNavigate();
-  const [trailerKey, setTrailerKey] = useState(null);
-  
+  // REMOVED: trailerKey state and fetching logic completely
+
   const imageUrl = movie.poster_path || movie.backdrop_path;
   
   // Dimensions
@@ -734,18 +734,6 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
   const rating = movie.vote_average ? Math.round(movie.vote_average * 10) + "%" : "98%";
   const year = movie.release_date?.split('-')[0] || "2024";
   const duration = movie.media_type === 'tv' ? '1 Season' : '2h 15m';
-
-  useEffect(() => {
-    if (isHovered) { 
-        const mediaType = movie.media_type || itemType || 'movie';
-        fetch(`${BASE_URL}/${mediaType}/${movie.id}/videos?api_key=${TMDB_API_KEY}`)
-          .then(res => res.json())
-          .then(data => {
-              const trailer = data.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube') || data.results?.find(v => v.site === 'YouTube');
-              if (trailer) setTrailerKey(trailer.key);
-          }).catch(err => console.error(err));
-    } else { setTrailerKey(null); }
-  }, [isHovered, movie, itemType]);
 
   return (
     <div 
@@ -770,22 +758,9 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
             boxShadow: isHovered ? '0 25px 50px rgba(0,0,0,0.8)' : '0 4px 6px rgba(0,0,0,0.1)',
         }}
       >
-        {/* MEDIA LAYER - Flex Center to hold video in middle */}
-        <div className={`w-full h-full relative bg-black flex items-center justify-center transition-transform duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1) ${isHovered ? 'scale-[1.02]' : 'scale-100'}`}>
-            {isHovered && trailerKey ? (
-               // WHOLE VIDEO VISIBLE: Width 100%, Aspect Video, No Clipping
-               <div className="w-full aspect-video relative z-20 shadow-2xl">
-                   <iframe 
-                      className="w-full h-full pointer-events-none" 
-                      src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} 
-                      title="Trailer" 
-                      allow="autoplay; encrypted-media" 
-                      frameBorder="0"
-                   />
-               </div>
-            ) : (
-               <img src={`${IMAGE_BASE_URL}${imageUrl}`} alt={movie.title} className="w-full h-full object-cover" loading="lazy" />
-            )}
+        {/* MEDIA LAYER - Image Only */}
+        <div className={`w-full h-full relative bg-black transition-transform duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1) ${isHovered ? 'scale-[1.02]' : 'scale-100'}`}>
+            <img src={`${IMAGE_BASE_URL}${imageUrl}`} alt={movie.title} className="w-full h-full object-cover" loading="lazy" />
         </div>
 
         {/* OVERLAY LAYER */}
@@ -985,6 +960,8 @@ const SearchResults = ({ isPrimeOnly }) => {
   ); 
 };
 
+// --- MOVIE DETAIL COMPONENT ---
+// Integrated Trailer Button & Modal
 const MovieDetail = () => {
   const { type, id } = useParams();
   const [movie, setMovie] = useState(null);
@@ -992,11 +969,26 @@ const MovieDetail = () => {
   const [seasonData, setSeasonData] = useState(null);
   const [relatedMovies, setRelatedMovies] = useState([]);
   const [selectedSeason, setSelectedSeason] = useState(1);
+  // NEW: Trailer State
+  const [trailerKey, setTrailerKey] = useState(null);
+  const [showTrailer, setShowTrailer] = useState(false);
+  
   const navigate = useNavigate();
 
   useEffect(() => {
+    // Fetch Movie Details
     fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}&language=en-US`).then(res => res.json()).then(data => { setMovie(data); if (type === 'tv') setActiveTab('episodes'); else setActiveTab('related'); }).catch(err => console.error(err));
+    // Fetch Related
     fetch(`${BASE_URL}/${type}/${id}/recommendations?api_key=${TMDB_API_KEY}&language=en-US`).then(res => res.json()).then(data => { if (data.results.length > 0) setRelatedMovies(data.results); else return fetch(`${BASE_URL}/${type}/${id}/similar?api_key=${TMDB_API_KEY}&language=en-US`); }).then(res => { if (res) return res.json(); }).then(data => { if (data && data.results) setRelatedMovies(data.results); }).catch(err => console.error(err));
+    
+    // NEW: Fetch Trailer for Details Page
+    fetch(`${BASE_URL}/${type}/${id}/videos?api_key=${TMDB_API_KEY}`)
+        .then(res => res.json())
+        .then(data => {
+            const trailer = data.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube') || data.results?.find(v => v.site === 'YouTube');
+            if (trailer) setTrailerKey(trailer.key);
+        });
+
   }, [type, id]);
 
   useEffect(() => { if (type === 'tv' && id) { fetch(`${BASE_URL}/tv/${id}/season/${selectedSeason}?api_key=${TMDB_API_KEY}&language=en-US`).then(res => res.json()).then(data => setSeasonData(data)).catch(err => console.error(err)); } }, [type, id, selectedSeason]);
@@ -1005,12 +997,51 @@ const MovieDetail = () => {
 
   return (
     <div className="min-h-screen bg-[#00050D] relative text-white font-sans overflow-x-hidden">
+      {/* Background Image */}
       <div className="absolute inset-0 h-[100vh] w-full z-0"><img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover" alt="" /><div className="absolute inset-0 bg-gradient-to-t from-[#00050D] via-[#00050D]/60 to-transparent" /><div className="absolute inset-0 bg-gradient-to-r from-[#00050D] via-[#00050D]/80 to-transparent" /></div>
+      
+      {/* NEW: Trailer Overlay Modal */}
+      {showTrailer && trailerKey && (
+          <div className="fixed inset-0 z-[200] bg-black/90 flex items-center justify-center p-4 animate-in backdrop-blur-sm">
+              <div className="relative w-full max-w-5xl aspect-video bg-black rounded-lg overflow-hidden shadow-2xl border border-white/10">
+                  <button onClick={() => setShowTrailer(false)} className="absolute top-4 right-4 z-50 p-2 bg-black/50 hover:bg-white/20 rounded-full text-white transition"><X size={24} /></button>
+                  <iframe 
+                      src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&rel=0`} 
+                      className="w-full h-full" 
+                      allowFullScreen 
+                      allow="autoplay; encrypted-media"
+                      title="Trailer"
+                  />
+              </div>
+          </div>
+      )}
+
       <div className="relative z-10 pt-[140px] px-8 md:px-16 max-w-[1400px]">
+        {/* Title & Metadata */}
         <h1 className="text-4xl md:text-6xl font-extrabold mb-6 tracking-tight drop-shadow-2xl max-w-4xl leading-tight">{movie.title || movie.name}</h1>
         <div className="flex items-center flex-wrap gap-4 text-[#99a7b1] font-bold text-[15px] mb-8">{movie.vote_average && <span className="text-white flex items-center gap-1"><span className="text-[#00A8E1] font-extrabold">IMDb</span> {movie.vote_average.toFixed(1)}</span>}<span>{movie.runtime ? `${Math.floor(movie.runtime/60)} h ${movie.runtime%60} min` : 'Season 1'}</span><span>{movie.release_date?.split('-')[0] || movie.first_air_date?.split('-')[0] || "2024"}</span><span className="bg-[#33373d] text-[#d6d6d6] text-[12px] px-1.5 py-0.5 rounded-sm border border-[#5a6069]">UHD</span><span className="bg-[#33373d] text-[#d6d6d6] text-[12px] px-1.5 py-0.5 rounded-sm border border-[#5a6069]">16+</span></div>
-        <div className="flex items-center gap-4 mb-8"><button onClick={() => navigate(`/watch/${type}/${id}`)} className="bg-[#00A8E1] hover:bg-[#008ebf] text-white h-[56px] pl-8 pr-9 rounded-md font-bold text-[17px] flex items-center gap-3 transition-transform hover:scale-105 shadow-[0_0_30px_rgba(0,168,225,0.3)]"><Play fill="white" size={24} /> <span>Play {type === 'tv' && 'S1 E1'}</span></button><div className="flex gap-4"><button className="w-[56px] h-[56px] rounded-full bg-[#42474d]/60 border border-[#8197a4]/30 flex flex-col items-center justify-center hover:bg-[#42474d] hover:border-white transition group backdrop-blur-sm"><Plus size={26} className="text-white" /></button><button className="w-[56px] h-[56px] rounded-full bg-[#42474d]/60 border border-[#8197a4]/30 flex flex-col items-center justify-center hover:bg-[#42474d] hover:border-white transition group backdrop-blur-sm"><Download size={24} className="text-white" /></button><button className="w-[56px] h-[56px] rounded-full bg-[#42474d]/60 border border-[#8197a4]/30 flex flex-col items-center justify-center hover:bg-[#42474d] hover:border-white transition group backdrop-blur-sm"><Share2 size={24} className="text-white" /></button></div></div>
+        
+        {/* Action Buttons */}
+        <div className="flex items-center gap-4 mb-8">
+            <button onClick={() => navigate(`/watch/${type}/${id}`)} className="bg-[#00A8E1] hover:bg-[#008ebf] text-white h-[56px] pl-8 pr-9 rounded-md font-bold text-[17px] flex items-center gap-3 transition-transform hover:scale-105 shadow-[0_0_30px_rgba(0,168,225,0.3)]"><Play fill="white" size={24} /> <span>Play {type === 'tv' && 'S1 E1'}</span></button>
+            
+            {/* NEW: Trailer Button */}
+            {trailerKey && (
+                <button onClick={() => setShowTrailer(true)} className="bg-[#42474d]/60 hover:bg-[#42474d] text-white h-[56px] px-6 rounded-md font-bold text-[17px] flex items-center gap-3 transition border border-[#8197a4]/30 backdrop-blur-sm hover:border-white">
+                    <span className="uppercase tracking-wide">Trailer</span>
+                </button>
+            )}
+
+            <div className="flex gap-4">
+                <button className="w-[56px] h-[56px] rounded-full bg-[#42474d]/60 border border-[#8197a4]/30 flex flex-col items-center justify-center hover:bg-[#42474d] hover:border-white transition group backdrop-blur-sm"><Plus size={26} className="text-white" /></button>
+                <button className="w-[56px] h-[56px] rounded-full bg-[#42474d]/60 border border-[#8197a4]/30 flex flex-col items-center justify-center hover:bg-[#42474d] hover:border-white transition group backdrop-blur-sm"><Download size={24} className="text-white" /></button>
+                <button className="w-[56px] h-[56px] rounded-full bg-[#42474d]/60 border border-[#8197a4]/30 flex flex-col items-center justify-center hover:bg-[#42474d] hover:border-white transition group backdrop-blur-sm"><Share2 size={24} className="text-white" /></button>
+            </div>
+        </div>
+        
         <p className="text-[17px] text-white font-medium leading-relaxed drop-shadow-md max-w-3xl mb-12">{movie.overview}</p>
+        
+        {/* Tabs & Content */}
         <div className="border-t border-white/10 pt-4 pb-20">
              <div className="flex gap-8 mb-8">{type === 'tv' && <button onClick={() => setActiveTab('episodes')} className={`text-[18px] font-bold pb-2 transition border-b-2 ${activeTab === 'episodes' ? 'text-white border-white' : 'text-[#8197a4] border-transparent hover:text-white'}`}>Episodes</button>}<button onClick={() => setActiveTab('related')} className={`text-[18px] font-bold pb-2 transition border-b-2 ${activeTab === 'related' ? 'text-white border-white' : 'text-[#8197a4] border-transparent hover:text-white'}`}>Related</button><button onClick={() => setActiveTab('details')} className={`text-[18px] font-bold pb-2 transition border-b-2 ${activeTab === 'details' ? 'text-white border-white' : 'text-[#8197a4] border-transparent hover:text-white'}`}>More Details</button></div>
              {activeTab === 'episodes' && type === 'tv' && seasonData && (<div className="animate-in"><div className="flex items-center gap-4 mb-6"><span className="font-bold text-lg text-white">Season</span><div className="relative"><select value={selectedSeason} onChange={(e) => setSelectedSeason(Number(e.target.value))} className="bg-[#1a242f] text-white border border-gray-600 rounded-md py-2 pl-4 pr-10 font-bold appearance-none outline-none hover:bg-[#25303b] cursor-pointer">{Array.from({length: movie.number_of_seasons || 1}, (_, i) => i + 1).map(s => (<option key={s} value={s}>Season {s}</option>))}</select><ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" /></div><span className="text-[#8197a4] text-sm ml-2">{seasonData.episodes?.length} Episodes</span></div><div className="flex flex-col gap-2">{seasonData.episodes?.map(ep => (<div key={ep.id} className="flex flex-col md:flex-row gap-5 p-4 rounded-lg hover:bg-[#1a242f] transition group cursor-pointer border border-transparent hover:border-white/5" onClick={() => navigate(`/watch/tv/${id}?season=${selectedSeason}&episode=${ep.episode_number}`)}><div className="relative w-full md:w-[280px] aspect-video flex-shrink-0 bg-[#00050D] rounded-md overflow-hidden">{ep.still_path ? (<img src={`${IMAGE_BASE_URL}${ep.still_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt={ep.name} />) : (<div className="w-full h-full flex items-center justify-center text-gray-600 font-bold">No Image</div>)}<div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition bg-black/40"><div className="w-12 h-12 bg-[#00A8E1] rounded-full flex items-center justify-center shadow-lg transform scale-90 group-hover:scale-100 transition"><Play fill="white" className="ml-1" size={24} /></div></div></div><div className="flex flex-col justify-center flex-grow py-2"><h4 className="font-bold text-white text-[17px] mb-1 group-hover:text-[#00A8E1] transition">{ep.episode_number}. {ep.name}</h4><p className="text-[#8197a4] text-[14px] font-medium mb-3">{ep.air_date} • {ep.runtime ? `${ep.runtime} min` : 'N/A'}</p><p className="text-[#d6d6d6] text-[15px] leading-relaxed line-clamp-2 md:line-clamp-3 text-gray-400">{ep.overview}</p></div></div>))}</div></div>)}
@@ -1021,7 +1052,6 @@ const MovieDetail = () => {
     </div>
   );
 };
-
 const Player = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
