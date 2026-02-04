@@ -716,20 +716,21 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
   const isRanked = variant === 'ranked';
   const imageUrl = isPoster || isRanked ? movie.poster_path : movie.backdrop_path;
   
-  // Base Dimensions (Fixed Layout Placeholders)
+  // Base Dimensions
   const baseWidth = isPoster ? 'w-[160px] md:w-[200px]' : isRanked ? 'w-[180px]' : 'w-[240px] md:w-[280px]';
   const aspectRatio = isPoster || isRanked ? 'aspect-[2/3]' : 'aspect-video';
   const cardMargin = isRanked ? 'ml-[70px]' : ''; 
 
   // Mock Data for Badges
   const rating = movie.vote_average ? movie.vote_average.toFixed(1) : "N/A";
-  const views = movie.popularity ? `${Math.floor(movie.popularity * 100)}` : "10K"; 
-
-  // Fetch trailer only when hovered and appropriate type
+  
+  // Fetch trailer only when hovered
   useEffect(() => {
     if (isHovered && !isPoster && !isRanked) { 
         const mediaType = movie.media_type || itemType || 'movie';
-        fetch(`${BASE_URL}/${mediaType}/${movie.id}/videos?api_key=${TMDB_API_KEY}`).then(res => res.json()).then(data => {
+        fetch(`${BASE_URL}/${mediaType}/${movie.id}/videos?api_key=${TMDB_API_KEY}`)
+          .then(res => res.json())
+          .then(data => {
               const trailer = data.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube') || data.results?.find(v => v.site === 'YouTube');
               if (trailer) setTrailerKey(trailer.key);
           }).catch(err => console.error(err));
@@ -738,114 +739,77 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
 
   return (
     <div 
-      className={`relative flex-shrink-0 ${baseWidth} ${aspectRatio} ${cardMargin}`}
+      className={`relative flex-shrink-0 ${baseWidth} ${aspectRatio} ${cardMargin} group`}
       onMouseEnter={() => onHover(movie.id)}
       onMouseLeave={onLeave}
+      onClick={() => navigate(`/detail/${movie.media_type || itemType || 'movie'}/${movie.id}`)}
     >
-      {/* Rank Number (Outside the animated card to stay fixed) */}
+      {/* Rank Number */}
       {isRanked && <span className="rank-number">{rank}</span>}
       
-      {/* Animated Card Content */}
+      {/* CARD CONTAINER */}
       <div 
         className={`
-            absolute top-0 left-0 w-full rounded-lg bg-[#0f1014] shadow-xl border border-white/5 
-            transition-all duration-500 ease-[cubic-bezier(0.25,0.8,0.25,1)]
-            origin-center cursor-pointer overflow-hidden
-            ${isHovered ? 'z-50 scale-110 shadow-[0_30px_60px_rgba(0,0,0,0.8)] border-[#3B82F6]/50' : 'z-10 scale-100 hover:border-white/20 h-full'}
+            relative w-full h-full rounded-xl overflow-hidden cursor-pointer bg-[#0f1014] shadow-xl border border-white/5
+            transform transition-all duration-[350ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]
+            ${isHovered ? 'scale-[1.08] shadow-[0_20px_40px_rgba(0,0,0,0.6)] z-50' : 'scale-100 z-10'}
         `}
-        style={{ 
-            // When hovered, allow height to expand naturally. When not, force full height of container.
-            height: isHovered ? 'auto' : '100%',
-            minHeight: '100%'
-        }}
-        onClick={() => navigate(`/detail/${movie.media_type || itemType || 'movie'}/${movie.id}`)}
       >
-        {/* Media Container */}
-        <div className={`relative w-full ${aspectRatio} overflow-hidden`}>
-            {/* Horizontal Video or Image */}
+        {/* MEDIA (Image/Video) - Scales independently */}
+        <div className={`w-full h-full transition-transform duration-[350ms] ease-[cubic-bezier(0.2,0.8,0.2,1)] ${isHovered ? 'scale-[1.1]' : 'scale-100'}`}>
             {!isPoster && !isRanked && isHovered && trailerKey ? (
-               <iframe className="w-full h-full object-cover pointer-events-none scale-125" src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} title="Trailer" allow="autoplay; encrypted-media" frameBorder="0"></iframe>
+               <iframe 
+                  className="w-full h-full object-cover pointer-events-none scale-[1.35]" // Extra scale for video to cover edges
+                  src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} 
+                  title="Trailer" 
+                  allow="autoplay; encrypted-media" 
+                  frameBorder="0"
+               ></iframe>
             ) : (
-               <img src={`${IMAGE_BASE_URL}${imageUrl}`} alt={movie.title} className="w-full h-full object-cover transition-opacity" loading="lazy" />
-            )}
-            
-            {/* Overlays */}
-            <div className={`absolute inset-0 bg-gradient-to-t from-[#0f1014] via-transparent to-transparent transition-opacity ${isHovered ? 'opacity-80' : 'opacity-60'}`} />
-
-            {/* Badges */}
-            {(isPoster || isRanked || isHovered) && (
-                <>
-                    <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-md px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-white/10 shadow-sm">
-                        <span className="text-[#FFD700] text-xs font-bold">{rating}</span>
-                    </div>
-                    <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-md px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-white/10 shadow-sm">
-                        <Eye size={12} className="text-white/70" />
-                        <span className="text-white text-xs font-bold">{views}</span>
-                    </div>
-                </>
-            )}
-
-            {/* Prime Tag (Horizontal Standard) */}
-            {!isHovered && !isPoster && !isRanked && isPrimeOnly && (
-                <div className="absolute bottom-2 left-3"><span className={`text-[10px] font-black tracking-widest ${theme.color} uppercase drop-shadow-md`}>PRIME</span></div>
-            )}
-
-            {/* Title (Collapsed State) */}
-            {!isHovered && (
-                <div className="absolute bottom-0 left-0 w-full p-3">
-                    <h3 className="text-white font-black text-sm uppercase leading-tight truncate text-shadow-sm text-gradient">{movie.title || movie.name}</h3>
-                </div>
+               <img src={`${IMAGE_BASE_URL}${imageUrl}`} alt={movie.title} className="w-full h-full object-cover" loading="lazy" />
             )}
         </div>
 
-        {/* Expanded Details (Visible on Hover) */}
-        {isHovered && (
-            <div className="p-4 flex flex-col gap-3 bg-[#0f1014] animate-in fade-in slide-in-from-bottom-2 h-auto">
-                
-                {/* Title */}
-                <h3 className="text-white font-bold text-base leading-tight drop-shadow-md">{movie.title || movie.name}</h3>
+        {/* OVERLAY - Hover Reveal */}
+        <div 
+            className={`
+                absolute inset-0 flex flex-col justify-end p-4 text-white
+                bg-gradient-to-t from-black/95 via-black/60 to-transparent
+                transition-all duration-300 ease-out
+                ${isHovered ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3'}
+            `}
+        >
+            {/* Title */}
+            <h3 className="font-bold text-base leading-tight drop-shadow-md mb-2">{movie.title || movie.name}</h3>
 
-                {/* Platform/Provider Line */}
-                <div className="flex items-center gap-1.5 text-[11px] font-medium text-[#00A8E1]">
+            {/* Quick Metadata */}
+            <div className="flex items-center gap-2 text-[10px] font-bold text-gray-300 mb-3">
+                <span className="text-[#46d369]">{rating} Match</span>
+                <span className="border border-white/20 px-1 rounded">HD</span>
+                <span>{movie.release_date?.split('-')[0] || "2024"}</span>
+            </div>
+
+            {/* Included with Prime Tag */}
+            {isPrimeOnly && (
+                <div className="flex items-center gap-1.5 text-[11px] font-medium text-[#00A8E1] mb-3">
                     <CheckCircle2 size={14} className="fill-current" />
                     <span>Included with Prime</span>
                 </div>
+            )}
 
-                {/* Interactive Controls Row */}
-                <div className="flex items-center gap-3">
-                    <button className="flex-1 bg-white hover:bg-gray-200 text-black text-xs font-extrabold py-3 rounded-md transition-colors flex items-center justify-center gap-2 uppercase tracking-wide">
-                        <Play fill="black" size={16} /> Play
-                    </button>
-                    <button className="w-10 h-10 rounded-full border border-gray-600 hover:border-white hover:bg-white/10 flex items-center justify-center transition-all bg-transparent group/btn">
-                        <List size={20} className="text-white group-hover/btn:text-white" />
-                    </button>
-                    <button className="w-10 h-10 rounded-full border border-gray-600 hover:border-white hover:bg-white/10 flex items-center justify-center transition-all bg-transparent group/btn">
-                        <Plus size={20} className="text-white group-hover/btn:text-white" />
-                    </button>
-                    <button className="w-10 h-10 rounded-full border border-gray-600 hover:border-white hover:bg-white/10 flex items-center justify-center transition-all bg-transparent group/btn">
-                        <Ban size={18} className="text-white group-hover/btn:text-white" />
-                    </button>
-                </div>
-
-                {/* Ranking / Category Indicator */}
-                <div className="flex items-center gap-2 text-[11px] font-bold text-[#46d369]">
-                    <TrendingUp size={14} />
-                    <span>#{rank || Math.floor(Math.random() * 10) + 1} in Movies</span>
-                </div>
-
-                {/* Content Classification & Runtime */}
-                <div className="flex items-center gap-3 text-[11px] font-semibold text-gray-300">
-                    <span className="bg-[#33373d] text-[#d6d6d6] px-1.5 py-0.5 rounded-[3px] border border-white/10">U/A 13+</span>
-                    <span>{movie.release_date?.split('-')[0] || "2024"}</span>
-                    <span className="text-gray-400">2h 15m</span>
-                </div>
-
-                {/* Description */}
-                <p className="text-gray-400 text-[11px] line-clamp-3 leading-relaxed font-normal">
-                    {movie.overview || "No description available."}
-                </p>
+            {/* Action Buttons */}
+            <div className="flex items-center gap-2">
+                <button className="flex-1 bg-white text-black text-[10px] font-extrabold py-2 rounded hover:bg-gray-200 transition flex items-center justify-center gap-1 uppercase tracking-wide">
+                    <Play fill="black" size={12} /> Play
+                </button>
+                <button className="p-2 rounded-full border border-gray-500 hover:border-white hover:bg-white/20 transition">
+                    <Plus size={14} className="text-white" />
+                </button>
+                <button className="p-2 rounded-full border border-gray-500 hover:border-white hover:bg-white/20 transition">
+                    <Info size={14} className="text-white" />
+                </button>
             </div>
-        )}
+        </div>
       </div>
     </div>
   );
