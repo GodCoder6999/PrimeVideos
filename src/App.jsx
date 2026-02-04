@@ -709,18 +709,22 @@ const Hero = ({ isPrimeOnly }) => {
 // Re-engineered to fix neighbor shifting and overflow issues.
 // --- MOVIE CARD COMPONENT ---
 // Refined: Taller (16:10), Cleaner Spacing, Detailed Overlay
+// --- MOVIE CARD COMPONENT ---
+// Target Expansion: 548px x 730px
+// Logic: Base width 200px * Scale 2.74 = 548px
 const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank, isPrimeOnly }) => {
   const navigate = useNavigate();
   const [trailerKey, setTrailerKey] = useState(null);
   
-  const isPoster = variant === 'vertical';
-  const isRanked = variant === 'ranked';
-  const imageUrl = isPoster || isRanked ? movie.poster_path : movie.backdrop_path;
+  // Force Vertical Poster mode to match 548x730 orientation
+  const imageUrl = movie.poster_path || movie.backdrop_path;
   
-  // Adjusted Dimensions: 16/10 aspect ratio for standard cards gives more vertical room
-  const baseWidth = isPoster ? 'w-[160px] md:w-[200px]' : isRanked ? 'w-[180px]' : 'w-[260px] md:w-[300px]';
-  const aspectRatio = isPoster || isRanked ? 'aspect-[2/3]' : 'aspect-[16/10]'; 
-  const cardMargin = isRanked ? 'ml-[70px]' : ''; 
+  // Dimensions Configuration
+  // Base width: 200px (Desktop)
+  // Aspect Ratio: 548/730 (approx 0.75)
+  const baseWidth = 'w-[160px] md:w-[200px]';
+  const aspectRatio = 'aspect-[548/730]'; 
+  const cardMargin = variant === 'ranked' ? 'ml-[70px]' : ''; 
 
   // Mock Metadata
   const rating = movie.vote_average ? Math.round(movie.vote_average * 10) + "%" : "NEW";
@@ -728,7 +732,7 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
 
   // Fetch trailer on hover
   useEffect(() => {
-    if (isHovered && !isPoster && !isRanked) { 
+    if (isHovered) { 
         const mediaType = movie.media_type || itemType || 'movie';
         fetch(`${BASE_URL}/${mediaType}/${movie.id}/videos?api_key=${TMDB_API_KEY}`)
           .then(res => res.json())
@@ -737,31 +741,37 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
               if (trailer) setTrailerKey(trailer.key);
           }).catch(err => console.error(err));
     } else { setTrailerKey(null); }
-  }, [isHovered, movie, itemType, isPoster, isRanked]);
+  }, [isHovered, movie, itemType]);
 
   return (
     <div 
-      className={`relative flex-shrink-0 ${baseWidth} ${aspectRatio} ${cardMargin} group z-10 transition-z duration-300 ${isHovered ? 'z-50' : 'z-10'}`}
+      className={`relative flex-shrink-0 ${baseWidth} ${aspectRatio} ${cardMargin} group z-10`}
       onMouseEnter={() => onHover(movie.id)}
       onMouseLeave={onLeave}
       onClick={() => navigate(`/detail/${movie.media_type || itemType || 'movie'}/${movie.id}`)}
+      style={{ zIndex: isHovered ? 100 : 10 }} // Ensure it pops above everything
     >
       {/* Rank Number */}
-      {isRanked && <span className="rank-number">{rank}</span>}
+      {variant === 'ranked' && <span className="rank-number">{rank}</span>}
       
       {/* CARD CONTAINER */}
       <div 
         className={`
             relative w-full h-full rounded-xl overflow-hidden cursor-pointer bg-[#19222b] shadow-xl border border-white/5
             transform transition-all duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1)
-            ${isHovered ? 'scale-[1.08] shadow-[0_25px_50px_rgba(0,0,0,0.7)] ring-1 ring-white/20' : 'scale-100'}
+            origin-center
         `}
+        style={{
+            // Apply the precise scale to hit 548x730 from a 200px base
+            transform: isHovered ? 'scale(2.74)' : 'scale(1)',
+            boxShadow: isHovered ? '0 30px 60px rgba(0,0,0,0.8)' : '0 4px 6px rgba(0,0,0,0.1)'
+        }}
       >
         {/* MEDIA LAYER */}
-        <div className={`w-full h-full transition-transform duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1) ${isHovered ? 'scale-[1.1]' : 'scale-100'}`}>
-            {!isPoster && !isRanked && isHovered && trailerKey ? (
+        <div className={`w-full h-full transition-transform duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1) ${isHovered ? 'scale-[1.05]' : 'scale-100'}`}>
+            {isHovered && trailerKey ? (
                <iframe 
-                  className="w-full h-full object-cover pointer-events-none scale-[1.4]"
+                  className="w-full h-full object-cover pointer-events-none scale-[1.5]"
                   src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} 
                   title="Trailer" 
                   allow="autoplay; encrypted-media" 
@@ -772,47 +782,51 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
             )}
         </div>
 
-        {/* OVERLAY LAYER (The "Clean" Detail View) */}
+        {/* OVERLAY LAYER - Scaled down text to compensate for the 2.74x zoom */}
         <div 
             className={`
-                absolute inset-0 flex flex-col justify-end px-5 py-6 text-white
-                bg-gradient-to-t from-[#0f171e] via-[#0f171e]/90 to-transparent
+                absolute inset-0 flex flex-col justify-end px-3 py-4 text-white
+                bg-gradient-to-t from-[#0f171e] via-[#0f171e]/80 to-transparent
                 transition-all duration-300 ease-out
                 ${isHovered ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}
             `}
         >
+            {/* We use smaller text classes because the container is zoomed 2.74x */}
+            
             {/* Title Area */}
-            <div className="mb-2">
-                <h3 className="font-extrabold text-lg leading-tight text-white drop-shadow-md line-clamp-1">
+            <div className="mb-1">
+                <h3 className="font-black text-[6px] leading-tight text-white drop-shadow-md line-clamp-2 uppercase tracking-wide">
                     {movie.title || movie.name}
                 </h3>
             </div>
 
             {/* Metadata Badges */}
-            <div className="flex items-center gap-2.5 text-[11px] font-bold text-gray-300 mb-3">
-                <span className="text-[#00A8E1] flex items-center gap-1">
-                     <CheckCircle2 size={12} className="fill-current" /> Included with Prime
+            <div className="flex items-center gap-1 text-[4px] font-bold text-gray-300 mb-1">
+                <span className="text-[#00A8E1] flex items-center gap-0.5">
+                     <CheckCircle2 size={4} className="fill-current" /> Prime
                 </span>
                 <span className="text-gray-400">•</span>
+                <span className="text-[#46d369]">{rating} Match</span>
+                <span className="text-gray-400">•</span>
                 <span>{year}</span>
-                <span className="bg-white/10 px-1.5 py-0.5 rounded border border-white/10 text-[10px]">U/A 13+</span>
+                <span className="bg-white/10 px-0.5 rounded-[1px] border border-white/10 text-[3px]">HD</span>
             </div>
 
-            {/* Description (Added Detail) */}
-            <p className="text-[11px] text-gray-400 line-clamp-2 leading-relaxed mb-4 font-medium">
-                {movie.overview || "Watch this amazing title on Prime Video. Experience the drama, action, and excitement."}
+            {/* Description */}
+            <p className="text-[3.5px] text-gray-400 line-clamp-3 leading-relaxed mb-2 font-medium">
+                {movie.overview || "Experience the drama, action, and excitement."}
             </p>
 
-            {/* Action Buttons (Clean Spacing) */}
-            <div className="flex items-center gap-3 mt-auto">
-                <button className="flex-1 bg-white hover:bg-gray-200 text-black text-[11px] font-black py-2.5 rounded-[4px] transition-colors flex items-center justify-center gap-2 uppercase tracking-wide">
-                    <Play fill="black" size={14} /> Play
+            {/* Action Buttons */}
+            <div className="flex items-center gap-1 mt-auto">
+                <button className="flex-1 bg-white hover:bg-gray-200 text-black text-[4px] font-black py-1 rounded-[2px] transition-colors flex items-center justify-center gap-1 uppercase tracking-wider">
+                    <Play fill="black" size={5} /> Play
                 </button>
-                <button className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white transition flex items-center justify-center backdrop-blur-sm">
-                    <Plus size={18} className="text-white" />
+                <button className="w-4 h-4 rounded-full bg-white/10 hover:bg-white/20 border-[0.5px] border-white/20 hover:border-white transition flex items-center justify-center backdrop-blur-sm">
+                    <Plus size={6} className="text-white" />
                 </button>
-                <button className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white transition flex items-center justify-center backdrop-blur-sm">
-                    <Info size={18} className="text-white" />
+                <button className="w-4 h-4 rounded-full bg-white/10 hover:bg-white/20 border-[0.5px] border-white/20 hover:border-white transition flex items-center justify-center backdrop-blur-sm">
+                    <Info size={6} className="text-white" />
                 </button>
             </div>
         </div>
@@ -820,7 +834,6 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
     </div>
   );
 };
-
 const Row = ({ title, fetchUrl, variant = 'standard', itemType = 'movie', isPrimeOnly }) => {
   const [movies, setMovies] = useState([]);
   const [hoveredId, setHoveredId] = useState(null);
