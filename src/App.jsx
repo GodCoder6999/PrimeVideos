@@ -303,13 +303,18 @@ const Navbar = ({ isPrimeOnly }) => {
   const getNavLinkClass = (path) => {
     const isActive = location.pathname === path;
     
-    // Active Pill Style: Gradient Background + White Text + Rounded Corners
+    // Glass Effect Active State
+    // - bg-white/10: Gives the translucent glass tint over the dark navbar
+    // - backdrop-blur-md: Blurs the background behind (glass effect)
+    // - rounded-lg: "Square box" look (less rounded than pill)
+    // - border-white/10: Subtle glass edge
     if (isActive) {
-      return "text-white font-semibold bg-[linear-gradient(to_bottom,#3a3f45_0%,#2b2f34_100%)] border border-white/[0.08] rounded-[10px] px-[18px] py-[8px] text-[15px] transition-all duration-200 shadow-sm";
+      return "text-white font-bold bg-white/10 backdrop-blur-md border border-white/10 rounded-lg px-5 py-2 text-[15px] transition-all duration-300 ease-in-out shadow-[0_8px_32px_0_rgba(0,0,0,0.36)]";
     }
     
-    // Inactive Style: Muted Gray + No Background + Hover White
-    return "text-[#c7cbd1] font-medium text-[15px] hover:text-white transition-colors cursor-pointer px-[10px] py-[8px]";
+    // Inactive State with Smooth Hover
+    // - hover:bg-white/5: Adds a faint glass effect on hover for smooth switching
+    return "text-[#c7cbd1] font-medium text-[15px] hover:text-white hover:bg-white/5 hover:backdrop-blur-sm rounded-lg px-4 py-2 transition-all duration-300 ease-in-out cursor-pointer";
   };
 
   return (
