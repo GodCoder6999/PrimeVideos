@@ -419,11 +419,12 @@ const SportsPage = () => {
         return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     };
 
-    const isLive = (matchTimestamp) => {
+    const isLive = (matchDate) => {
     const now = Date.now();
-    // A match is generally "live" from its start time until ~3 hours later
-    return now >= matchTimestamp && now <= (matchTimestamp + 10800000);
-};;
+    // A match is usually live for about 3 hours (10,800,000 milliseconds)
+    const threeHours = 3 * 60 * 60 * 1000;
+    return now >= matchDate && now <= (matchDate + threeHours);
+};
 
     return (
         <div className="pt-24 px-4 md:px-12 min-h-screen pb-20">
@@ -505,43 +506,49 @@ const SportsPlayer = () => {
     const [showStreamList, setShowStreamList] = useState(false);
 
     useEffect(() => {
-        fetch(`${LIVESPORT_BASE}/api/matches/${id}/detail`)
-            .then(res => {
-                if (!res.ok) throw new Error("Match not found");
-                return res.json();
-            })
-            .then(data => {
-                if (data.sources && Array.isArray(data.sources) && data.sources.length > 0) {
-                    setStreams(data.sources);
-                    setActiveStream(data.sources[0]);
-                }
-                setLoading(false);
-            })
-            .catch(e => {
-                console.error("Error loading stream:", e);
-                setLoading(false);
-            });
-        
-        fetch(`${LIVESPORT_BASE}/api/matches/live`)
-            .then(res => res.json())
-            .then(matches => {
-                if(Array.isArray(matches)) {
-                    const found = matches.find(m => m.id === id);
-                    if (found) setMatchTitle(found.title);
-                    else {
-                          fetch(`${LIVESPORT_BASE}/api/matches/popular`).then(r=>r.json()).then(pop => {
-                             if(Array.isArray(pop)) {
-                                 const pFound = pop.find(m => m.id === id);
-                                 if (pFound) setMatchTitle(pFound.title);
-                                 else setMatchTitle("Live Sport Stream");
-                             }
-                          });
-                     }
-                }
-            })
-            .catch(() => setMatchTitle("Live Sport Stream"));
+    // 1. Reset states when the ID changes to prevent showing old data
+    setLoading(true);
+    setStreams([]);
+    setActiveStream(null);
+    setMatchTitle("Loading Match...");
 
-    }, [id]);
+    // 2. Fetch the specific stream sources for this match ID
+    // The LIVESPORT_BASE must be "" to trigger the Vercel rewrite in vercel.json
+    fetch(`${LIVESPORT_BASE}/api/matches/${id}/detail`)
+        .then(res => {
+            if (!res.ok) throw new Error("Match sources not found");
+            return res.json();
+        })
+        .then(data => {
+            // The API returns an object with a 'sources' array
+            if (data.sources && Array.isArray(data.sources) && data.sources.length > 0) {
+                setStreams(data.sources);
+                setActiveStream(data.sources[0]); // Default to the first available stream
+            }
+            setLoading(false);
+        })
+        .catch(e => {
+            console.error("Error loading stream:", e);
+            setLoading(false);
+        });
+    
+    // 3. Fetch all current matches to find the Title for the UI
+    // Fetching the broad '/api/matches' list is more reliable than nesting live and popular calls
+    fetch(`${LIVESPORT_BASE}/api/matches`)
+        .then(res => res.json())
+        .then(matches => {
+            if(Array.isArray(matches)) {
+                const currentMatch = matches.find(m => m.id === id);
+                if (currentMatch) {
+                    setMatchTitle(currentMatch.title);
+                } else {
+                    setMatchTitle("Live Sport Stream");
+                }
+            }
+        })
+        .catch(() => setMatchTitle("Live Sport Stream"));
+
+}, [id]);
 
     return (
         <div className="fixed inset-0 bg-black z-[200] flex flex-col">
