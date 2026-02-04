@@ -1428,15 +1428,26 @@ const Player = () => {
       )}
 
       {/* Video Player Iframe */}
-      <div className="flex-1 relative w-full h-full bg-black">
-        <iframe
-          src={getSourceUrl()}
-          className="w-full h-full border-none"
-          allowFullScreen
-          allow="encrypted-media"
-          title="Player"
-        ></iframe>
-      </div>
+      // Inside Player component return statement:
+
+<div className="flex-1 relative w-full h-full bg-black">
+  <iframe
+    src={getSourceUrl()}
+    className="w-full h-full border-none"
+    
+    // SPEED OPTIMIZATION: Allow GPU usage and instant loading
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+    
+    // PRIORITY: Load this iframe immediately, even if other things are loading
+    loading="eager" 
+    
+    // SECURITY: Ensures fast handshake
+    referrerPolicy="origin" 
+    
+    allowFullScreen
+    title="Player"
+  ></iframe>
+</div>
 
       {/* Episode Sidebar */}
       {type === 'tv' && (
