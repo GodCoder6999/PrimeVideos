@@ -390,127 +390,101 @@ const Navbar = ({ isPrimeOnly }) => {
 // --- SPORTS COMPONENTS ---
 
 const SportsPage = () => {
-    const [sports, setSports] = useState([]);
-    const [matches, setMatches] = useState([]);
-    const [activeCategory, setActiveCategory] = useState('live'); 
+    const [channels, setChannels] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [activeCategory, setActiveCategory] = useState('All');
     const navigate = useNavigate();
 
-    useEffect(() => {
-        fetch(`${LIVESPORT_BASE}/api/sports`)
-            .then(res => {
-                if (!res.ok) throw new Error("Network response was not ok");
-                return res.json();
-            })
-            .then(data => {
-                if (Array.isArray(data)) setSports(data);
-                else setSports([]);
-            })
-            .catch(e => console.error("Error fetching sports:", e));
-    }, []);
+    // Categories to filter from the massive list to keep it relevant
+    const RELEVANT_CATEGORIES = ['Sports', 'Sport', 'Football', 'Soccer', 'Cricket', 'Tennis', 'Basketball'];
 
     useEffect(() => {
         setLoading(true);
-        setMatches([]); 
-        let endpoint = "";
-        if (activeCategory === 'live') endpoint = "/api/matches/live";
-        else if (activeCategory === 'popular') endpoint = "/api/matches/popular";
-        else endpoint = `/api/matches/${activeCategory}`;
-
-        fetch(`${LIVESPORT_BASE}${endpoint}`)
-            .then(res => {
-                if (!res.ok) throw new Error("Network response was not ok");
-                return res.json();
-            })
+        fetch('https://iptv-org.github.io/iptv/index.m3u')
+            .then(res => res.text())
             .then(data => {
-                if (Array.isArray(data)) {
-                    setMatches(data);
-                } else {
-                    console.warn("API returned non-array for matches:", data);
-                    setMatches([]);
-                }
+                const lines = data.split('\n');
+                const parsedChannels = [];
+                let currentChannel = {};
+
+                // Basic M3U Parser
+                lines.forEach(line => {
+                    if (line.startsWith('#EXTINF:')) {
+                        // Extract metadata
+                        const logoMatch = line.match(/tvg-logo="(.*?)"/);
+                        const groupMatch = line.match(/group-title="(.*?)"/);
+                        const nameParts = line.split(',');
+                        
+                        currentChannel = {
+                            name: nameParts[nameParts.length - 1].trim(),
+                            logo: logoMatch ? logoMatch[1] : null,
+                            group: groupMatch ? groupMatch[1] : 'Uncategorized'
+                        };
+                    } else if (line.startsWith('http')) {
+                        // Match URL to metadata
+                        if (currentChannel.name) {
+                            currentChannel.url = line.trim();
+                            // Only add if it's a sports channel to improve performance
+                            if (RELEVANT_CATEGORIES.some(cat => currentChannel.group.includes(cat))) {
+                                parsedChannels.push(currentChannel);
+                            }
+                            currentChannel = {}; // Reset
+                        }
+                    }
+                });
+                
+                setChannels(parsedChannels);
                 setLoading(false);
             })
-            .catch(e => {
-                console.error("Error fetching matches:", e);
-                setMatches([]);
+            .catch(err => {
+                console.error("Error fetching playlist:", err);
                 setLoading(false);
             });
-    }, [activeCategory]);
+    }, []);
 
-    const formatTime = (timestamp) => {
-        if (!timestamp) return "TBD";
-        return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    };
-
-    const isLive = (matchDate) => {
-    const now = Date.now();
-    // A match is usually live for about 3 hours (10,800,000 milliseconds)
-    const threeHours = 3 * 60 * 60 * 1000;
-    return now >= matchDate && now <= (matchDate + threeHours);
-};
+    // Get unique categories from parsed channels
+    const categories = ['All', ...new Set(channels.map(c => c.group))].sort();
+    const displayChannels = activeCategory === 'All' ? channels : channels.filter(c => c.group === activeCategory);
 
     return (
         <div className="pt-24 px-4 md:px-12 min-h-screen pb-20">
+            {/* Category Filter */}
             <div className="flex items-center gap-4 mb-8 overflow-x-auto scrollbar-hide pb-2">
-                <button onClick={() => setActiveCategory('live')} className={`flex items-center gap-2 px-5 py-2.5 rounded-full font-bold text-sm transition-all whitespace-nowrap ${activeCategory === 'live' ? 'bg-[#E50914] text-white shadow-lg shadow-red-900/40' : 'bg-[#19222b] text-gray-300 hover:bg-[#333c46] hover:text-white'}`}>
-                    <Signal size={16} className={activeCategory === 'live' ? "animate-pulse" : ""} /> Live Now
-                </button>
-                <button onClick={() => setActiveCategory('popular')} className={`flex items-center gap-2 px-5 py-2.5 rounded-full font-bold text-sm transition-all whitespace-nowrap ${activeCategory === 'popular' ? 'bg-[#00A8E1] text-white shadow-lg shadow-blue-900/40' : 'bg-[#19222b] text-gray-300 hover:bg-[#333c46] hover:text-white'}`}>
-                    <Trophy size={16} /> Popular
-                </button>
-                <div className="w-px h-6 bg-gray-700 mx-2"></div>
-                {sports.map(sport => (
-                    <button key={sport.id} onClick={() => setActiveCategory(sport.id)} className={`px-5 py-2.5 rounded-full font-bold text-sm transition-all whitespace-nowrap capitalize ${activeCategory === sport.id ? 'bg-white text-black' : 'bg-[#19222b] text-gray-300 hover:bg-[#333c46] hover:text-white'}`}>
-                        {sport.name}
+                {categories.slice(0, 15).map(cat => (
+                    <button 
+                        key={cat} 
+                        onClick={() => setActiveCategory(cat)} 
+                        className={`px-5 py-2.5 rounded-full font-bold text-sm transition-all whitespace-nowrap ${activeCategory === cat ? 'bg-[#00A8E1] text-white' : 'bg-[#19222b] text-gray-300 hover:bg-[#333c46]'}`}
+                    >
+                        {cat}
                     </button>
                 ))}
             </div>
 
             <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
-                {activeCategory === 'live' ? "Live Matches" : activeCategory === 'popular' ? "Trending Matches" : `${sports.find(s=>s.id === activeCategory)?.name || 'Sport'} Matches`}
-                {loading && <Loader className="animate-spin ml-3 text-[#00A8E1]" size={20} />}
+                Live Sports Channels <span className="text-[#00A8E1] text-sm ml-2">({displayChannels.length})</span>
             </h2>
 
             {loading ? (
-                <div className="h-60 flex items-center justify-center text-gray-500">Loading matches...</div>
-            ) : matches.length === 0 ? (
-                <div className="h-60 flex items-center justify-center text-gray-500 flex-col gap-2">
-                    <Trophy size={48} className="opacity-20" />
-                    <p>No matches found in this category.</p>
-                </div>
+                <div className="h-60 flex items-center justify-center text-gray-500"><Loader className="animate-spin" /> Loading Channels...</div>
             ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                    {matches.map((match, idx) => (
-                        <div key={match.id || idx} onClick={() => navigate(`/watch/sport/${match.id}`)} className="bg-[#19222b] hover:bg-[#232d38] rounded-xl p-0 overflow-hidden cursor-pointer transition-all duration-300 group hover:-translate-y-1 hover:shadow-2xl border border-transparent hover:border-[#00A8E1]/30">
-                            <div className="h-32 bg-gradient-to-br from-[#0f171e] to-[#1a242f] relative p-4 flex items-center justify-between">
-                                <div className="flex flex-col items-center gap-2 w-[40%] text-center">
-                                    <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center p-2 backdrop-blur-sm">
-                                        {match.teams?.home?.badge ? <img src={match.teams.home.badge} className="w-full h-full object-contain" alt="" /> : <span className="text-xs font-bold">{match.teams?.home?.name?.[0] || 'H'}</span>}
-                                    </div>
-                                    <span className="text-xs font-bold text-gray-300 line-clamp-1">{match.teams?.home?.name || "Home"}</span>
-                                </div>
-                                <div className="flex flex-col items-center justify-center gap-1 w-[20%]">
-                                    <span className="text-xs font-black text-[#5a6b7c]">VS</span>
-                                </div>
-                                <div className="flex flex-col items-center gap-2 w-[40%] text-center">
-                                    <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center p-2 backdrop-blur-sm">
-                                        {match.teams?.away?.badge ? <img src={match.teams.away.badge} className="w-full h-full object-contain" alt="" /> : <span className="text-xs font-bold">{match.teams?.away?.name?.[0] || 'A'}</span>}
-                                    </div>
-                                    <span className="text-xs font-bold text-gray-300 line-clamp-1">{match.teams?.away?.name || "Away"}</span>
-                                </div>
-                                {isLive(match.date) && (
-                                    <div className="absolute top-2 right-2 flex items-center gap-1 bg-[#E50914] text-white text-[9px] font-black px-1.5 py-0.5 rounded tracking-widest animate-pulse">
-                                        LIVE
-                                    </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                    {displayChannels.slice(0, 100).map((channel, idx) => ( // Limit render to 100 for performance
+                        <div 
+                            key={idx} 
+                            onClick={() => navigate('/watch/sport/iptv', { state: { streamUrl: channel.url, title: channel.name } })}
+                            className="bg-[#19222b] hover:bg-[#232d38] rounded-xl overflow-hidden cursor-pointer transition group hover:-translate-y-1"
+                        >
+                            <div className="aspect-video bg-black/50 flex items-center justify-center p-4">
+                                {channel.logo ? (
+                                    <img src={channel.logo} className="w-full h-full object-contain" alt={channel.name} onError={(e) => e.target.style.display='none'} />
+                                ) : (
+                                    <Trophy size={32} className="text-gray-600" />
                                 )}
                             </div>
-                            <div className="p-4 border-t border-white/5">
-                                <h3 className="font-bold text-white text-sm mb-2 line-clamp-1 group-hover:text-[#00A8E1] transition">{match.title || "Unknown Match"}</h3>
-                                <div className="flex items-center justify-between text-xs text-[#8197a4] font-medium">
-                                    <span className="capitalize flex items-center gap-1"><Trophy size={12} /> {match.category || "Sport"}</span>
-                                    <span className="flex items-center gap-1"><Clock size={12} /> {formatTime(match.date)}</span>
-                                </div>
+                            <div className="p-3">
+                                <h3 className="font-bold text-white text-xs truncate">{channel.name}</h3>
+                                <p className="text-[10px] text-[#00A8E1]">{channel.group}</p>
                             </div>
                         </div>
                     ))}
@@ -521,126 +495,63 @@ const SportsPage = () => {
 };
 
 const SportsPlayer = () => {
-    const { id } = useParams();
     const navigate = useNavigate();
-    const [streams, setStreams] = useState([]);
-    const [activeStream, setActiveStream] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [matchTitle, setMatchTitle] = useState("Loading Match...");
-    const [showStreamList, setShowStreamList] = useState(false);
+    const location = useLocation();
+    const videoRef = useRef(null);
+    const { streamUrl, title } = location.state || {}; // Get data passed from SportsPage
 
     useEffect(() => {
-    // 1. Reset states when the ID changes to prevent showing old data
-    setLoading(true);
-    setStreams([]);
-    setActiveStream(null);
-    setMatchTitle("Loading Match...");
+        if (!streamUrl) return;
 
-    // 2. Fetch the specific stream sources for this match ID
-    // The LIVESPORT_BASE must be "" to trigger the Vercel rewrite in vercel.json
-    fetch(`${LIVESPORT_BASE}/api/matches/${id}/detail`)
-        .then(res => {
-            if (!res.ok) throw new Error("Match sources not found");
-            return res.json();
-        })
-        .then(data => {
-            // The API returns an object with a 'sources' array
-            if (data.sources && Array.isArray(data.sources) && data.sources.length > 0) {
-                setStreams(data.sources);
-                setActiveStream(data.sources[0]); // Default to the first available stream
-            }
-            setLoading(false);
-        })
-        .catch(e => {
-            console.error("Error loading stream:", e);
-            setLoading(false);
-        });
-    
-    // 3. Fetch all current matches to find the Title for the UI
-    // Fetching the broad '/api/matches' list is more reliable than nesting live and popular calls
-    fetch(`${LIVESPORT_BASE}/api/matches`)
-        .then(res => res.json())
-        .then(matches => {
-            if(Array.isArray(matches)) {
-                const currentMatch = matches.find(m => m.id === id);
-                if (currentMatch) {
-                    setMatchTitle(currentMatch.title);
-                } else {
-                    setMatchTitle("Live Sport Stream");
-                }
-            }
-        })
-        .catch(() => setMatchTitle("Live Sport Stream"));
+        let hls;
+        if (Hls.isSupported()) {
+            hls = new Hls();
+            hls.loadSource(streamUrl);
+            hls.attachMedia(videoRef.current);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                videoRef.current.play().catch(e => console.log("Auto-play prevented", e));
+            });
+        } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
+            // Native HLS support (Safari)
+            videoRef.current.src = streamUrl;
+            videoRef.current.addEventListener('loadedmetadata', () => {
+                videoRef.current.play();
+            });
+        }
 
-}, [id]);
+        return () => {
+            if (hls) hls.destroy();
+        };
+    }, [streamUrl]);
+
+    if (!streamUrl) return <div className="text-white pt-20 text-center">No stream selected. <button onClick={() => navigate(-1)}>Go Back</button></div>;
 
     return (
         <div className="fixed inset-0 bg-black z-[200] flex flex-col">
+            {/* Header */}
             <div className="h-16 bg-[#19222b] flex items-center px-4 justify-between shrink-0 border-b border-white/10 relative z-50">
                 <div className="flex items-center gap-4">
                     <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-white transition"><ArrowLeft size={24} /></button>
                     <div>
-                        <h1 className="text-white font-bold text-lg leading-tight">{matchTitle}</h1>
+                        <h1 className="text-white font-bold text-lg leading-tight">{title || "Live Stream"}</h1>
                         <div className="text-[#00A8E1] text-xs font-bold flex items-center gap-1">LIVE BROADCAST</div>
                     </div>
                 </div>
-                
-                {streams.length > 1 && (
-                    <button onClick={() => setShowStreamList(!showStreamList)} className="flex items-center gap-2 bg-[#00A8E1] hover:bg-[#008ebf] text-white px-4 py-2 rounded-md text-sm font-bold transition">
-                        <Signal size={16} /> Switch Stream
-                    </button>
-                )}
             </div>
 
+            {/* HLS Video Player */}
             <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden">
-                {loading ? (
-                    <div className="text-white flex flex-col items-center gap-3">
-                        <Loader className="animate-spin text-[#00A8E1]" size={40} />
-                        <p className="text-sm text-gray-400">Locating secure stream...</p>
-                    </div>
-                ) : activeStream ? (
-                    <iframe 
-    src={activeStream.embedUrl} 
-    className="w-full h-full border-0" 
-    allowFullScreen 
-    allow="autoplay; encrypted-media"
-/>
-                ) : (
-                    <div className="text-center text-gray-500">
-                        <Ban size={48} className="mx-auto mb-4 opacity-50" />
-                        <p>No active streams found for this match.</p>
-                        <button onClick={() => navigate(-1)} className="mt-4 text-[#00A8E1] hover:underline">Go Back</button>
-                    </div>
-                )}
-
-                {showStreamList && (
-                    <div className="absolute top-4 right-4 w-72 bg-[#19222b]/95 backdrop-blur-md border border-gray-700 rounded-lg shadow-2xl overflow-hidden animate-in fade-in slide-in-from-right-10 z-[60]">
-                        <div className="p-3 border-b border-white/10 flex justify-between items-center">
-                            <span className="font-bold text-white text-sm">Select Source</span>
-                            <X size={16} className="text-gray-400 cursor-pointer hover:text-white" onClick={() => setShowStreamList(false)} />
-                        </div>
-                        <div className="max-h-[300px] overflow-y-auto">
-                            {streams.map((stream, idx) => (
-                                <div 
-                                    key={stream.id || idx} 
-                                    onClick={() => { setActiveStream(stream); setShowStreamList(false); }}
-                                    className={`p-3 border-b border-white/5 cursor-pointer hover:bg-white/5 transition flex items-center justify-between ${activeStream === stream ? 'bg-[#00A8E1]/10 border-l-4 border-l-[#00A8E1]' : 'border-l-4 border-l-transparent'}`}
-                                >
-                                    <div>
-                                        <div className="text-white font-bold text-sm">Stream {stream.streamNo}</div>
-                                        <div className="text-xs text-gray-400 capitalize">{stream.language || 'Unknown Language'}</div>
-                                    </div>
-                                    {stream.hd && <span className="bg-[#333] text-xs text-white px-1.5 py-0.5 rounded border border-gray-600">HD</span>}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
+                <video 
+                    ref={videoRef} 
+                    className="w-full h-full" 
+                    controls 
+                    autoPlay
+                    playsInline
+                ></video>
             </div>
         </div>
     );
 };
-
 // --- HERO SECTION WITH HOVER PLAYBACK LOGIC ---
 const Hero = ({ isPrimeOnly }) => {
   const [movies, setMovies] = useState([]);
@@ -1418,38 +1329,23 @@ const Player = () => {
   }, [id]);
 
   const getSourceUrl = () => {
-    // Prime Blue Hex for VidFast theme (no #)
-    const themeParam = "theme=00A8E1";
-    
     if (type === 'tv') {
-      // Structure: https://vidfast.pro/tv/{id}/{season}/{episode}?autoPlay=true&theme=...&nextButton=true&autoNext=true
-      return `${VIDFAST_BASE}/tv/${id}/${season}/${episode}?autoPlay=true&${themeParam}&nextButton=true&autoNext=true`;
+      // TV Show Format: https://multiembed.mov/?video_id={tmdb_id}&tmdb=1&s={season}&e={episode}
+      return `https://multiembed.mov/?video_id=${id}&tmdb=1&s=${season}&e=${episode}`;
     } else {
-      // Structure: https://vidfast.pro/movie/{id}?autoPlay=true&theme=...
-      return `${VIDFAST_BASE}/movie/${id}?autoPlay=true&${themeParam}`;
+      // Movie Format: https://multiembed.mov/?video_id={tmdb_id}&tmdb=1
+      return `https://multiembed.mov/?video_id=${id}&tmdb=1`;
     }
   };
 
   return (
     <div className="fixed inset-0 bg-black z-[100] overflow-hidden flex flex-col">
-      {/* Back Button Overlay */}
+      {/* Back Button & Sidebar logic remains the same... */}
       <div className="absolute top-6 left-6 z-[120]">
-        <button 
-          onClick={() => navigate(-1)} 
-          className="bg-black/50 hover:bg-[#00A8E1] text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all"
-        >
+        <button onClick={() => navigate(-1)} className="bg-black/50 hover:bg-[#00A8E1] text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all">
           <ArrowLeft size={24} />
         </button>
       </div>
-
-      {/* Episode List Toggle */}
-      {type === 'tv' && (
-        <div className="absolute top-6 right-6 z-[120]">
-            <button onClick={() => setShowEpisodes(!showEpisodes)} className={`p-3 rounded-full backdrop-blur-md border border-white/10 transition-all ${showEpisodes ? 'bg-[#00A8E1] text-white' : 'bg-black/50 hover:bg-[#333c46] text-gray-200'}`}>
-                <List size={24} />
-            </button>
-        </div>
-      )}
 
       {/* Video Player Iframe */}
       <div className="flex-1 relative w-full h-full bg-black">
@@ -1457,7 +1353,7 @@ const Player = () => {
           src={getSourceUrl()}
           className="w-full h-full border-none"
           allowFullScreen
-          allow="encrypted-media"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
           title="Player"
         ></iframe>
       </div>
