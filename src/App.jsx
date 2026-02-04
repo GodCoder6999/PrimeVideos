@@ -964,138 +964,299 @@ const SearchResults = ({ isPrimeOnly }) => {
 // Integrated Trailer Button & Modal
 const MovieDetail = () => {
   const { type, id } = useParams();
-  const [movie, setMovie] = useState(null);
-  const [activeTab, setActiveTab] = useState('related');
-  const [seasonData, setSeasonData] = useState(null);
-  const [relatedMovies, setRelatedMovies] = useState([]);
-  const [selectedSeason, setSelectedSeason] = useState(1);
+  const navigate = useNavigate();
   
-  // Trailer & Playback State
+  // Data State
+  const [movie, setMovie] = useState(null);
+  const [relatedMovies, setRelatedMovies] = useState([]);
+  const [credits, setCredits] = useState(null);
+  const [omdbData, setOmdbData] = useState(null); // For extra meta if needed
+  
+  // Playback State (Preserved)
   const [trailerKey, setTrailerKey] = useState(null);
   const [showVideo, setShowVideo] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
-  
-  const navigate = useNavigate();
+  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
 
+  // --- 1. DATA FETCHING ---
   useEffect(() => {
-    // Reset states on ID change
+    // Reset States
     setShowVideo(false);
     setTrailerKey(null);
     setIsMuted(true);
+    setMovie(null);
+    window.scrollTo(0, 0);
 
-    // Fetch Movie Details
+    // Fetch Core Details
     fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}&language=en-US`)
         .then(res => res.json())
-        .then(data => { 
-            setMovie(data); 
-            if (type === 'tv') setActiveTab('episodes'); 
-            else setActiveTab('related'); 
-        })
+        .then(data => setMovie(data))
         .catch(err => console.error(err));
-        
-    // Fetch Related
+
+    // Fetch Credits (Cast/Crew)
+    fetch(`${BASE_URL}/${type}/${id}/credits?api_key=${TMDB_API_KEY}`)
+        .then(res => res.json())
+        .then(data => setCredits(data));
+
+    // Fetch Related Content
     fetch(`${BASE_URL}/${type}/${id}/recommendations?api_key=${TMDB_API_KEY}&language=en-US`)
         .then(res => res.json())
         .then(data => { 
-            if (data.results.length > 0) setRelatedMovies(data.results); 
+            if (data.results.length > 0) setRelatedMovies(data.results.slice(0, 10)); 
             else return fetch(`${BASE_URL}/${type}/${id}/similar?api_key=${TMDB_API_KEY}&language=en-US`); 
         })
         .then(res => { if (res) return res.json(); })
-        .then(data => { if (data && data.results) setRelatedMovies(data.results); })
-        .catch(err => console.error(err));
-    
-    // Fetch Trailer & Start Auto-Play Timer
+        .then(data => { if (data && data.results) setRelatedMovies(data.results.slice(0, 10)); });
+
+    // Fetch Trailer & Init Auto-Play
     fetch(`${BASE_URL}/${type}/${id}/videos?api_key=${TMDB_API_KEY}`)
         .then(res => res.json())
         .then(data => {
             const trailer = data.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube') || data.results?.find(v => v.site === 'YouTube');
             if (trailer) {
                 setTrailerKey(trailer.key);
-                // Wait 3 seconds before fading in the video for a smooth feel
-                setTimeout(() => setShowVideo(true), 3000);
+                setTimeout(() => setShowVideo(true), 3000); // 3s Delay
             }
         });
-
   }, [type, id]);
 
-  useEffect(() => { 
-      if (type === 'tv' && id) { 
-          fetch(`${BASE_URL}/tv/${id}/season/${selectedSeason}?api_key=${TMDB_API_KEY}&language=en-US`)
-            .then(res => res.json())
-            .then(data => setSeasonData(data))
-            .catch(err => console.error(err)); 
-      } 
-  }, [type, id, selectedSeason]);
+  if (!movie) return <div className="min-h-screen w-full bg-[#0f171e]" />;
 
-  if (!movie) return <div className="min-h-screen w-full bg-[#00050D]" />;
+  // Derived Data
+  const director = credits?.crew?.find(c => c.job === 'Director')?.name || "Unknown Director";
+  const cast = credits?.cast?.slice(0, 5).map(c => c.name).join(", ") || "N/A";
+  const studio = movie.production_companies?.[0]?.name || "Prime Studios";
+  const year = movie.release_date?.split('-')[0] || movie.first_air_date?.split('-')[0] || "2024";
+  const runtime = movie.runtime ? `${Math.floor(movie.runtime/60)}h ${movie.runtime%60}min` : `${movie.number_of_seasons} Seasons`;
+  const genres = movie.genres?.slice(0, 3).map(g => g.name).join(" • ");
+  const rating = movie.vote_average ? movie.vote_average.toFixed(1) : "N/A";
 
   return (
-    <div className="min-h-screen bg-[#00050D] relative text-white font-sans overflow-x-hidden">
+    <div className="min-h-screen bg-[#0f171e] text-white font-sans selection:bg-[#00A8E1] selection:text-white pb-20">
       
-      {/* BACKGROUND MEDIA AREA */}
-      <div className="absolute inset-0 h-[100vh] w-full z-0 overflow-hidden">
-          {/* 1. Static Backdrop Image (Fade out when video plays) */}
-          <div className={`absolute inset-0 transition-opacity duration-1000 ${showVideo ? 'opacity-0' : 'opacity-100'}`}>
-              <img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover" alt="" />
+      {/* ============================================
+          2. HERO SECTION (Top Half) 
+      ============================================ */}
+      <div className="relative w-full h-[85vh] overflow-hidden">
+          
+          {/* A. Background Media (Right Aligned) */}
+          <div className="absolute inset-0 w-full h-full">
+               {/* Static Image */}
+               <div className={`absolute inset-0 transition-opacity duration-1000 ${showVideo ? 'opacity-0' : 'opacity-100'}`}>
+                   <img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover object-top md:object-right-top" alt="" />
+               </div>
+               {/* Auto-Playing Video */}
+               {showVideo && trailerKey && (
+                  <div className="absolute inset-0 animate-in fade-in duration-1000 pointer-events-none">
+                     <iframe 
+                        src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`}
+                        className="w-full h-full scale-[1.5] origin-center" 
+                        allow="autoplay; encrypted-media"
+                        frameBorder="0"
+                        title="Hero Background"
+                     />
+                  </div>
+               )}
           </div>
 
-          {/* 2. Auto-Playing Background Video */}
+          {/* B. Gradients (Cinematic Readability) */}
+          {/* Heavy Left Gradient for Text */}
+          <div className="absolute inset-0 bg-gradient-to-r from-[#0f171e] via-[#0f171e]/90 to-transparent w-[90%] md:w-[65%] z-10" />
+          {/* Bottom Gradient for transitions */}
+          <div className="absolute inset-0 bg-gradient-to-t from-[#0f171e] via-transparent to-transparent z-10" />
+
+          {/* C. Hero Content Column (Left) */}
+          <div className="absolute inset-0 z-20 flex flex-col justify-center px-6 md:px-16 lg:px-24 max-w-3xl pt-20">
+              
+              {/* Platform Badge */}
+              <div className="mb-4 opacity-0 animate-fade-in-up" style={{ animationDelay: '0ms' }}>
+                  <span className="text-[11px] font-black tracking-[0.2em] text-[#00A8E1] uppercase bg-[#00A8E1]/10 px-2 py-1 rounded">
+                      INCLUDED WITH PRIME
+                  </span>
+              </div>
+
+              {/* Title */}
+              <h1 className="text-4xl md:text-6xl lg:text-7xl font-extrabold mb-4 leading-[0.95] tracking-tight drop-shadow-2xl opacity-0 animate-fade-in-up" style={{ animationDelay: '100ms' }}>
+                  {movie.title || movie.name}
+              </h1>
+
+              {/* Metadata Line */}
+              <div className="flex items-center flex-wrap gap-3 text-sm font-medium text-gray-300 mb-8 opacity-0 animate-fade-in-up" style={{ animationDelay: '200ms' }}>
+                  <span className="text-[#00A8E1] font-bold">IMDb {rating}</span>
+                  <span>•</span>
+                  <span>{runtime}</span>
+                  <span>•</span>
+                  <span>{year}</span>
+                  <span>•</span>
+                  <span className="border border-gray-500 px-1 rounded text-xs">X-Ray</span>
+                  <span className="border border-gray-500 px-1 rounded text-xs">UHD</span>
+                  <span className="border border-gray-500 px-1 rounded text-xs bg-gray-800">16+</span>
+              </div>
+
+              {/* Primary Actions */}
+              <div className="flex items-center gap-4 mb-8 opacity-0 animate-fade-in-up" style={{ animationDelay: '300ms' }}>
+                  {/* Play Button (Dominant) */}
+                  <button onClick={() => navigate(`/watch/${type}/${id}`)} className="h-14 px-8 rounded bg-white text-black font-bold text-lg hover:bg-gray-200 transition-transform transform hover:scale-105 flex items-center gap-3 shadow-[0_0_40px_rgba(255,255,255,0.2)]">
+                      <Play fill="black" size={24} /> 
+                      Play {type === 'tv' ? 'S1 E1' : 'Movie'}
+                  </button>
+
+                  {/* Secondary Icons */}
+                  <div className="flex gap-3">
+                      <button className="w-12 h-12 rounded-full bg-[#2a333d]/60 border-2 border-[#4a5561] hover:border-white hover:bg-[#2a333d] flex items-center justify-center transition text-gray-200 hover:text-white" title="Add to Watchlist">
+                          <Plus size={22} />
+                      </button>
+                      <button className="w-12 h-12 rounded-full bg-[#2a333d]/60 border-2 border-[#4a5561] hover:border-white hover:bg-[#2a333d] flex items-center justify-center transition text-gray-200 hover:text-white" title="Like">
+                          <ThumbsUp size={20} />
+                      </button>
+                      <button className="w-12 h-12 rounded-full bg-[#2a333d]/60 border-2 border-[#4a5561] hover:border-white hover:bg-[#2a333d] flex items-center justify-center transition text-gray-200 hover:text-white" title="Dislike">
+                          < Ban size={20} />
+                      </button>
+                      <button className="w-12 h-12 rounded-full bg-[#2a333d]/60 border-2 border-[#4a5561] hover:border-white hover:bg-[#2a333d] flex items-center justify-center transition text-gray-200 hover:text-white" title="Share">
+                          <Share2 size={20} />
+                      </button>
+                  </div>
+              </div>
+
+              {/* Short Description */}
+              <div className="text-gray-300 text-lg leading-relaxed line-clamp-3 max-w-2xl opacity-0 animate-fade-in-up" style={{ animationDelay: '400ms' }}>
+                  {movie.overview}
+              </div>
+          </div>
+
+          {/* Volume Control (Floating) */}
           {showVideo && trailerKey && (
-              <div className="absolute inset-0 animate-in fade-in duration-1000 pointer-events-none">
-                 <iframe 
-                    src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`}
-                    className="w-full h-full scale-[1.5]" // Scale 1.5 to remove black bars/letterboxing
-                    allow="autoplay; encrypted-media"
-                    frameBorder="0"
-                    title="Background Trailer"
-                 />
+              <div className="absolute top-[35%] right-8 z-50">
+                  <button 
+                    onClick={() => setIsMuted(!isMuted)} 
+                    className="w-12 h-12 rounded-full bg-black/40 backdrop-blur-md border border-white/20 hover:border-white flex items-center justify-center text-white transition"
+                  >
+                      {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+                  </button>
               </div>
           )}
-
-          {/* 3. Gradient Overlays for Readability */}
-          <div className="absolute inset-0 bg-gradient-to-t from-[#00050D] via-[#00050D]/60 to-transparent" />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#00050D] via-[#00050D]/80 to-transparent" />
       </div>
 
-      {/* VOLUME CONTROL (Floating) */}
-      {showVideo && trailerKey && (
-          <div className="absolute top-[35%] right-8 md:right-16 z-50 animate-in">
-              <button 
-                onClick={() => setIsMuted(!isMuted)} 
-                className="w-12 h-12 rounded-full border-2 border-white/20 bg-black/30 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/10 hover:border-white transition group"
-              >
-                  {isMuted ? <VolumeX size={24} className="text-gray-300 group-hover:text-white" /> : <Volume2 size={24} />}
-              </button>
+      {/* ============================================
+          3. RELATED CONTENT STRIP 
+      ============================================ */}
+      <div className="relative z-30 -mt-24 px-6 md:px-16 mb-16">
+          <h3 className="text-xl font-bold text-white mb-4 drop-shadow-md">Customers also watched</h3>
+          <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-4">
+              {relatedMovies.map((m, idx) => (
+                  <div 
+                    key={m.id} 
+                    onClick={() => { window.scrollTo(0,0); navigate(`/detail/${m.media_type || 'movie'}/${m.id}`); }}
+                    className="flex-shrink-0 w-[200px] aspect-video bg-gray-800 rounded-lg overflow-hidden relative group cursor-pointer border border-transparent hover:border-white/50 transition-all shadow-lg"
+                  >
+                      <img src={`${IMAGE_BASE_URL}${m.backdrop_path || m.poster_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                          <div className="bg-white rounded-full p-2"><Play fill="black" size={16} /></div>
+                      </div>
+                      <div className="absolute bottom-0 left-0 w-full p-2 bg-gradient-to-t from-black to-transparent">
+                          <p className="text-xs font-bold truncate">{m.title || m.name}</p>
+                      </div>
+                  </div>
+              ))}
           </div>
-      )}
-
-      {/* FOREGROUND CONTENT */}
-      <div className="relative z-10 pt-[140px] px-8 md:px-16 max-w-[1400px]">
-        {/* Title & Metadata */}
-        <h1 className="text-4xl md:text-6xl font-extrabold mb-6 tracking-tight drop-shadow-2xl max-w-4xl leading-tight">{movie.title || movie.name}</h1>
-        <div className="flex items-center flex-wrap gap-4 text-[#99a7b1] font-bold text-[15px] mb-8">{movie.vote_average && <span className="text-white flex items-center gap-1"><span className="text-[#00A8E1] font-extrabold">IMDb</span> {movie.vote_average.toFixed(1)}</span>}<span>{movie.runtime ? `${Math.floor(movie.runtime/60)} h ${movie.runtime%60} min` : 'Season 1'}</span><span>{movie.release_date?.split('-')[0] || movie.first_air_date?.split('-')[0] || "2024"}</span><span className="bg-[#33373d] text-[#d6d6d6] text-[12px] px-1.5 py-0.5 rounded-sm border border-[#5a6069]">UHD</span><span className="bg-[#33373d] text-[#d6d6d6] text-[12px] px-1.5 py-0.5 rounded-sm border border-[#5a6069]">16+</span></div>
-        
-        {/* Action Buttons */}
-        <div className="flex items-center gap-4 mb-8">
-            <button onClick={() => navigate(`/watch/${type}/${id}`)} className="bg-[#00A8E1] hover:bg-[#008ebf] text-white h-[56px] pl-8 pr-9 rounded-md font-bold text-[17px] flex items-center gap-3 transition-transform hover:scale-105 shadow-[0_0_30px_rgba(0,168,225,0.3)]"><Play fill="white" size={24} /> <span>Play {type === 'tv' && 'S1 E1'}</span></button>
-            
-            <div className="flex gap-4">
-                <button className="w-[56px] h-[56px] rounded-full bg-[#42474d]/60 border border-[#8197a4]/30 flex flex-col items-center justify-center hover:bg-[#42474d] hover:border-white transition group backdrop-blur-sm"><Plus size={26} className="text-white" /></button>
-                <button className="w-[56px] h-[56px] rounded-full bg-[#42474d]/60 border border-[#8197a4]/30 flex flex-col items-center justify-center hover:bg-[#42474d] hover:border-white transition group backdrop-blur-sm"><Download size={24} className="text-white" /></button>
-                <button className="w-[56px] h-[56px] rounded-full bg-[#42474d]/60 border border-[#8197a4]/30 flex flex-col items-center justify-center hover:bg-[#42474d] hover:border-white transition group backdrop-blur-sm"><Share2 size={24} className="text-white" /></button>
-            </div>
-        </div>
-        
-        <p className="text-[17px] text-white font-medium leading-relaxed drop-shadow-md max-w-3xl mb-12">{movie.overview}</p>
-        
-        {/* Tabs & Content */}
-        <div className="border-t border-white/10 pt-4 pb-20">
-             <div className="flex gap-8 mb-8">{type === 'tv' && <button onClick={() => setActiveTab('episodes')} className={`text-[18px] font-bold pb-2 transition border-b-2 ${activeTab === 'episodes' ? 'text-white border-white' : 'text-[#8197a4] border-transparent hover:text-white'}`}>Episodes</button>}<button onClick={() => setActiveTab('related')} className={`text-[18px] font-bold pb-2 transition border-b-2 ${activeTab === 'related' ? 'text-white border-white' : 'text-[#8197a4] border-transparent hover:text-white'}`}>Related</button><button onClick={() => setActiveTab('details')} className={`text-[18px] font-bold pb-2 transition border-b-2 ${activeTab === 'details' ? 'text-white border-white' : 'text-[#8197a4] border-transparent hover:text-white'}`}>More Details</button></div>
-             {activeTab === 'episodes' && type === 'tv' && seasonData && (<div className="animate-in"><div className="flex items-center gap-4 mb-6"><span className="font-bold text-lg text-white">Season</span><div className="relative"><select value={selectedSeason} onChange={(e) => setSelectedSeason(Number(e.target.value))} className="bg-[#1a242f] text-white border border-gray-600 rounded-md py-2 pl-4 pr-10 font-bold appearance-none outline-none hover:bg-[#25303b] cursor-pointer">{Array.from({length: movie.number_of_seasons || 1}, (_, i) => i + 1).map(s => (<option key={s} value={s}>Season {s}</option>))}</select><ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" /></div><span className="text-[#8197a4] text-sm ml-2">{seasonData.episodes?.length} Episodes</span></div><div className="flex flex-col gap-2">{seasonData.episodes?.map(ep => (<div key={ep.id} className="flex flex-col md:flex-row gap-5 p-4 rounded-lg hover:bg-[#1a242f] transition group cursor-pointer border border-transparent hover:border-white/5" onClick={() => navigate(`/watch/tv/${id}?season=${selectedSeason}&episode=${ep.episode_number}`)}><div className="relative w-full md:w-[280px] aspect-video flex-shrink-0 bg-[#00050D] rounded-md overflow-hidden">{ep.still_path ? (<img src={`${IMAGE_BASE_URL}${ep.still_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt={ep.name} />) : (<div className="w-full h-full flex items-center justify-center text-gray-600 font-bold">No Image</div>)}<div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition bg-black/40"><div className="w-12 h-12 bg-[#00A8E1] rounded-full flex items-center justify-center shadow-lg transform scale-90 group-hover:scale-100 transition"><Play fill="white" className="ml-1" size={24} /></div></div></div><div className="flex flex-col justify-center flex-grow py-2"><h4 className="font-bold text-white text-[17px] mb-1 group-hover:text-[#00A8E1] transition">{ep.episode_number}. {ep.name}</h4><p className="text-[#8197a4] text-[14px] font-medium mb-3">{ep.air_date} • {ep.runtime ? `${ep.runtime} min` : 'N/A'}</p><p className="text-[#d6d6d6] text-[15px] leading-relaxed line-clamp-2 md:line-clamp-3 text-gray-400">{ep.overview}</p></div></div>))}</div></div>)}
-             {activeTab === 'related' && (<div className="relative animate-in"><h3 className="text-white font-bold text-xl mb-4">Customers also watched</h3><div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">{relatedMovies.length > 0 ? relatedMovies.map(m => (<div key={m.id} onClick={() => navigate(`/detail/${m.media_type || 'movie'}/${m.id}`)} className="cursor-pointer group"><div className="rounded-md overflow-hidden aspect-video bg-[#1a242f] relative shadow-lg group-hover:shadow-[0_0_20px_rgba(0,168,225,0.4)] transition duration-300"><img src={`${IMAGE_BASE_URL}${m.backdrop_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt={m.title} /><div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition"></div></div><h4 className="text-sm font-bold text-gray-300 mt-2 group-hover:text-white truncate">{m.title || m.name}</h4></div>)) : (<div className="text-gray-500">No related titles found.</div>)}</div></div>)}
-             {activeTab === 'details' && (<div className="text-[#8197a4] animate-in grid grid-cols-1 md:grid-cols-2 gap-8"><div><h4 className="font-bold text-white mb-2">Audio Languages</h4><p>English, Hindi, Tamil, Telugu, Spanish, French</p></div><div><h4 className="font-bold text-white mb-2">Subtitles</h4><p>English [CC], Hindi, Tamil, Telugu, Spanish, French</p></div><div><h4 className="font-bold text-white mb-2">Cast</h4><p>{movie.credits?.cast?.slice(0,5).map(c => c.name).join(", ")}</p></div><div><h4 className="font-bold text-white mb-2">Studio</h4><p>{movie.production_companies?.[0]?.name || "Amazon Studios"}</p></div></div>)}
-        </div>
       </div>
+
+      {/* ============================================
+          4. DETAIL INFO SECTION (Lower Half)
+      ============================================ */}
+      <div className="px-6 md:px-16 grid grid-cols-1 lg:grid-cols-3 gap-10">
+          
+          {/* LEFT COLUMN: Content Details */}
+          <div className="lg:col-span-2 space-y-8">
+              {/* Expanded Description Card */}
+              <div className="bg-[#19222b] p-6 rounded-lg border border-white/5">
+                  <h4 className="text-lg font-bold text-white mb-3">Synopsis</h4>
+                  <p className={`text-gray-300 leading-relaxed ${isDescriptionExpanded ? '' : 'line-clamp-3'}`}>
+                      {movie.overview}
+                  </p>
+                  <button 
+                    onClick={() => setIsDescriptionExpanded(!isDescriptionExpanded)} 
+                    className="mt-3 text-[#00A8E1] font-bold text-sm hover:underline"
+                  >
+                      {isDescriptionExpanded ? "Show Less" : "More..."}
+                  </button>
+              </div>
+
+              {/* Creators & Cast Card */}
+              <div className="bg-[#19222b] p-6 rounded-lg border border-white/5">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                          <span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Director</span>
+                          <span className="text-[#00A8E1] hover:underline cursor-pointer">{director}</span>
+                      </div>
+                      <div>
+                          <span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Starring</span>
+                          <div className="flex flex-wrap gap-2 text-[#00A8E1]">
+                              {cast.split(", ").map((actor, i) => (
+                                  <span key={i} className="hover:underline cursor-pointer">{actor}{i < 4 ? ',' : ''}</span>
+                              ))}
+                          </div>
+                      </div>
+                      <div>
+                          <span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Genres</span>
+                          <span className="text-gray-300">{genres}</span>
+                      </div>
+                      <div>
+                          <span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Studio</span>
+                          <span className="text-gray-300">{studio}</span>
+                      </div>
+                  </div>
+              </div>
+          </div>
+
+          {/* RIGHT COLUMN: Advisory & Tech Info */}
+          <div className="space-y-6">
+              {/* Content Advisory Card */}
+              <div className="bg-[#19222b] p-6 rounded-lg border border-white/5">
+                  <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">Content Advisory</h4>
+                  <div className="flex items-center gap-3 mb-4">
+                      <span className="text-2xl font-bold border border-white/20 px-2 py-1 rounded bg-[#0f171e]">16+</span>
+                      <span className="text-gray-400 text-sm">Teens</span>
+                  </div>
+                  <ul className="space-y-2 text-sm text-gray-300">
+                      <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-gray-500"></span>Violence</li>
+                      <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-gray-500"></span>Foul Language</li>
+                      <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-gray-500"></span>Substance Use</li>
+                  </ul>
+                  <div className="mt-4 pt-4 border-t border-white/10">
+                      <a href="#" className="text-[#00A8E1] text-xs hover:underline">Rating Policy</a>
+                  </div>
+              </div>
+
+              {/* Audio Languages Card */}
+              <div className="bg-[#19222b] p-6 rounded-lg border border-white/5">
+                  <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">Audio Languages</h4>
+                  <p className="text-sm text-gray-300 leading-relaxed">
+                      English [Audio Description], English, Hindi, Tamil, Telugu, Spanish, French, German
+                  </p>
+                  <div className="mt-3 flex gap-2">
+                      <span className="text-[10px] border border-gray-600 px-1.5 rounded text-gray-400">AAC</span>
+                      <span className="text-[10px] border border-gray-600 px-1.5 rounded text-gray-400">Dolby Digital</span>
+                  </div>
+              </div>
+          </div>
+      </div>
+
+      {/* ============================================
+          5. FOOTER AREA
+      ============================================ */}
+      <div className="mt-20 px-6 md:px-16 pt-8 border-t border-white/10 text-center md:text-left">
+          <p className="text-xs text-gray-500 mb-4">
+              By clicking play, you agree to our <a href="#" className="text-[#00A8E1] hover:underline">Terms of Use</a>.
+          </p>
+          <div className="flex flex-wrap justify-center md:justify-start gap-6 text-sm text-gray-400">
+              <a href="#" className="hover:text-white hover:underline">Terms and Privacy Notice</a>
+              <a href="#" className="hover:text-white hover:underline">Send us feedback</a>
+              <a href="#" className="hover:text-white hover:underline">Help</a>
+              <span className="text-gray-600">© 1996-2024, PrimeShows.com, Inc. or its affiliates</span>
+          </div>
+      </div>
+
     </div>
   );
 };
