@@ -1494,105 +1494,47 @@ const Player = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
+  // Optimization: Read directly from URL to avoid state re-renders
   const queryParams = new URLSearchParams(location.search);
-  const [season, setSeason] = useState(Number(queryParams.get('season')) || 1);
-  const [episode, setEpisode] = useState(Number(queryParams.get('episode')) || 1);
-  
-  const [showEpisodes, setShowEpisodes] = useState(false);
-  const [seasonData, setSeasonData] = useState(null);
-  const [totalSeasons, setTotalSeasons] = useState(1);
+  const season = Number(queryParams.get('season')) || 1;
+  const episode = Number(queryParams.get('episode')) || 1;
 
-  useEffect(() => {
-    if (type === 'tv') {
-        fetch(`${BASE_URL}/tv/${id}?api_key=${TMDB_API_KEY}`)
-          .then(res => res.json())
-          .then(data => { if(data.number_of_seasons) setTotalSeasons(data.number_of_seasons); });
-    }
-  }, [type, id]);
-
-  useEffect(() => {
-    if (type === 'tv') {
-        fetch(`${BASE_URL}/tv/${id}/season/${season}?api_key=${TMDB_API_KEY}`)
-          .then(res => res.json())
-          .then(data => setSeasonData(data));
-    }
-  }, [type, id, season]);
-
-  // VIDFAST.PRO SOURCE LOGIC
-  // ZXCSTREAM SOURCE LOGIC
   // ZXCSTREAM PLAYER LOGIC
   const getSourceUrl = () => {
     if (type === 'tv') {
-      // Structure: /player/tv/{id}/{season}/{episode}
       return `https://www.zxcstream.xyz/player/tv/${id}/${season}/${episode}?autoplay=false&back=true&server=0`;
     } else {
-      // Structure: /player/movie/{id}
       return `https://www.zxcstream.xyz/player/movie/${id}?autoplay=false&back=true&server=0`;
     }
   };
 
   return (
     <div className="fixed inset-0 bg-black z-[100] overflow-hidden flex flex-col">
+      {/* Optimized Back Button */}
       <div className="absolute top-6 left-6 z-[120]">
         <button 
           onClick={() => navigate(-1)} 
-          className="bg-black/50 hover:bg-[#00A8E1] text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all"
+          className="bg-black/50 hover:bg-[#00A8E1] text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all shadow-lg group"
         >
-          <ArrowLeft size={24} />
+          <ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" />
         </button>
       </div>
 
-      {type === 'tv' && (
-        <div className="absolute top-6 right-6 z-[120]">
-            <button onClick={() => setShowEpisodes(!showEpisodes)} className={`p-3 rounded-full backdrop-blur-md border border-white/10 transition-all ${showEpisodes ? 'bg-[#00A8E1] text-white' : 'bg-black/50 hover:bg-[#333c46] text-gray-200'}`}>
-                <List size={24} />
-            </button>
-        </div>
-      )}
-
+      {/* Fullscreen Iframe */}
       <div className="flex-1 relative w-full h-full bg-black">
         <iframe
           src={getSourceUrl()}
           className="w-full h-full border-none"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
           loading="eager" 
           referrerPolicy="origin"
           allowFullScreen
           title="Player"
         ></iframe>
       </div>
-
-      {type === 'tv' && (
-        <div className={`fixed right-0 top-0 h-full bg-[#00050D]/95 backdrop-blur-xl border-l border-white/10 transition-all duration-500 ease-in-out z-[110] flex flex-col ${showEpisodes ? 'w-[350px] translate-x-0 shadow-2xl' : 'w-[350px] translate-x-full shadow-none'}`}>
-            <div className="p-6 border-b border-white/10 flex items-center justify-between bg-[#1a242f]/50">
-                <h2 className="font-bold text-white text-lg">Episodes</h2>
-                <div className="relative">
-                    <select value={season} onChange={(e) => setSeason(Number(e.target.value))} className="appearance-none bg-[#00A8E1] text-white font-bold py-1.5 pl-3 pr-8 rounded cursor-pointer text-sm outline-none hover:bg-[#008ebf] transition">
-                        {Array.from({length: totalSeasons}, (_, i) => i + 1).map(s => (<option key={s} value={s} className="bg-[#1a242f]">Season {s}</option>))}
-                    </select>
-                    <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-white pointer-events-none" />
-                </div>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-hide">
-                {seasonData?.episodes ? (seasonData.episodes.map(ep => (
-                        <div key={ep.id} onClick={() => setEpisode(ep.episode_number)} className={`flex gap-3 p-2 rounded-lg cursor-pointer transition-all group ${episode === ep.episode_number ? 'bg-[#333c46] border border-[#00A8E1]' : 'hover:bg-[#333c46] border border-transparent'}`}>
-                            <div className="relative w-28 h-16 flex-shrink-0 bg-black rounded overflow-hidden">
-                                {ep.still_path ? (<img src={`${IMAGE_BASE_URL}${ep.still_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" />) : (<div className="w-full h-full flex items-center justify-center text-gray-600 text-xs">No Img</div>)}
-                                {episode === ep.episode_number && (<div className="absolute inset-0 bg-black/40 flex items-center justify-center"><Play size={16} fill="white" className="text-white" /></div>)}
-                            </div>
-                            <div className="flex flex-col justify-center min-w-0">
-                                <span className={`text-xs font-bold mb-0.5 ${episode === ep.episode_number ? 'text-[#00A8E1]' : 'text-gray-400'}`}>Episode {ep.episode_number}</span>
-                                <h4 className={`text-sm font-medium truncate leading-tight ${episode === ep.episode_number ? 'text-white' : 'text-gray-300 group-hover:text-white'}`}>{ep.name}</h4>
-                            </div>
-                        </div>
-                ))) : (<div className="text-center text-gray-500 mt-10 flex flex-col items-center"><Loader className="animate-spin mb-2" /><span>Loading Season {season}...</span></div>)}
-            </div>
-        </div>
-      )}
     </div>
   );
 };
-
 // --- MAIN WRAPPERS ---
 const Home = ({ isPrimeOnly }) => { const { rows, loadMore } = useInfiniteRows('all', isPrimeOnly); return <><Hero isPrimeOnly={isPrimeOnly} /><div className="-mt-10 relative z-20 pb-20">{rows.map(row => <Row key={row.id} title={row.title} fetchUrl={row.fetchUrl} variant={row.variant} itemType={row.itemType} isPrimeOnly={isPrimeOnly} />)}<InfiniteScrollTrigger onIntersect={loadMore} /></div></>; };
 const MoviesPage = ({ isPrimeOnly }) => { const { rows, loadMore } = useInfiniteRows('movie', isPrimeOnly); return <><Hero isPrimeOnly={isPrimeOnly} /><div className="-mt-10 relative z-20 pb-20">{rows.map(row => <Row key={row.id} title={row.title} fetchUrl={row.fetchUrl} variant={row.variant} itemType={row.itemType} isPrimeOnly={isPrimeOnly} />)}<InfiniteScrollTrigger onIntersect={loadMore} /></div></>; };
