@@ -39,25 +39,8 @@ const GlobalStyles = () => (
         position: relative;
         z-index: 1;
     }
-    .glow-card::before {
-        content: "";
-        position: absolute;
-        inset: -2px;
-        border-radius: 14px;
-        padding: 2px;
-        background: linear-gradient(45deg, transparent, rgba(0,168,225,0.3), transparent);
-        -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-        -webkit-mask-composite: xor;
-        mask-composite: exclude;
-        opacity: 0.5;
-        transition: opacity 0.3s ease;
-    }
-    .glow-card:hover::before {
-        background: linear-gradient(45deg, #00A8E1, #ffffff, #00A8E1);
-        opacity: 1;
-        box-shadow: 0 0 20px rgba(0,168,225,0.5);
-    }
-
+    /* We use direct tailwind classes for glow now to avoid overflow clipping issues, keeping this class for reference or other uses */
+    
     @keyframes row-enter { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
     .animate-row-enter { animation: row-enter 0.6s ease-out forwards; }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -812,7 +795,7 @@ const SportsPage = () => {
                         </button>
                     </div>
                     <div className="text-center text-gray-500 text-xs pb-8 animate-pulse">
-                        Page {currentPage} of {totalPages}
+                        Page {currentPage} of {totalPages} • Use Arrow Keys &larr; &rarr; to navigate
                     </div>
                 </>
             )}
