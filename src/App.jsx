@@ -34,12 +34,11 @@ const GlobalStyles = () => (
       animation: pulse-glow 2s infinite;
     }
 
-    /* Cinematic Border Glow for Cards */
+    /* Cinematic Border Glow for Cards - Kept for reference but primarily using Tailwind utilities */
     .glow-card {
         position: relative;
         z-index: 1;
     }
-    /* We use direct tailwind classes for glow now to avoid overflow clipping issues, keeping this class for reference or other uses */
     
     @keyframes row-enter { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
     .animate-row-enter { animation: row-enter 0.6s ease-out forwards; }
@@ -611,7 +610,7 @@ const SportsPage = () => {
         setCurrentPage(1);
     }, [activeMainCategory, activeSubCategory, searchQuery]);
 
-    // Pagination Logic
+    // Pagination Logic (Corrected sliding window)
     const totalPages = Math.ceil(
         (activeMainCategory === 'All' && activeSubCategory === 'All' && !searchQuery 
             ? channels.length 
@@ -623,6 +622,18 @@ const SportsPage = () => {
               }).length
         ) / itemsPerPage
     );
+
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key === 'ArrowRight') {
+                setCurrentPage(p => Math.min(totalPages, p + 1));
+            } else if (e.key === 'ArrowLeft') {
+                setCurrentPage(p => Math.max(1, p - 1));
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [totalPages]);
 
     return (
         <div className="pt-24 px-4 md:px-12 min-h-screen pb-20">
@@ -763,10 +774,14 @@ const SportsPage = () => {
                         <div className="flex gap-2 overflow-x-auto max-w-[300px] scrollbar-hide px-2 items-center">
                             {(() => {
                                 const maxButtons = 5;
-                                let startPage = Math.max(1, currentPage - 2);
-                                let endPage = Math.min(totalPages, startPage + maxButtons - 1);
-                                
-                                if (endPage - startPage + 1 < maxButtons) {
+                                // Simple sliding window logic to avoid duplication
+                                // Determine the start page based on current page
+                                let startPage = Math.max(1, currentPage - Math.floor(maxButtons / 2));
+                                let endPage = startPage + maxButtons - 1;
+
+                                // Adjust if window exceeds total pages
+                                if (endPage > totalPages) {
+                                    endPage = totalPages;
                                     startPage = Math.max(1, endPage - maxButtons + 1);
                                 }
 
@@ -788,7 +803,7 @@ const SportsPage = () => {
 
                         <button 
                             disabled={currentPage >= totalPages}
-                            onClick={() => setCurrentPage(p => p + 1)}
+                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                             className="p-3 rounded-full bg-[#19222b] hover:bg-[#333c46] hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] disabled:opacity-50 disabled:cursor-not-allowed text-white transition-all duration-300"
                         >
                             <ChevronRight size={24} />
