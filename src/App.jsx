@@ -15,7 +15,7 @@ const useConnectionOptimizer = () => {
       "https://api.themoviedb.org",
       "https://image.tmdb.org",
       "https://iptv-org.github.io",
-      "https://moviesmod.cards"
+      "https://xuzfdkkkklmrilcitsec.supabase.co" // Added Supabase
     ];
     
     domains.forEach(domain => {
@@ -105,13 +105,55 @@ const VIDFAST_BASE = "https://vidfast.pro";
 
 // STRICT PRIME FILTERS
 const PRIME_PROVIDER_IDS = "9|119"; 
-const PRIME_REGION = "IN";       
+const PRIME_REGION = "IN";        
 
 const ScrollToTop = () => {
   const { pathname } = useLocation();
   useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
   return null;
 };
+
+// --- AG DOWNLOAD SOURCE (SUPABASE) ---
+async function getAgDownloads({ tmdbId, mediaItem, mediaType = 'movie' }) {
+  if (!tmdbId) return [];
+
+  const baseUrl = 'https://xuzfdkkkklmrilcitsec.supabase.co/rest/v1';
+  // NOTE: This is the key you provided. Ensure it is the FULL key.
+  const apikey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'; 
+  const headers = { 
+    'apikey': apikey, 
+    'Authorization': `Bearer ${apikey}`, 
+    'Content-Type': 'application/json' 
+  };
+
+  try {
+    const table = mediaType === 'tv' ? 'tv_shows' : 'movies';
+    const res = await fetch(`${baseUrl}/${table}?tmdb_id=eq.${tmdbId}`, { headers });
+    
+    // Safely parse JSON
+    const response = await res.json().catch(() => []);
+    if (!response || !response[0]) return [];
+
+    const downloadUrl = response[0]?.download_url;
+    if (!downloadUrl) return [];
+
+    const title = mediaItem?.title || mediaItem?.name || '';
+    const date = mediaItem?.release_date || mediaItem?.first_air_date;
+    const releaseYear = date ? date.slice(0, 4) : '';
+    const displayTitle = releaseYear && title ? `${title} (${releaseYear})` : title || 'AG Download';
+
+    // Format for the UI
+    return [{ 
+      label: 'Direct Download (High Speed)', 
+      url: downloadUrl, 
+      quality: 'HD' 
+    }];
+
+  } catch (error) {
+    console.error('AG Download Error:', error);
+    return [];
+  }
+}
 
 // --- CATEGORY DECK ---
 const CATEGORY_DECK = [
@@ -1202,8 +1244,7 @@ const SearchResults = ({ isPrimeOnly }) => {
   ); 
 };
 
-// --- MOVIE DETAIL COMPONENT WITH DOWNLOAD ---
-// --- MOVIE DETAIL COMPONENT (CLIENT-SIDE SCRAPING) ---
+// --- MOVIE DETAIL COMPONENT ---
 const MovieDetail = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
@@ -1234,64 +1275,26 @@ const MovieDetail = () => {
     fetch(`${BASE_URL}/${type}/${id}/recommendations?api_key=${TMDB_API_KEY}&language=en-US`).then(res => res.json()).then(data => setRelatedMovies(data.results?.slice(0, 10) || []));
   }, [type, id]);
 
-  // --- CLIENT-SIDE DOWNLOAD HANDLER ---
+  // --- NEW DOWNLOAD HANDLER (Supabase Source) ---
   const handleDownload = async () => {
-    if (type !== 'movie') { alert("Downloads are currently available for Movies only."); return; }
-    if (!movie?.imdb_id) { alert("Cannot find download source (Missing IMDb ID)."); return; }
-
     setLoadingDownloads(true);
     try {
-        // 1. Search via AllOrigins Proxy to bypass CORS/Blocking
-        const proxyUrl = "https://api.allorigins.win/raw?url=";
-        const searchUrl = `https://moviesmod.cards/search/${movie.imdb_id}`;
-        
-        const searchRes = await fetch(proxyUrl + encodeURIComponent(searchUrl));
-        if (!searchRes.ok) throw new Error("Search request failed");
-        const searchHtml = await searchRes.text();
-
-        // 2. Parse Search Results
-        const parser = new DOMParser();
-        const searchDoc = parser.parseFromString(searchHtml, 'text/html');
-        
-        // Try multiple selectors to find the movie link
-        const linkEl = searchDoc.querySelector('.post-cards .title a') || 
-                       searchDoc.querySelector('a[rel="bookmark"]') ||
-                       searchDoc.querySelector('.result-item article a');
-        
-        if (!linkEl) {
-            alert("Movie not found on download server.");
-            setLoadingDownloads(false);
-            return;
-        }
-
-        const targetUrl = linkEl.getAttribute('href');
-
-        // 3. Fetch Movie Page via Proxy
-        const pageRes = await fetch(proxyUrl + encodeURIComponent(targetUrl));
-        const pageHtml = await pageRes.text();
-        const pageDoc = parser.parseFromString(pageHtml, 'text/html');
-
-        // 4. Extract Download Buttons
-        // Looking for standard MoviesMod "maxbutton" classes
-        const buttons = Array.from(pageDoc.querySelectorAll('a.maxbutton-download-links, a[class*="maxbutton"]'));
-        
-        const links = buttons
-            .map(btn => ({
-                label: btn.textContent.trim() || "Download Link",
-                url: btn.getAttribute('href')
-            }))
-            .filter(link => link.url && link.url.startsWith('http')); // Filter bad links
+        const links = await getAgDownloads({
+            tmdbId: id,
+            mediaItem: movie,
+            mediaType: type
+        });
 
         if (links.length > 0) {
             setDownloadLinks(links);
             setShowDownloadModal(true);
         } else {
-            alert("No download links found on the page.");
+            // Optional: fallback logic could go here
+            alert("No download links found for this title.");
         }
-
     } catch (e) {
-        console.error("Scraping error:", e);
-        alert("Failed to fetch download links. The server might be busy.");
+        console.error("Download Error", e);
+        alert("An error occurred while fetching links.");
     } finally {
         setLoadingDownloads(false);
     }
@@ -1363,8 +1366,8 @@ const MovieDetail = () => {
                     disabled={loadingDownloads}
                     className="h-14 px-6 rounded bg-[#2a333d]/60 border-2 border-[#4a5561] hover:border-white hover:bg-[#2a333d] flex items-center justify-center gap-2 transition text-gray-200 hover:text-white"
                   >
-                     {loadingDownloads ? <Loader className="animate-spin" size={24} /> : <Download size={24} />}
-                     <span className="font-bold">Download</span>
+                      {loadingDownloads ? <Loader className="animate-spin" size={24} /> : <Download size={24} />}
+                      <span className="font-bold">Download</span>
                   </button>
 
                   <div className="flex gap-3">
@@ -1505,7 +1508,7 @@ const Player = () => {
   // --- STATE ---
   // Server Selection: 'vidfast' (Default) or 'zxcstream'
   const [activeServer, setActiveServer] = useState('vidfast');
-  
+   
   // Episode & Season State (Restored for Vidfast)
   const queryParams = new URLSearchParams(location.search);
   const [season, setSeason] = useState(Number(queryParams.get('season')) || 1);
