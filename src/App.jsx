@@ -1203,6 +1203,7 @@ const SearchResults = ({ isPrimeOnly }) => {
 };
 
 // --- MOVIE DETAIL COMPONENT WITH DOWNLOAD ---
+// --- MOVIE DETAIL COMPONENT (CLIENT-SIDE SCRAPING) ---
 const MovieDetail = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
@@ -1233,32 +1234,66 @@ const MovieDetail = () => {
     fetch(`${BASE_URL}/${type}/${id}/recommendations?api_key=${TMDB_API_KEY}&language=en-US`).then(res => res.json()).then(data => setRelatedMovies(data.results?.slice(0, 10) || []));
   }, [type, id]);
 
+  // --- CLIENT-SIDE DOWNLOAD HANDLER ---
   const handleDownload = async () => {
-    if (type !== 'movie') {
-      alert("Downloads are currently available for Movies only.");
-      return;
-    }
-    if (!movie?.imdb_id) {
-      alert("Cannot find download source (Missing IMDb ID).");
-      return;
-    }
+    if (type !== 'movie') { alert("Downloads are currently available for Movies only."); return; }
+    if (!movie?.imdb_id) { alert("Cannot find download source (Missing IMDb ID)."); return; }
 
     setLoadingDownloads(true);
     try {
-      const res = await fetch(`/api/download?imdbId=${movie.imdb_id}`);
-      const data = await res.json();
-      
-      if (data.links && data.links.length > 0) {
-        setDownloadLinks(data.links);
-        setShowDownloadModal(true);
-      } else {
-        alert("No download links found for this movie.");
-      }
+        // 1. Search via AllOrigins Proxy to bypass CORS/Blocking
+        const proxyUrl = "https://api.allorigins.win/raw?url=";
+        const searchUrl = `https://moviesmod.cards/search/${movie.imdb_id}`;
+        
+        const searchRes = await fetch(proxyUrl + encodeURIComponent(searchUrl));
+        if (!searchRes.ok) throw new Error("Search request failed");
+        const searchHtml = await searchRes.text();
+
+        // 2. Parse Search Results
+        const parser = new DOMParser();
+        const searchDoc = parser.parseFromString(searchHtml, 'text/html');
+        
+        // Try multiple selectors to find the movie link
+        const linkEl = searchDoc.querySelector('.post-cards .title a') || 
+                       searchDoc.querySelector('a[rel="bookmark"]') ||
+                       searchDoc.querySelector('.result-item article a');
+        
+        if (!linkEl) {
+            alert("Movie not found on download server.");
+            setLoadingDownloads(false);
+            return;
+        }
+
+        const targetUrl = linkEl.getAttribute('href');
+
+        // 3. Fetch Movie Page via Proxy
+        const pageRes = await fetch(proxyUrl + encodeURIComponent(targetUrl));
+        const pageHtml = await pageRes.text();
+        const pageDoc = parser.parseFromString(pageHtml, 'text/html');
+
+        // 4. Extract Download Buttons
+        // Looking for standard MoviesMod "maxbutton" classes
+        const buttons = Array.from(pageDoc.querySelectorAll('a.maxbutton-download-links, a[class*="maxbutton"]'));
+        
+        const links = buttons
+            .map(btn => ({
+                label: btn.textContent.trim() || "Download Link",
+                url: btn.getAttribute('href')
+            }))
+            .filter(link => link.url && link.url.startsWith('http')); // Filter bad links
+
+        if (links.length > 0) {
+            setDownloadLinks(links);
+            setShowDownloadModal(true);
+        } else {
+            alert("No download links found on the page.");
+        }
+
     } catch (e) {
-      console.error(e);
-      alert("Failed to fetch download links.");
+        console.error("Scraping error:", e);
+        alert("Failed to fetch download links. The server might be busy.");
     } finally {
-      setLoadingDownloads(false);
+        setLoadingDownloads(false);
     }
   };
 
