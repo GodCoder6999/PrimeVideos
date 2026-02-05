@@ -5,6 +5,38 @@ import { Search, Play, Info, Plus, ChevronRight, ChevronLeft, Download, Share2, 
 // --- GLOBAL HLS REFERENCE ---
 const Hls = window.Hls;
 
+// --- OPTIMIZATION HOOK: PRE-WARM CONNECTIONS ---
+const useConnectionOptimizer = () => {
+  useEffect(() => {
+    const domains = [
+      "https://vidfast.pro",
+      "https://zxcstream.xyz",
+      "https://www.zxcstream.xyz",
+      "https://api.themoviedb.org",
+      "https://image.tmdb.org",
+      "https://iptv-org.github.io"
+    ];
+    
+    domains.forEach(domain => {
+      // 1. Preconnect (DNS + TCP + TLS handshake)
+      if (!document.querySelector(`link[rel="preconnect"][href="${domain}"]`)) {
+        const link = document.createElement('link');
+        link.rel = 'preconnect';
+        link.href = domain;
+        link.crossOrigin = "anonymous";
+        document.head.appendChild(link);
+      }
+      // 2. DNS Prefetch (Fallback)
+      if (!document.querySelector(`link[rel="dns-prefetch"][href="${domain}"]`)) {
+        const link = document.createElement('link');
+        link.rel = 'dns-prefetch';
+        link.href = domain;
+        document.head.appendChild(link);
+      }
+    });
+  }, []);
+};
+
 // --- CSS STYLES ---
 const GlobalStyles = () => (
   <style>{`
@@ -12,12 +44,12 @@ const GlobalStyles = () => (
     .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
     .nav-gradient { background: linear-gradient(180deg, rgba(0,5,13,0.7) 10%, transparent); }
     
-    /* Adjusted padding for 360x440px expansion (Vertical overflow ~100px) */
+    /* Adjusted padding for 360x440px expansion */
     .row-container { 
         display: flex; 
         overflow-y: hidden; 
         overflow-x: scroll; 
-        padding: 100px 4%; /* Optimized padding for this specific scale */
+        padding: 100px 4%; 
         margin-top: -60px;
         margin-bottom: -20px;
         gap: 16px; 
@@ -27,38 +59,23 @@ const GlobalStyles = () => (
 
     .rank-number { position: absolute; left: -70px; bottom: 0; font-size: 100px; font-weight: 900; color: #19222b; -webkit-text-stroke: 2px #5a6069; z-index: 0; font-family: sans-serif; letter-spacing: -5px; line-height: 0.8; }
     
-    /* Enhanced Glow Animations */
     @keyframes pulse-glow {
       0%, 100% { box-shadow: 0 0 10px rgba(0, 168, 225, 0.2); border-color: rgba(0, 168, 225, 0.3); }
       50% { box-shadow: 0 0 20px rgba(0, 168, 225, 0.6); border-color: rgba(0, 168, 225, 0.8); }
     }
     
-    .animate-glow {
-      animation: pulse-glow 2s infinite;
-    }
+    .animate-glow { animation: pulse-glow 2s infinite; }
 
     /* Cinematic Border Glow for Cards */
-    .glow-card {
-        position: relative;
-        z-index: 1;
-    }
+    .glow-card { position: relative; z-index: 1; }
     .glow-card::before {
-        content: "";
-        position: absolute;
-        inset: -2px;
-        border-radius: 14px;
-        padding: 2px;
+        content: ""; position: absolute; inset: -2px; border-radius: 14px; padding: 2px;
         background: linear-gradient(45deg, transparent, rgba(0,168,225,0.3), transparent);
         -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-        -webkit-mask-composite: xor;
-        mask-composite: exclude;
-        opacity: 0.5;
-        transition: opacity 0.3s ease;
+        -webkit-mask-composite: xor; mask-composite: exclude; opacity: 0.5; transition: opacity 0.3s ease;
     }
     .glow-card:hover::before {
-        background: linear-gradient(45deg, #00A8E1, #ffffff, #00A8E1);
-        opacity: 1;
-        box-shadow: 0 0 20px rgba(0,168,225,0.5);
+        background: linear-gradient(45deg, #00A8E1, #ffffff, #00A8E1); opacity: 1; box-shadow: 0 0 20px rgba(0,168,225,0.5);
     }
 
     @keyframes row-enter { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
@@ -252,7 +269,7 @@ const InfiniteScrollTrigger = ({ onIntersect }) => {
   return <div ref={triggerRef} className="h-20 w-full flex items-center justify-center p-4"><div className="w-8 h-8 border-4 border-gray-600 border-t-transparent rounded-full animate-spin"></div></div>;
 };
 
-// --- UPDATED NAVBAR (Glassmorphism + Amazon Ember) ---
+// --- UPDATED NAVBAR ---
 const Navbar = ({ isPrimeOnly }) => {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState({ text: [], visual: [] });
@@ -326,16 +343,11 @@ const Navbar = ({ isPrimeOnly }) => {
 
   const handleClear = () => { setQuery(""); setShowSuggestions(false); };
 
-  // --- Design Implementation ---
   const getNavLinkClass = (path) => {
     const isActive = location.pathname === path;
-    
-    // Glass Effect Active State
     if (isActive) {
       return "text-white font-bold bg-white/10 backdrop-blur-md border border-white/10 rounded-lg px-5 py-2 text-[15px] transition-all duration-300 ease-in-out shadow-[0_0_15px_rgba(0,168,225,0.4)]";
     }
-    
-    // Inactive State with Smooth Hover
     return "text-[#c7cbd1] font-medium text-[15px] hover:text-white hover:bg-white/5 hover:backdrop-blur-sm rounded-lg px-4 py-2 transition-all duration-300 ease-in-out cursor-pointer hover:shadow-[0_0_10px_rgba(255,255,255,0.1)]";
   };
 
@@ -349,25 +361,21 @@ const Navbar = ({ isPrimeOnly }) => {
         gap: '28px'
       }}
     >
-      {/* 1. Logo (Leftmost) */}
       <Link to={isPrimeOnly ? "/" : "/everything"} className="text-[#ffffff] font-bold text-[21px] tracking-[-0.2px] no-underline leading-none">
           {theme.logoText}
       </Link>
 
-      {/* 2. Navigation Items (Left Aligned) */}
       <div className="flex items-center gap-[6px]">
         <Link to={isPrimeOnly ? "/" : "/everything"} className={getNavLinkClass(isPrimeOnly ? "/" : "/everything")}>Home</Link>
         <Link to={isPrimeOnly ? "/movies" : "/everything/movies"} className={getNavLinkClass(isPrimeOnly ? "/movies" : "/everything/movies")}>Movies</Link>
         <Link to={isPrimeOnly ? "/tv" : "/everything/tv"} className={getNavLinkClass(isPrimeOnly ? "/tv" : "/everything/tv")}>TV Shows</Link>
         
-        {/* Live TV / Sports Item */}
         <Link to="/sports" className={`${getNavLinkClass("/sports")} flex items-center gap-2`}>
            <Trophy size={16} className={location.pathname === "/sports" ? "text-[#00A8E1]" : "opacity-80"} />
            Live TV
         </Link>
       </div>
 
-      {/* 3. Right Side: Search & Profile (Pushed Right) */}
       <div className="ml-auto flex items-center gap-6">
           <div ref={searchRef} className="relative">
               <form onSubmit={handleSearch} className="bg-[#19222b] border border-white/10 px-3 py-1.5 rounded-md flex items-center group focus-within:border-white/30 transition-all w-[300px] md:w-[400px]">
@@ -376,7 +384,6 @@ const Navbar = ({ isPrimeOnly }) => {
                  {query && <X size={16} className="text-[#c7cbd1] cursor-pointer hover:text-white" onClick={handleClear} />}
               </form>
               
-              {/* Suggestions Dropdown */}
               {showSuggestions && (suggestions.text.length > 0 || suggestions.visual.length > 0) && (
                   <div className="absolute top-12 right-0 w-full bg-[#19222b] border border-gray-700 rounded-lg shadow-2xl overflow-hidden animate-in z-[160]">
                       {suggestions.text.map((text, idx) => ( <div key={idx} onClick={() => { setQuery(text); handleSearch({preventDefault:()=>{}}); }} className="px-4 py-2 text-sm text-gray-300 hover:bg-[#333c46] hover:text-white cursor-pointer flex items-center gap-2 border-b border-white/5 last:border-0"><Search size={14} /> {text}</div> ))}
@@ -415,35 +422,11 @@ const Navbar = ({ isPrimeOnly }) => {
 const SportsPage = () => {
     const [channels, setChannels] = useState([]);
     const [displayedChannels, setDisplayedChannels] = useState([]);
-    // Precise Category Tree
     const CATEGORIES_TREE = {
         'All': [],
-        'General Entertainment': [
-            'Entertainment', 
-            'GEC (General Entertainment Channels)', 
-            'Lifestyle', 
-            'Music', 
-            'Comedy'
-        ],
-        'News': [
-            'News', 
-            'News (International)', 
-            'News (National)', 
-            'News (Regional)', 
-            'Business News', 
-            'Political News'
-        ],
-        'Sports': [
-            'Sports', 
-            'Live Sports', 
-            'Cricket', 
-            'Football (Soccer)', 
-            'Basketball', 
-            'Tennis', 
-            'Motorsports', 
-            'Wrestling (WWE / AEW / UFC)', 
-            'Sports Events (PPV)'
-        ]
+        'General Entertainment': ['Entertainment', 'GEC (General Entertainment Channels)', 'Lifestyle', 'Music', 'Comedy'],
+        'News': ['News', 'News (International)', 'News (National)', 'News (Regional)', 'Business News', 'Political News'],
+        'Sports': ['Sports', 'Live Sports', 'Cricket', 'Football (Soccer)', 'Basketball', 'Tennis', 'Motorsports', 'Wrestling (WWE / AEW / UFC)', 'Sports Events (PPV)']
     };
 
     const [activeMainCategory, setActiveMainCategory] = useState('All');
@@ -458,12 +441,10 @@ const SportsPage = () => {
 
     const PLAYLIST_URL = 'https://iptv-org.github.io/iptv/index.m3u';
     
-    // Advanced Normalization for the Requested Categories
     const normalizeCategory = (groupName) => {
         if (!groupName) return 'Entertainment';
         const lower = groupName.toLowerCase();
         
-        // --- Sports ---
         if (lower.includes('cricket')) return 'Cricket';
         if (lower.includes('football') || lower.includes('soccer') || lower.includes('premier league') || lower.includes('laliga') || lower.includes('bundesliga')) return 'Football (Soccer)';
         if (lower.includes('basket') || lower.includes('nba')) return 'Basketball';
@@ -473,7 +454,6 @@ const SportsPage = () => {
         if (lower.includes('ppv') || lower.includes('event')) return 'Sports Events (PPV)';
         if (lower.includes('sport')) return 'Live Sports';
 
-        // --- News ---
         if (lower.includes('business') || lower.includes('finance') || lower.includes('market') || lower.includes('bloomberg') || lower.includes('cnbc')) return 'Business News';
         if (lower.includes('politics') || lower.includes('parliament') || lower.includes('c-span')) return 'Political News';
         if (lower.includes('international') || lower.includes('world') || lower.includes('global') || lower.includes('cnn') || lower.includes('bbc') || lower.includes('al jazeera')) return 'News (International)';
@@ -481,7 +461,6 @@ const SportsPage = () => {
         if (lower.includes('regional') || lower.includes('local')) return 'News (Regional)';
         if (lower.includes('news')) return 'News'; 
 
-        // --- Entertainment ---
         if (lower.includes('music') || lower.includes('hits') || lower.includes('mtv') || lower.includes('vh1')) return 'Music';
         if (lower.includes('comedy') || lower.includes('funny') || lower.includes('standup')) return 'Comedy';
         if (lower.includes('lifestyle') || lower.includes('fashion') || lower.includes('travel') || lower.includes('food') || lower.includes('cooking') || lower.includes('tlc')) return 'Lifestyle';
@@ -548,7 +527,6 @@ const SportsPage = () => {
             });
     }, []);
 
-    // Filter Logic
     useEffect(() => {
         let filtered = channels;
 
@@ -625,10 +603,8 @@ const SportsPage = () => {
                 </div>
             </div>
 
-            {/* --- ANIMATED CATEGORY PILLS --- */}
             {!loading && !error && (
                 <div className="flex flex-col gap-4 mb-8">
-                    {/* Level 1: Main Groups */}
                     <div className="flex items-center gap-3 overflow-x-auto scrollbar-hide pb-2 px-2">
                         {['All', ...Object.keys(CATEGORIES_TREE).filter(k => k !== 'All')].map(cat => (
                             <button 
@@ -646,7 +622,6 @@ const SportsPage = () => {
                         ))}
                     </div>
 
-                    {/* Level 2: Sub Groups */}
                     {activeMainCategory !== 'All' && CATEGORIES_TREE[activeMainCategory] && (
                         <div className="flex items-center gap-3 overflow-x-auto scrollbar-hide pb-2 px-2 animate-in fade-in slide-in-from-top-2">
                             <button 
@@ -725,7 +700,6 @@ const SportsPage = () => {
                         ))}
                     </div>
                     
-                    {/* Pagination Controls */}
                     <div className="flex justify-center items-center gap-4 mt-12 mb-8">
                         <button 
                             disabled={currentPage === 1}
@@ -808,7 +782,6 @@ const SportsPlayer = () => {
 
     return (
         <div className="fixed inset-0 bg-[#0f171e] z-[200] flex flex-col">
-            {/* Header Overlay */}
             <div className="absolute top-0 left-0 w-full h-24 bg-gradient-to-b from-black/80 to-transparent z-50 flex items-center px-6 justify-between pointer-events-none">
                 <div className="flex items-center gap-4 pointer-events-auto">
                     <button onClick={() => navigate(-1)} className="w-12 h-12 rounded-full bg-black/40 hover:bg-[#00A8E1] backdrop-blur-md flex items-center justify-center text-white transition border border-white/10 group">
@@ -832,7 +805,6 @@ const SportsPlayer = () => {
                 </div>
             </div>
 
-            {/* Video Player */}
             <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden group">
                 <video 
                     ref={videoRef} 
@@ -840,6 +812,7 @@ const SportsPlayer = () => {
                     controls 
                     autoPlay
                     playsInline
+                    preload="auto"
                 ></video>
                 
                 <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-black/90 to-transparent pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end px-8 pb-8">
@@ -1545,7 +1518,7 @@ const Player = () => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black z-[100] overflow-hidden flex flex-col">
+    <div className="fixed inset-0 bg-black z-[100] overflow-hidden flex flex-col" style={{ transform: 'translateZ(0)' }}>
       
       {/* 1. TOP CONTROLS LAYER */}
       <div className="absolute top-0 left-0 w-full h-20 pointer-events-none z-[120] flex items-center justify-between px-6">
@@ -1603,6 +1576,7 @@ const Player = () => {
           className="w-full h-full border-none"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
           loading="eager" 
+          fetchPriority="high"
           referrerPolicy="origin"
           allowFullScreen
           title="Player"
@@ -1640,6 +1614,7 @@ const Player = () => {
     </div>
   );
 };
+
 // --- MAIN WRAPPERS ---
 const Home = ({ isPrimeOnly }) => { const { rows, loadMore } = useInfiniteRows('all', isPrimeOnly); return <><Hero isPrimeOnly={isPrimeOnly} /><div className="-mt-10 relative z-20 pb-20">{rows.map(row => <Row key={row.id} title={row.title} fetchUrl={row.fetchUrl} variant={row.variant} itemType={row.itemType} isPrimeOnly={isPrimeOnly} />)}<InfiniteScrollTrigger onIntersect={loadMore} /></div></>; };
 const MoviesPage = ({ isPrimeOnly }) => { const { rows, loadMore } = useInfiniteRows('movie', isPrimeOnly); return <><Hero isPrimeOnly={isPrimeOnly} /><div className="-mt-10 relative z-20 pb-20">{rows.map(row => <Row key={row.id} title={row.title} fetchUrl={row.fetchUrl} variant={row.variant} itemType={row.itemType} isPrimeOnly={isPrimeOnly} />)}<InfiniteScrollTrigger onIntersect={loadMore} /></div></>; };
@@ -1647,6 +1622,8 @@ const TVPage = ({ isPrimeOnly }) => { const { rows, loadMore } = useInfiniteRows
 const StorePage = () => <div className="pt-32 px-12 text-white">Store</div>;
 
 function App() {
+  useConnectionOptimizer(); // Activate connection pre-warming
+
   return (
     <BrowserRouter>
       <GlobalStyles />
