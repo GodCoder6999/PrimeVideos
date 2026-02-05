@@ -1520,11 +1520,14 @@ const Player = () => {
 
   // VIDFAST.PRO SOURCE LOGIC
   // ZXCSTREAM SOURCE LOGIC
+  // ZXCSTREAM PLAYER LOGIC
   const getSourceUrl = () => {
     if (type === 'tv') {
-      return `https://zxcstream.xyz/embed/tv/${id}/${season}/${episode}`;
+      // Structure: /player/tv/{id}/{season}/{episode}
+      return `https://www.zxcstream.xyz/player/tv/${id}/${season}/${episode}?autoplay=false&back=true&server=0`;
     } else {
-      return `https://zxcstream.xyz/embed/movie/${id}`;
+      // Structure: /player/movie/{id}
+      return `https://www.zxcstream.xyz/player/movie/${id}?autoplay=false&back=true&server=0`;
     }
   };
 
