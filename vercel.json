@@ -1,8 +1,12 @@
 {
   "rewrites": [
     {
-      "source": "/api/:path*",
-      "destination": "https://livesport.su/api/:path*"
+      "source": "/api/download",
+      "destination": "/api/download.js"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "https://livesport.su/api/$1"
     }
   ]
 }
