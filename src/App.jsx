@@ -2,6 +2,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useLocation, useParams, Link } from 'react-router-dom';
 import { Search, Play, Info, Plus, ChevronRight, ChevronLeft, Download, Share2, CheckCircle2, ThumbsUp, ChevronDown, Grip, Loader, List, ArrowLeft, X, Volume2, VolumeX, Trophy, Signal, Clock, Ban, Eye, Bookmark, TrendingUp, Monitor } from 'lucide-react';
 
+// --- GLOBAL HLS REFERENCE ---
+const Hls = window.Hls;
+
 // --- CSS STYLES ---
 const GlobalStyles = () => (
   <style>{`
@@ -34,12 +37,30 @@ const GlobalStyles = () => (
       animation: pulse-glow 2s infinite;
     }
 
-    /* Cinematic Border Glow for Cards - Kept for reference but primarily using Tailwind utilities */
+    /* Cinematic Border Glow for Cards */
     .glow-card {
         position: relative;
         z-index: 1;
     }
-    
+    .glow-card::before {
+        content: "";
+        position: absolute;
+        inset: -2px;
+        border-radius: 14px;
+        padding: 2px;
+        background: linear-gradient(45deg, transparent, rgba(0,168,225,0.3), transparent);
+        -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+        -webkit-mask-composite: xor;
+        mask-composite: exclude;
+        opacity: 0.5;
+        transition: opacity 0.3s ease;
+    }
+    .glow-card:hover::before {
+        background: linear-gradient(45deg, #00A8E1, #ffffff, #00A8E1);
+        opacity: 1;
+        box-shadow: 0 0 20px rgba(0,168,225,0.5);
+    }
+
     @keyframes row-enter { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
     .animate-row-enter { animation: row-enter 0.6s ease-out forwards; }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -394,34 +415,6 @@ const Navbar = ({ isPrimeOnly }) => {
 const SportsPage = () => {
     const [channels, setChannels] = useState([]);
     const [displayedChannels, setDisplayedChannels] = useState([]);
-    
-    // --- STATIC CHANNELS (DaddyLive + Premium) ---
-    const STATIC_CHANNELS = [
-        { name: "NFL Live", url: "https://absicka4aicqaaayi4twpsc2ept75.live-cf.cdn.hotstar.com/hls/live/2012609/inallow-nfl-2025-26/eng/1540061229/15mindvrm01829c3eed9ac14308b8c963a6f547074218january2026/master_ap_1080_6.m3u8", logo: "https://upload.wikimedia.org/wikipedia/en/thumb/a/a2/National_Football_League_logo.svg/1200px-National_Football_League_logo.svg.png", group: "Live Sports" },
-        { name: "Star Jalsha HD", url: "https://cdn.stmify.com/embed-free/v1/star-jalsha-hd-in-jw", logo: "https://upload.wikimedia.org/wikipedia/commons/e/ef/Star_Jalsha_logo_2023.png", group: "GEC (General Entertainment Channels)", isIframe: true },
-        { name: "Jalsha Movies Hd", url: "https://cdn.stmify.com/embed-free/v1/jalsha-movies-hd-in-jw", logo: "https://static.wikia.nocookie.net/logopedia/images/6/61/Jalsha_Movies.png/revision/latest/scale-to-width-down/221?cb=20240320100114", group: "Movies", isIframe: true },
-        { name: "Zee Bangla", url: "https://softbd24.com/vip/play.php?id=1743848504024", group: "GEC (General Entertainment Channels)", isIframe: true },
-        { name: "Zee Cinema", url: "https://softbd24.com/vip/play.php?id=12", group: "Movies", isIframe: true },
-        { name: "Zee Tv", url: "https://softbd24.com/vip/play.php?id=11", group: "GEC (General Entertainment Channels)", isIframe: true },
-        { name: "Zee Cinema 2", url: "https://softbd24.com/vip/play.php?id=1743844111058", group: "Movies", isIframe: true },
-        { name: "Zee Bangla Cinema", url: "https://softbd24.com/vip/play.php?id=2", group: "Movies", isIframe: true },
-        { name: "Aaj Tak HD", url: "https://feeds.intoday.in/aajtak/api/aajtakhd/master.m3u8", logo: "https://i.imgur.com/RpIdCB3.png", group: "News (National)" },
-        { name: "India TV", url: "https://d7d3gu3ex55r8.cloudfront.net/out/v1/70e7a2b9703643799863c03cb7923720/index.m3u8", logo: "https://india.mom-gmr.org/uploads/_processed_/f/0/csm_16519-1592_import_82f128ba68.png", group: "News (National)" },
-        { name: "9XM Music", url: "https://d2q8p4pe5spbak.cloudfront.net/bpk-tv/9XM/9XM.isml/index.m3u8", logo: "https://www.medianews4u.com/wp-content/uploads/2020/10/Republic-Media-Network-forays-into-Hindi-Digital-News-space-launches-R-Bharat-digital-platform.jpg", group: "Music" },
-        { name: "Mastiii", url: "https://g7.g-mana.live/media/6929f673-5126-48f8-8210-d5d0599b378d/master.m3u8", logo: "https://d229kpbsb5jevy.cloudfront.net/yuppfast/content/common/channel/logos/xbhpwb.png", group: "Music" },
-    ];
-
-    // Additional DaddyLive Channels (ID mapping)
-    const DADDY_CHANNELS = [
-        { id: 51, name: "ABC USA", group: "Entertainment" }, { id: 206, name: "AHC USA", group: "Entertainment" }, { id: 302, name: "A&E USA", group: "Entertainment" }, { id: 303, name: "AMC USA", group: "Movies" }, 
-        { id: 123, name: "Astro SuperSport 1", group: "Live Sports" }, { id: 370, name: "Astro Cricket", group: "Cricket" }, { id: 664, name: "ACC Network", group: "Live Sports" }, 
-        { id: 52, name: "CBS USA", group: "Entertainment" }, { id: 309, name: "CNBC", group: "Business News" }, { id: 310, name: "Comedy Central", group: "Comedy" }, { id: 345, name: "CNN USA", group: "News (International)" },
-        { id: 44, name: "ESPN USA", group: "Live Sports" }, { id: 45, name: "ESPN2 USA", group: "Live Sports" }, { id: 375, name: "ESPN Deportes", group: "Live Sports" },
-        { id: 39, name: "Fox Sports 1", group: "Live Sports" }, { id: 347, name: "Fox News", group: "News (International)" }, { id: 369, name: "Fox Cricket", group: "Cricket" },
-        { id: 321, name: "HBO USA", group: "Movies" }, { id: 350, name: "ITV 1", group: "Entertainment" }, { id: 404, name: "NBA TV", group: "Basketball" }, { id: 405, name: "NFL Network", group: "Live Sports" },
-        { id: 35, name: "Sky Sports Football", group: "Football (Soccer)" }, { id: 60, name: "Sky Sports F1", group: "Motorsports" }, { id: 65, name: "Sky Sports Cricket", group: "Cricket" }
-    ];
-
     // Precise Category Tree
     const CATEGORIES_TREE = {
         'All': [],
@@ -465,9 +458,12 @@ const SportsPage = () => {
 
     const PLAYLIST_URL = 'https://iptv-org.github.io/iptv/index.m3u';
     
+    // Advanced Normalization for the Requested Categories
     const normalizeCategory = (groupName) => {
         if (!groupName) return 'Entertainment';
         const lower = groupName.toLowerCase();
+        
+        // --- Sports ---
         if (lower.includes('cricket')) return 'Cricket';
         if (lower.includes('football') || lower.includes('soccer') || lower.includes('premier league') || lower.includes('laliga') || lower.includes('bundesliga')) return 'Football (Soccer)';
         if (lower.includes('basket') || lower.includes('nba')) return 'Basketball';
@@ -476,16 +472,21 @@ const SportsPage = () => {
         if (lower.includes('wwe') || lower.includes('ufc') || lower.includes('wrestling') || lower.includes('boxing') || lower.includes('fight') || lower.includes('aew') || lower.includes('mma')) return 'Wrestling (WWE / AEW / UFC)';
         if (lower.includes('ppv') || lower.includes('event')) return 'Sports Events (PPV)';
         if (lower.includes('sport')) return 'Live Sports';
+
+        // --- News ---
         if (lower.includes('business') || lower.includes('finance') || lower.includes('market') || lower.includes('bloomberg') || lower.includes('cnbc')) return 'Business News';
         if (lower.includes('politics') || lower.includes('parliament') || lower.includes('c-span')) return 'Political News';
         if (lower.includes('international') || lower.includes('world') || lower.includes('global') || lower.includes('cnn') || lower.includes('bbc') || lower.includes('al jazeera')) return 'News (International)';
         if (lower.includes('national')) return 'News (National)';
         if (lower.includes('regional') || lower.includes('local')) return 'News (Regional)';
         if (lower.includes('news')) return 'News'; 
+
+        // --- Entertainment ---
         if (lower.includes('music') || lower.includes('hits') || lower.includes('mtv') || lower.includes('vh1')) return 'Music';
         if (lower.includes('comedy') || lower.includes('funny') || lower.includes('standup')) return 'Comedy';
         if (lower.includes('lifestyle') || lower.includes('fashion') || lower.includes('travel') || lower.includes('food') || lower.includes('cooking') || lower.includes('tlc')) return 'Lifestyle';
         if (lower.includes('gec') || lower.includes('sony') || lower.includes('star') || lower.includes('colors') || lower.includes('zee') || lower.includes('hbo') || lower.includes('amc')) return 'GEC (General Entertainment Channels)';
+        
         return 'Entertainment'; 
     };
 
@@ -496,52 +497,15 @@ const SportsPage = () => {
         return 'General Entertainment';
     };
 
-    // Helper for CORS proxy logic
-    const fetchSmart = async (url) => {
-        try {
-            const response = await fetch(url);
-            if (response.ok) return await response.text();
-            throw new Error("Direct failed");
-        } catch (e) {
-            try {
-                // Use a reliable CORS proxy
-                const proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
-                const response = await fetch(proxyUrl);
-                if (response.ok) return await response.text();
-                throw new Error("Proxy failed");
-            } catch (e2) {
-                // Fallback proxy
-                const proxyUrl2 = 'https://corsproxy.io/?' + encodeURIComponent(url);
-                const response = await fetch(proxyUrl2);
-                if (response.ok) return await response.text();
-                throw new Error("All proxies failed");
-            }
-        }
-    };
-
     useEffect(() => {
         setLoading(true);
         setError(null);
 
-        // 1. Process Static & Daddy Channels first
-        const initialChannels = [
-            ...STATIC_CHANNELS.map(c => ({
-                ...c, 
-                parentGroup: getParentCategory(c.group),
-                isStatic: true
-            })),
-            ...DADDY_CHANNELS.map(c => ({
-                ...c,
-                url: `https://dlhd.link/stream/stream-${c.id}.php`,
-                isIframe: true,
-                isDaddy: true,
-                parentGroup: getParentCategory(c.group),
-                isStatic: true
-            }))
-        ];
-
-        // 2. Fetch Dynamic Playlist
-        fetchSmart(PLAYLIST_URL)
+        fetch(PLAYLIST_URL)
+            .then(res => {
+                if (!res.ok) throw new Error("Failed to load playlist");
+                return res.text();
+            })
             .then(data => {
                 const lines = data.split('\n');
                 const parsed = [];
@@ -549,6 +513,7 @@ const SportsPage = () => {
 
                 for (let i = 0; i < lines.length; i++) {
                     let line = lines[i].trim();
+                    
                     if (line.startsWith('#EXTINF:')) {
                         const logoMatch = line.match(/tvg-logo="([^"]*)"/);
                         const groupMatch = line.match(/group-title="([^"]*)"/);
@@ -560,8 +525,7 @@ const SportsPage = () => {
                             name, 
                             logo: logoMatch ? logoMatch[1] : null, 
                             group: normalizedGroup,
-                            parentGroup: getParentCategory(normalizedGroup),
-                            isIframe: false
+                            parentGroup: getParentCategory(normalizedGroup)
                         };
                     } else if (line.startsWith('http') && current.name) {
                         current.url = line;
@@ -570,15 +534,16 @@ const SportsPage = () => {
                     }
                 }
 
-                // Merge all
-                setChannels([...initialChannels, ...parsed]);
+                if (parsed.length === 0) {
+                    throw new Error("No channels found in playlist.");
+                }
+                
+                setChannels(parsed);
                 setLoading(false);
             })
             .catch(e => {
                 console.error("Playlist Error:", e);
-                // Fallback to just static channels if external fails
-                setChannels(initialChannels);
-                setError(initialChannels.length > 0 ? null : "Unable to load live channels.");
+                setError("Unable to load live channels. The feed might be down.");
                 setLoading(false);
             });
     }, []);
@@ -610,7 +575,18 @@ const SportsPage = () => {
         setCurrentPage(1);
     }, [activeMainCategory, activeSubCategory, searchQuery]);
 
-    // Pagination Logic (Corrected sliding window)
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key === 'ArrowRight') {
+                setCurrentPage(p => p + 1);
+            } else if (e.key === 'ArrowLeft') {
+                setCurrentPage(p => Math.max(1, p - 1));
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, []);
+
     const totalPages = Math.ceil(
         (activeMainCategory === 'All' && activeSubCategory === 'All' && !searchQuery 
             ? channels.length 
@@ -622,18 +598,6 @@ const SportsPage = () => {
               }).length
         ) / itemsPerPage
     );
-
-    useEffect(() => {
-        const handleKeyDown = (e) => {
-            if (e.key === 'ArrowRight') {
-                setCurrentPage(p => Math.min(totalPages, p + 1));
-            } else if (e.key === 'ArrowLeft') {
-                setCurrentPage(p => Math.max(1, p - 1));
-            }
-        };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [totalPages]);
 
     return (
         <div className="pt-24 px-4 md:px-12 min-h-screen pb-20">
@@ -735,7 +699,7 @@ const SportsPage = () => {
                         {displayedChannels.map((channel, idx) => (
                             <div 
                                 key={idx} 
-                                onClick={() => navigate('/watch/sport/iptv', { state: { streamUrl: channel.url, title: channel.name, logo: channel.logo, group: channel.group, isIframe: channel.isIframe, isDaddy: channel.isDaddy } })}
+                                onClick={() => navigate('/watch/sport/iptv', { state: { streamUrl: channel.url, title: channel.name, logo: channel.logo, group: channel.group } })}
                                 className="bg-[#19222b] hover:bg-[#232d38] rounded-xl overflow-hidden cursor-pointer group hover:-translate-y-2 transition-all duration-300 shadow-lg hover:shadow-[0_0_30px_rgba(0,168,225,0.3)] relative glow-card border border-white/5"
                             >
                                 <div className="aspect-video bg-black/40 flex items-center justify-center p-4 relative group-hover:bg-black/20 transition-colors">
@@ -753,7 +717,7 @@ const SportsPage = () => {
                                 <div className="p-3 bg-[#19222b] group-hover:bg-[#1f2933] transition-colors border-t border-white/5">
                                     <h3 className="text-gray-200 text-xs font-bold truncate group-hover:text-[#00A8E1] transition-colors">{channel.name}</h3>
                                     <div className="flex items-center gap-1.5 mt-1">
-                                        <span className={`w-1.5 h-1.5 rounded-full animate-pulse shadow-[0_0_5px] ${channel.isIframe ? 'bg-purple-500 shadow-purple-500' : 'bg-green-500 shadow-green-500'}`}></span>
+                                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shadow-[0_0_5px_#22c55e]"></span>
                                         <p className="text-gray-500 text-[10px] font-bold truncate uppercase group-hover:text-white transition-colors">{channel.group}</p>
                                     </div>
                                 </div>
@@ -772,20 +736,12 @@ const SportsPage = () => {
                         </button>
                         
                         <div className="flex gap-2 overflow-x-auto max-w-[300px] scrollbar-hide px-2 items-center">
-                            {(() => {
-                                const maxButtons = 5;
-                                // Simple sliding window logic to avoid duplication
-                                // Determine the start page based on current page
-                                let startPage = Math.max(1, currentPage - Math.floor(maxButtons / 2));
-                                let endPage = startPage + maxButtons - 1;
-
-                                // Adjust if window exceeds total pages
-                                if (endPage > totalPages) {
-                                    endPage = totalPages;
-                                    startPage = Math.max(1, endPage - maxButtons + 1);
-                                }
-
-                                return Array.from({ length: Math.max(0, endPage - startPage + 1) }, (_, i) => startPage + i).map(pageNum => (
+                            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                                let pageNum = currentPage - 2 + i;
+                                if (pageNum <= 0) pageNum = i + 1;
+                                if (pageNum > totalPages) return null;
+                                
+                                return (
                                     <button 
                                         key={pageNum}
                                         onClick={() => setCurrentPage(pageNum)}
@@ -797,13 +753,13 @@ const SportsPage = () => {
                                     >
                                         {pageNum}
                                     </button>
-                                ));
-                            })()}
+                                );
+                            })}
                         </div>
 
                         <button 
                             disabled={currentPage >= totalPages}
-                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                            onClick={() => setCurrentPage(p => p + 1)}
                             className="p-3 rounded-full bg-[#19222b] hover:bg-[#333c46] hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] disabled:opacity-50 disabled:cursor-not-allowed text-white transition-all duration-300"
                         >
                             <ChevronRight size={24} />
@@ -822,26 +778,15 @@ const SportsPlayer = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const videoRef = useRef(null);
-    const { streamUrl, title, logo, group, isIframe, isDaddy } = location.state || {};
+    const { streamUrl, title, logo, group } = location.state || {};
     const [isMuted, setIsMuted] = useState(false);
 
     useEffect(() => {
         if (!streamUrl) return;
 
-        // --- IFRAME HANDLING ---
-        if (isIframe) {
-            // For iframes, we don't need HLS logic. The iframe renders in the JSX.
-            return; 
-        }
-
-        // --- HLS HANDLING ---
         let hls;
-        const Hls = window.Hls; // Safe access inside effect
         if (Hls && Hls.isSupported()) {
-            hls = new Hls({
-                maxBufferLength: 30, // Reference from HTML
-                enableWorker: true
-            });
+            hls = new Hls();
             hls.loadSource(streamUrl);
             hls.attachMedia(videoRef.current);
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -857,13 +802,9 @@ const SportsPlayer = () => {
         return () => {
             if (hls) hls.destroy();
         };
-    }, [streamUrl, isIframe]);
+    }, [streamUrl]);
 
     if (!streamUrl) return <div className="text-white pt-20 text-center">No stream selected. <button onClick={() => navigate(-1)} className="text-[#00A8E1] ml-2 hover:underline">Go Back</button></div>;
-
-    // Determine Referrer Policy for Iframe
-    const isDaddyLink = streamUrl.includes('dlhd.link');
-    const referrerPolicy = isDaddyLink ? "no-referrer" : "origin";
 
     return (
         <div className="fixed inset-0 bg-[#0f171e] z-[200] flex flex-col">
@@ -879,55 +820,184 @@ const SportsPlayer = () => {
                             <h1 className="text-white font-bold text-xl leading-tight drop-shadow-md">{title || "Live Stream"}</h1>
                         </div>
                         <div className="flex items-center gap-2 mt-1">
-                            <span className={`w-2 h-2 rounded-full animate-pulse shadow-[0_0_8px] ${isIframe ? 'bg-purple-500 shadow-purple-500' : 'bg-red-500 shadow-red-500'}`}></span>
+                            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_red]"></span>
                             <span className="text-[#00A8E1] text-xs font-bold tracking-widest uppercase">{group || "LIVE BROADCAST"}</span>
                         </div>
                     </div>
                 </div>
-                {!isIframe && (
-                    <div className="pointer-events-auto">
-                        <button onClick={() => { setIsMuted(!isMuted); videoRef.current.muted = !isMuted; }} className="w-12 h-12 rounded-full bg-black/40 hover:bg-white/20 backdrop-blur-md flex items-center justify-center text-white transition border border-white/10 hover:shadow-[0_0_15px_rgba(255,255,255,0.2)]">
-                            {isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}
-                        </button>
-                    </div>
-                )}
+                <div className="pointer-events-auto">
+                    <button onClick={() => { setIsMuted(!isMuted); videoRef.current.muted = !isMuted; }} className="w-12 h-12 rounded-full bg-black/40 hover:bg-white/20 backdrop-blur-md flex items-center justify-center text-white transition border border-white/10 hover:shadow-[0_0_15px_rgba(255,255,255,0.2)]">
+                        {isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}
+                    </button>
+                </div>
             </div>
 
-            {/* Video Player Area */}
+            {/* Video Player */}
             <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden group">
-                {isIframe ? (
-                    // IFRAME PLAYER (DaddyLive / Fox / Etc)
-                    <iframe 
-                        src={streamUrl} 
-                        className="w-full h-full border-none" 
-                        allowFullScreen 
-                        allow="encrypted-media"
-                        referrerPolicy={referrerPolicy}
-                        title="Live Stream"
-                    ></iframe>
-                ) : (
-                    // NATIVE HLS PLAYER
-                    <>
-                        <video 
-                            ref={videoRef} 
-                            className="w-full h-full object-contain" 
-                            controls 
-                            autoPlay
-                            playsInline
-                        ></video>
-                        <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-black/90 to-transparent pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end px-8 pb-8">
-                            <div className="text-white/80 text-sm font-medium">
-                                Streaming via secure HLS protocol • {new Date().toLocaleTimeString()}
-                            </div>
-                        </div>
-                    </>
-                )}
+                <video 
+                    ref={videoRef} 
+                    className="w-full h-full object-contain" 
+                    controls 
+                    autoPlay
+                    playsInline
+                ></video>
+                
+                <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-black/90 to-transparent pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end px-8 pb-8">
+                    <div className="text-white/80 text-sm font-medium">
+                        Streaming via secure HLS protocol • {new Date().toLocaleTimeString()}
+                    </div>
+                </div>
             </div>
         </div>
     );
 };
 
-// ... existing Hero ...
+// --- HERO SECTION ---
+const Hero = ({ isPrimeOnly }) => {
+  const [movies, setMovies] = useState([]);
+  const [currentSlide, setCurrentSlide] = useState(0);
+  const [trailerKey, setTrailerKey] = useState(null);
+  const [showVideo, setShowVideo] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
+    
+  const playTimeout = useRef(null);
+  const stopTimeout = useRef(null);
+  const isHovering = useRef(false);
+    
+  const navigate = useNavigate();
+  const theme = getTheme(isPrimeOnly);
+
+  useEffect(() => { 
+      const endpoint = isPrimeOnly 
+        ? `/discover/movie?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc`
+        : `/trending/all/day?api_key=${TMDB_API_KEY}`;
+      
+      fetch(`${BASE_URL}${endpoint}`)
+        .then(res => res.json())
+        .then(data => setMovies(data.results.slice(0, 5))); 
+  }, [isPrimeOnly]);
+
+  useEffect(() => {
+      if (movies.length === 0) return;
+      
+      setShowVideo(false);
+      setTrailerKey(null);
+      clearTimeout(playTimeout.current);
+      clearTimeout(stopTimeout.current);
+
+      const movie = movies[currentSlide];
+      const mediaType = movie.media_type || 'movie';
+
+      fetch(`${BASE_URL}/${mediaType}/${movie.id}/videos?api_key=${TMDB_API_KEY}`)
+        .then(res => res.json())
+        .then(data => {
+            const trailer = data.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube') || data.results?.find(v => v.site === 'YouTube');
+            if (trailer) {
+                setTrailerKey(trailer.key);
+                if (isHovering.current) {
+                    playTimeout.current = setTimeout(() => setShowVideo(true), 4000);
+                }
+            }
+        });
+  }, [currentSlide, movies]);
+
+  const handleMouseEnter = () => {
+      isHovering.current = true;
+      clearTimeout(stopTimeout.current);
+      clearTimeout(playTimeout.current);
+      playTimeout.current = setTimeout(() => setShowVideo(true), 4000);
+  };
+
+  const handleMouseLeave = () => {
+      isHovering.current = false;
+      clearTimeout(playTimeout.current);
+      clearTimeout(stopTimeout.current);
+      stopTimeout.current = setTimeout(() => setShowVideo(false), 1000);
+  };
+
+  const nextSlide = () => setCurrentSlide((prev) => (prev + 1) % movies.length);
+  const prevSlide = () => setCurrentSlide((prev) => (prev - 1 + movies.length) % movies.length);
+
+  if (movies.length === 0) return <div className="h-[85vh] w-full bg-[#00050D]" />;
+
+  const movie = movies[currentSlide];
+
+  return (
+    <div 
+        className="relative w-full h-[85vh] overflow-hidden group"
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+    >
+      <div className={`absolute inset-0 transition-opacity duration-700 ${showVideo ? 'opacity-0' : 'opacity-100'}`}>
+        <img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover" alt="" />
+      </div>
+
+      {showVideo && trailerKey && (
+          <div className="absolute inset-0 animate-in pointer-events-none">
+             <iframe 
+                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`}
+                className="w-full h-full scale-[1.3]" 
+                allow="autoplay; encrypted-media"
+                frameBorder="0"
+                title="Hero Trailer"
+             ></iframe>
+          </div>
+      )}
+
+      <div className="absolute inset-0 bg-gradient-to-r from-[#00050D] via-[#00050D]/40 to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-t from-[#00050D] via-transparent to-transparent" />
+
+      <div className="absolute top-[25%] left-[4%] max-w-[600px] z-30 animate-row-enter">
+        <h1 className="text-5xl md:text-7xl font-extrabold text-white mb-4 drop-shadow-[0_4px_10px_rgba(0,0,0,0.8)] tracking-tight leading-tight">
+            {movie.title || movie.name}
+        </h1>
+        
+        <div className="flex items-center gap-3 text-[#a9b7c1] font-bold text-sm mb-6">
+           {isPrimeOnly && <span className={`${theme.color} tracking-wide`}>Included with Prime</span>}
+           <span className="bg-[#33373d]/80 text-white px-1.5 py-0.5 rounded text-xs border border-gray-600 backdrop-blur-md">UHD</span>
+           <span className="bg-[#33373d]/80 text-white px-1.5 py-0.5 rounded text-xs border border-gray-600 backdrop-blur-md">16+</span>
+        </div>
+        
+        <p className="text-lg text-white font-medium line-clamp-3 mb-8 opacity-90 drop-shadow-md text-shadow-sm">{movie.overview}</p>
+        
+        <div className="flex items-center gap-4">
+            <button onClick={() => navigate(`/watch/${movie.media_type || 'movie'}/${movie.id}`)} className={`${theme.bg} ${theme.hoverBg} text-white h-14 pl-8 pr-8 rounded-md font-bold text-lg flex items-center gap-3 transition transform hover:scale-105 ${theme.shadow}`}>
+                <Play fill="white" size={24} /> 
+                {isPrimeOnly ? "Play" : "Rent or Play"}
+            </button>
+            <button className="w-14 h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm group">
+                <Plus size={28} className="text-gray-200 group-hover:text-white" />
+            </button>
+            <button onClick={() => navigate(`/detail/${movie.media_type || 'movie'}/${movie.id}`)} className="w-14 h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm group">
+                <Info size={28} className="text-gray-200 group-hover:text-white" />
+            </button>
+        </div>
+      </div>
+
+      <div className="absolute top-32 right-[4%] z-40">
+          <button 
+            onClick={() => setIsMuted(!isMuted)} 
+            className="w-12 h-12 rounded-full border-2 border-white/20 bg-black/20 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/10 hover:border-white transition"
+          >
+              {isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}
+          </button>
+      </div>
+
+      <button onClick={prevSlide} className="absolute left-4 top-1/2 -translate-y-1/2 z-40 p-2 rounded-full bg-black/20 hover:bg-black/50 text-white/50 hover:text-white transition backdrop-blur-sm border border-transparent hover:border-white/30">
+          <ChevronLeft size={40} />
+      </button>
+      <button onClick={nextSlide} className="absolute right-4 top-1/2 -translate-y-1/2 z-40 p-2 rounded-full bg-black/20 hover:bg-black/50 text-white/50 hover:text-white transition backdrop-blur-sm border border-transparent hover:border-white/30">
+          <ChevronRight size={40} />
+      </button>
+
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-40">
+          {movies.map((_, idx) => (
+              <div key={idx} className={`w-2 h-2 rounded-full transition-all ${idx === currentSlide ? 'bg-white w-4' : 'bg-gray-500'}`} />
+          ))}
+      </div>
+    </div>
+  );
+};
 
 // --- MOVIE CARD COMPONENT ---
 const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank, isPrimeOnly, isFirst, isLast }) => {
@@ -955,65 +1025,63 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
       
       <div 
         className={`
-            relative w-full h-full rounded-xl cursor-pointer bg-[#19222b] shadow-[0_0_15px_rgba(0,168,225,0.15)] 
+            relative w-full h-full rounded-xl overflow-hidden cursor-pointer bg-[#19222b] shadow-xl
             transform transition-all duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1)
-            border border-[#00A8E1]/30 hover:border-[#00A8E1]/80 hover:shadow-[0_0_25px_rgba(0,168,225,0.5)]
+            border border-white/5 ring-1 ring-white/5 glow-card
             ${originClass}
         `}
         style={{
             transform: isHovered ? 'scale(1.8)' : 'scale(1)',
-            zIndex: isHovered ? 20 : 1
+            boxShadow: isHovered ? '0 25px 50px rgba(0,0,0,0.8)' : '0 4px 6px rgba(0,0,0,0.1)',
         }}
       >
-        <div className="w-full h-full rounded-xl overflow-hidden relative">
-            <div className={`w-full h-full relative bg-black transition-transform duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1) ${isHovered ? 'scale-[1.02]' : 'scale-100'}`}>
-                <img src={`${IMAGE_BASE_URL}${imageUrl}`} alt={movie.title} className="w-full h-full object-cover" loading="lazy" />
+        <div className={`w-full h-full relative bg-black transition-transform duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1) ${isHovered ? 'scale-[1.02]' : 'scale-100'}`}>
+            <img src={`${IMAGE_BASE_URL}${imageUrl}`} alt={movie.title} className="w-full h-full object-cover" loading="lazy" />
+        </div>
+
+        <div 
+            className={`
+                absolute inset-0 flex flex-col justify-end px-4 py-5 text-white
+                bg-gradient-to-t from-[#0f171e] via-[#0f171e]/95 to-transparent
+                transition-all duration-300 ease-out z-30
+                ${isHovered ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}
+            `}
+        >
+            <div className="mb-2 opacity-90">
+               <span className="text-[5px] font-black tracking-[0.2em] text-[#00A8E1] uppercase bg-[#00A8E1]/10 px-1 py-0.5 rounded-sm">Prime</span>
             </div>
 
-            <div 
-                className={`
-                    absolute inset-0 flex flex-col justify-end px-4 py-5 text-white
-                    bg-gradient-to-t from-[#0f171e] via-[#0f171e]/95 to-transparent
-                    transition-all duration-300 ease-out z-30
-                    ${isHovered ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}
-                `}
-            >
-                <div className="mb-2 opacity-90">
-                <span className="text-[5px] font-black tracking-[0.2em] text-[#00A8E1] uppercase bg-[#00A8E1]/10 px-1 py-0.5 rounded-sm">Prime</span>
-                </div>
+            <h3 className="font-extrabold text-[10px] leading-[1.2] text-white drop-shadow-md line-clamp-2 mb-2 w-[90%]">
+                {movie.title || movie.name}
+            </h3>
 
-                <h3 className="font-extrabold text-[10px] leading-[1.2] text-white drop-shadow-md line-clamp-2 mb-2 w-[90%]">
-                    {movie.title || movie.name}
-                </h3>
-
-                <div className="flex items-center gap-2 mb-3">
-                    <button className="bg-white hover:bg-[#d6d6d6] text-black text-[6px] font-bold h-6 px-3 rounded-[3px] transition-colors flex items-center justify-center gap-1 uppercase tracking-wider">
-                        <Play fill="black" size={6} /> Play
-                    </button>
-                    <button className="w-6 h-6 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white transition flex items-center justify-center">
-                        <Plus size={8} className="text-white" />
-                    </button>
-                </div>
-
-                <div className="flex items-center gap-1.5 text-[6px] font-medium text-gray-300 mb-1">
-                    <span className="text-[#46d369] font-bold">{rating} Match</span>
-                    <span className="text-gray-600 text-[5px]">•</span>
-                    <span className="text-white">{year}</span>
-                    <span className="text-gray-600 text-[5px]">•</span>
-                    <span>{duration}</span>
-                    <span className="ml-auto border border-white/20 px-1 rounded-[2px] text-[5px] text-gray-400">U/A 13+</span>
-                </div>
-
-                <div className="flex items-center gap-1 mb-2 opacity-80">
-                    <span className="bg-white/10 text-[4.5px] font-bold px-1 py-0.5 rounded-[2px] text-gray-200">4K UHD</span>
-                    <span className="bg-white/10 text-[4.5px] font-bold px-1 py-0.5 rounded-[2px] text-gray-200">HDR10</span>
-                    <span className="bg-white/10 text-[4.5px] font-bold px-1 py-0.5 rounded-[2px] text-gray-200">Dolby Atmos</span>
-                </div>
-
-                <p className="text-[5.5px] text-gray-400 line-clamp-2 leading-relaxed font-medium">
-                    {movie.overview || "Stream this title now on Prime Video."}
-                </p>
+            <div className="flex items-center gap-2 mb-3">
+                <button className="bg-white hover:bg-[#d6d6d6] text-black text-[6px] font-bold h-6 px-3 rounded-[3px] transition-colors flex items-center justify-center gap-1 uppercase tracking-wider">
+                    <Play fill="black" size={6} /> Play
+                </button>
+                <button className="w-6 h-6 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white transition flex items-center justify-center">
+                    <Plus size={8} className="text-white" />
+                </button>
             </div>
+
+            <div className="flex items-center gap-1.5 text-[6px] font-medium text-gray-300 mb-1">
+                <span className="text-[#46d369] font-bold">{rating} Match</span>
+                <span className="text-gray-600 text-[5px]">•</span>
+                <span className="text-white">{year}</span>
+                <span className="text-gray-600 text-[5px]">•</span>
+                <span>{duration}</span>
+                <span className="ml-auto border border-white/20 px-1 rounded-[2px] text-[5px] text-gray-400">U/A 13+</span>
+            </div>
+
+            <div className="flex items-center gap-1 mb-2 opacity-80">
+                <span className="bg-white/10 text-[4.5px] font-bold px-1 py-0.5 rounded-[2px] text-gray-200">4K UHD</span>
+                <span className="bg-white/10 text-[4.5px] font-bold px-1 py-0.5 rounded-[2px] text-gray-200">HDR10</span>
+                <span className="bg-white/10 text-[4.5px] font-bold px-1 py-0.5 rounded-[2px] text-gray-200">Dolby Atmos</span>
+            </div>
+
+            <p className="text-[5.5px] text-gray-400 line-clamp-2 leading-relaxed font-medium">
+                {movie.overview || "Stream this title now on Prime Video."}
+            </p>
         </div>
       </div>
     </div>
