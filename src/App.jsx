@@ -79,7 +79,6 @@ const TMDB_API_KEY = "09ca3ca71692ba80b848d268502d24ed";
 const BASE_URL = "https://api.themoviedb.org/3";
 const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
 const IMAGE_ORIGINAL_URL = "https://image.tmdb.org/t/p/original";
-const VIDFAST_BASE = "https://vidfast.pro";
 
 // STRICT PRIME FILTERS
 const PRIME_PROVIDER_IDS = "9|119"; 
@@ -1520,12 +1519,12 @@ const Player = () => {
   }, [type, id, season]);
 
   // VIDFAST.PRO SOURCE LOGIC
+  // ZXCSTREAM SOURCE LOGIC
   const getSourceUrl = () => {
-    const themeParam = "theme=00A8E1";
     if (type === 'tv') {
-      return `${VIDFAST_BASE}/tv/${id}/${season}/${episode}?autoPlay=true&${themeParam}&nextButton=true&autoNext=true`;
+      return `https://zxcstream.xyz/embed/tv/${id}/${season}/${episode}`;
     } else {
-      return `${VIDFAST_BASE}/movie/${id}?autoPlay=true&${themeParam}`;
+      return `https://zxcstream.xyz/embed/movie/${id}`;
     }
   };
 
