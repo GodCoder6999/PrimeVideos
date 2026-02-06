@@ -59,7 +59,36 @@ const GlobalStyles = () => (
         position: relative;
     }
 
-    .rank-number { position: absolute; left: -70px; bottom: 0; font-size: 100px; font-weight: 900; color: #19222b; -webkit-text-stroke: 2px #5a6069; z-index: 0; font-family: sans-serif; letter-spacing: -5px; line-height: 0.8; }
+    /* --- NEW GLOWING NUMBERS CSS --- */
+    .rank-number { 
+        position: absolute; 
+        left: -20px; /* Adjusted to fit better next to the card */
+        bottom: 0; 
+        font-size: 110px; 
+        font-weight: 900; 
+        color: #19222b; 
+        -webkit-text-stroke: 2px #5a6069; 
+        z-index: 0; 
+        font-family: sans-serif; 
+        letter-spacing: -5px; 
+        line-height: 0.8;
+        text-shadow: 0 0 15px rgba(0, 168, 225, 0.3); /* Initial subtle glow */
+    }
+
+    @keyframes neon-pulse {
+      0%, 100% { 
+        text-shadow: 0 0 10px rgba(0, 168, 225, 0.5), 0 0 20px rgba(0, 168, 225, 0.3); 
+        -webkit-text-stroke: 2px rgba(255, 255, 255, 0.8);
+      }
+      50% { 
+        text-shadow: 0 0 25px rgba(0, 168, 225, 1), 0 0 50px rgba(0, 168, 225, 0.6); 
+        -webkit-text-stroke: 2px #00A8E1;
+      }
+    }
+
+    .animate-neon-pulse {
+        animation: neon-pulse 3s infinite ease-in-out;
+    }
     
     @keyframes pulse-glow {
       0%, 100% { box-shadow: 0 0 10px rgba(0, 168, 225, 0.2); border-color: rgba(0, 168, 225, 0.3); }
@@ -119,9 +148,6 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
   const year = (mediaItem.release_date || mediaItem.first_air_date || '').slice(0, 4);
   const title = mediaItem.title || mediaItem.name;
 
-  // 1. Clean the title for better matching
-  // "Pluribus" -> "pluribus"
-  // "Spider-Man: No Way Home" -> "spider man no way home"
   const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
   const searchKey = normalize(title);
 
@@ -131,7 +157,7 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
     const baseDir = mediaType === 'tv' ? 'tvs' : 'movies';
     const baseUrl = `https://a.111477.xyz/${baseDir}/`;
     
-    // 2. Fetch the main directory list via Proxy
+    // Fetch via Proxy
     const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(baseUrl)}`;
     const response = await fetch(proxyUrl);
     
@@ -139,15 +165,14 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
     
     const html = await response.text();
 
-    // 3. Regex to find links
     const linkRegex = /<a href="([^"]+)">([^<]+)<\/a>/g;
     let match;
     let bestLink = null;
 
     // SCANNINIG LOGIC
     while ((match = linkRegex.exec(html)) !== null) {
-        const href = match[1]; // e.g. "Pluribus/"
-        const text = decodeURIComponent(match[2]); // Decoded text
+        const href = match[1]; 
+        const text = decodeURIComponent(match[2]); 
         
         if (text === '../' || text === 'Name' || text === 'Size') continue;
 
@@ -155,12 +180,10 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
         
         if (mediaType === 'tv') {
             // TV LOGIC: Prioritize Exact Title Match (No Year)
-            // Example: "Pluribus/" matches "Pluribus"
             if (normText === searchKey) {
                 bestLink = href;
-                break; // Found exact title match, stop.
+                break; 
             }
-            // Fallback: Check if it contains the title (e.g. "The Flash (2014)")
             if (!bestLink && normText.includes(searchKey)) {
                 bestLink = href;
             }
@@ -170,32 +193,24 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
                 bestLink = href;
                 break;
             }
-            // Fallback
             if (!bestLink && normText.includes(searchKey)) {
                 bestLink = href;
             }
         }
     }
 
-    // 4. Construct the Final URL
     let finalUrl;
     if (bestLink) {
-        // Fix relative paths
         finalUrl = bestLink.startsWith('http') ? bestLink : `${baseUrl}${bestLink}`;
     } else {
-        // FALLBACK GUESSING LOGIC
         console.warn("[111477] Scan incomplete. Guessing URL.");
         if (mediaType === 'tv') {
-             // TV Guess: usually just Title
-             // e.g. https://a.111477.xyz/tvs/Pluribus/
              finalUrl = `${baseUrl}${encodeURIComponent(title)}/`;
         } else {
-             // Movie Guess: Title (Year)
              finalUrl = `${baseUrl}${encodeURIComponent(title)}%20(${year})/`;
         }
     }
 
-    // Ensure directory trailing slash
     if (!finalUrl.endsWith('/')) finalUrl += '/';
 
     return [{
@@ -208,7 +223,6 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
   } catch (error) {
     console.error("[111477] Error:", error);
     
-    // ERROR FALLBACK (Guess based on type)
     const baseDir = mediaType === 'tv' ? 'tvs' : 'movies';
     let guessUrl;
     if (mediaType === 'tv') {
@@ -236,7 +250,7 @@ async function getDownloadLinks(params) {
 const CATEGORY_DECK = [
     { type: 'movie', label: "Action-Packed Thrillers", genre: 28, variant: 'standard' },
     { type: 'tv', label: "Binge-Worthy TV Dramas", genre: 18, variant: 'standard' },
-    { type: 'movie', label: "Top 10 in India", variant: 'ranked' },
+    { type: 'movie', label: "Top 10 in India", variant: 'ranked' }, // This variant triggers the Top 10 look
     { type: 'movie', label: "Laugh Out Loud", genre: 35, variant: 'vertical' },
     { type: 'movie', label: "Sci-Fi Masterpieces", genre: 878, variant: 'standard' },
     { type: 'movie', label: "Horror Nights", genre: 27, variant: 'vertical' },
@@ -1118,7 +1132,7 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
       onClick={() => navigate(`/detail/${movie.media_type || itemType || 'movie'}/${movie.id}`)}
       style={{ zIndex: isHovered ? 100 : 10 }} 
     >
-      {variant === 'ranked' && <span className="rank-number">{rank}</span>}
+      {variant === 'ranked' && <span className="rank-number animate-neon-pulse">{rank}</span>}
       
       <div 
         className={`
@@ -1212,6 +1226,9 @@ const Row = ({ title, fetchUrl, variant = 'standard', itemType = 'movie', isPrim
       if (rowRef.current) rowRef.current.scrollBy({ left: 800, behavior: 'smooth' });
   };
 
+  // Limit 'ranked' movies to top 10
+  const displayMovies = variant === 'ranked' ? movies.slice(0, 10) : movies;
+
   return (
     <div className="mb-6 pl-4 md:pl-12 relative z-20 group/row animate-row-enter hover:z-30 transition-all duration-300">
       <h3 className="text-[19px] font-bold text-white mb-2 flex items-center gap-2">
@@ -1227,7 +1244,7 @@ const Row = ({ title, fetchUrl, variant = 'standard', itemType = 'movie', isPrim
              <ChevronLeft size={40} className="text-white hover:scale-125 transition-transform" />
           </button>
           <div ref={rowRef} className={`row-container ${variant === 'vertical' ? 'vertical' : ''} scrollbar-hide`}>
-            {movies.map((movie, index) => ( 
+            {displayMovies.map((movie, index) => ( 
                <MovieCard 
                    key={movie.id} 
                    movie={movie} 
@@ -1239,7 +1256,7 @@ const Row = ({ title, fetchUrl, variant = 'standard', itemType = 'movie', isPrim
                    onLeave={handleLeave} 
                    isPrimeOnly={isPrimeOnly}
                    isFirst={index === 0}
-                   isLast={index === movies.length - 1}
+                   isLast={index === displayMovies.length - 1}
                /> 
             ))}
           </div>
