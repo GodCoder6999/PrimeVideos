@@ -114,114 +114,97 @@ const ScrollToTop = () => {
   return null;
 };
 
-// --- 111477 DOWNLOAD SOURCE ---
-// --- 111477 DOWNLOAD SOURCE (FIXED & ROBUST) ---
+/**
+ * 111477 DIRECTORY OPENER
+ * Finds and opens the exact Index folder for the movie/series.
+ */
 async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
-  console.log(`[111477] Starting search for: ${mediaItem.title || mediaItem.name}`);
+  const year = (mediaItem.release_date || mediaItem.first_air_date || '').slice(0, 4);
+  const title = mediaItem.title || mediaItem.name;
+
+  // 1. Clean the title for better matching (remove colons, extra spaces)
+  // e.g., "Spider-Man: No Way Home" -> "spider man no way home"
+  const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+  const searchKey = normalize(title);
+
+  console.log(`[111477] Searching for index: "${title}" (${year})`);
 
   try {
-    const tmdbTitle = mediaItem?.title || mediaItem?.name;
-    const releaseYear = mediaItem?.release_date?.slice(0, 4) || mediaItem?.first_air_date?.slice(0, 4) || '';
+    const baseDir = mediaType === 'tv' ? 'tvs' : 'movies';
+    const baseUrl = `https://a.111477.xyz/${baseDir}/`;
     
-    // Normalize title: remove special chars to improve matching chances
-    // e.g., "Spider-Man: No Way Home" -> "Spider Man No Way Home"
-    const cleanName = (tmdbTitle || '').replace(/[^a-zA-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+    // 2. Fetch the main directory list via Proxy (corsproxy.io is fast)
+    // We use a simplified regex scan instead of full DOM parsing for speed
+    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(baseUrl)}`;
+    const response = await fetch(proxyUrl);
     
-    // Determine the listing page URL
-    const listingUrl = (mediaType === 'tv' || mediaType === 'show' || mediaType === 'tvshow')
-      ? 'https://a.111477.xyz/tvs/'
-      : 'https://a.111477.xyz/movies/';
+    if (!response.ok) throw new Error("Directory fetch failed");
+    
+    const html = await response.text();
 
-    // 1. Fetch Listing Page via Proxy (CodeTabs is often more reliable for text)
-    // We use a random param to prevent caching
-    const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(listingUrl)}&cache=${Date.now()}`;
-    
-    console.log(`[111477] Fetching listing: ${listingUrl}`);
-    const listingHtml = await fetch(proxyUrl).then(r => r.text());
-    
-    if (!listingHtml || listingHtml.length < 500) {
-        console.error("[111477] Failed to fetch listing or empty response.");
-        return [];
-    }
+    // 3. Regex to find links that resemble the movie title
+    // Look for <a href="Folder Name/">
+    const linkRegex = /<a href="([^"]+)">([^<]+)<\/a>/g;
+    let match;
+    let bestLink = null;
 
-    // 2. Parse Listing Page
-    const parser = new DOMParser();
-    const listingDoc = parser.parseFromString(listingHtml, 'text/html');
-    
-    // STRATEGY A: Specific Table Rows (Original Logic)
-    let rows = Array.from(listingDoc.querySelectorAll('tr[data-name][data-url]'));
-    
-    // STRATEGY B: All Links (Fallback if Strategy A fails)
-    if (rows.length === 0) {
-        console.warn("[111477] No data-rows found. Switching to link scanning...");
-        const links = Array.from(listingDoc.querySelectorAll('a[href]'));
-        rows = links.map(link => ({
-            getAttribute: (attr) => {
-                if (attr === 'data-name') return link.textContent.trim();
-                if (attr === 'data-url') return link.getAttribute('href');
-                return null;
+    while ((match = linkRegex.exec(html)) !== null) {
+        const href = match[1]; // e.g. "Avatar (2009)/"
+        const text = decodeURIComponent(match[2]); // Decoded text
+        
+        // Skip parent directory links
+        if (text === '../' || text === 'Name' || text === 'Size') continue;
+
+        const normText = normalize(text);
+        
+        // CHECK 1: Does title match?
+        if (normText.includes(searchKey)) {
+            // CHECK 2: Does year match? (If strict matching)
+            if (year && normText.includes(year)) {
+                bestLink = href;
+                break; // Found perfect match (Title + Year)
             }
-        }));
+            // Save as backup if year doesn't match
+            if (!bestLink) bestLink = href; 
+        }
     }
 
-    console.log(`[111477] Scanning ${rows.length} items for "${cleanName}"...`);
-
-    // 3. Find matching row
-    // Priority 1: Name + Year
-    let targetRow = rows.find((row) => {
-      const dataName = (row.getAttribute('data-name') || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ');
-      return dataName.includes(cleanName) && (!releaseYear || dataName.includes(releaseYear));
-    });
-
-    // Priority 2: Just Name
-    if (!targetRow) {
-      targetRow = rows.find((row) => {
-        const dataName = (row.getAttribute('data-name') || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ');
-        return dataName.includes(cleanName);
-      });
+    // 4. Construct the Final URL
+    let finalUrl;
+    if (bestLink) {
+        // Fix relative paths
+        finalUrl = bestLink.startsWith('http') ? bestLink : `${baseUrl}${bestLink}`;
+    } else {
+        // FALLBACK: If scanning failed, GUESS the standard format: "Title (Year)"
+        // This ensures the user gets a link even if the scan failed.
+        console.warn("[111477] Scan incomplete. Guessing URL.");
+        finalUrl = `${baseUrl}${encodeURIComponent(title)}%20(${year})/`;
     }
 
-    if (!targetRow) {
-        console.warn(`[111477] No match found for "${cleanName}".`);
-        return [];
-    }
+    // Ensure it ends with a slash for a directory
+    if (!finalUrl.endsWith('/')) finalUrl += '/';
 
-    console.log(`[111477] Match found: ${targetRow.getAttribute('data-name')}`);
-
-    // 4. Construct Detail URL
-    const detailHref = targetRow.getAttribute('data-url');
-    let detailUrl = detailHref;
-    if (detailUrl.startsWith('/')) detailUrl = `https://a.111477.xyz${detailUrl}`;
-    else if (!detailUrl.startsWith('http')) detailUrl = `https://a.111477.xyz/${detailUrl}`;
-
-    // 5. Fetch Detail Page
-    console.log(`[111477] Fetching details: ${detailUrl}`);
-    const detailProxy = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(detailUrl)}`;
-    const detailHtml = await fetch(detailProxy).then(r => r.text());
-    
-    if (!detailHtml) return [];
-
-    // 6. Extract Download Links
-    const detailDoc = parser.parseFromString(detailHtml, 'text/html');
-    
-    // Try multiple selectors for download buttons
-    let downloadNodes = detailDoc.querySelectorAll('a[class*="maxbutton"], .wp-block-button__link, a[href$=".mkv"], a[href$=".mp4"]');
-    
-    // Filter out junk links
-    const links = Array.from(downloadNodes)
-        .map(node => ({
-            label: node.textContent.trim() || 'Download',
-            url: node.getAttribute('href'),
-            type: 'download'
-        }))
-        .filter(l => l.url && l.url.startsWith('http') && !l.url.includes('codetabs')); // Avoid proxy loops
-
-    console.log(`[111477] Found ${links.length} download links.`);
-    return links;
+    return [{
+        source: '111477 Index',
+        label: `Open ${mediaType === 'tv' ? 'Series' : 'Movie'} Index`,
+        url: finalUrl,
+        type: 'external' // Opens in new tab
+    }];
 
   } catch (error) {
-    console.error("[111477] Critical Error:", error);
-    return [];
+    console.error("[111477] Error:", error);
+    
+    // ERROR FALLBACK: Even if the code crashes, return the Guessed URL
+    // so the user can still try to open it.
+    const baseDir = mediaType === 'tv' ? 'tvs' : 'movies';
+    const guessUrl = `https://a.111477.xyz/${baseDir}/${encodeURIComponent(title)}%20(${year})/`;
+    
+    return [{
+        source: '111477 (Guess)',
+        label: 'Open Index Folder',
+        url: guessUrl,
+        type: 'external'
+    }];
   }
 }
 
@@ -1548,16 +1531,20 @@ const MovieDetail = () => {
              
              <div className="space-y-3 max-h-[60vh] overflow-y-auto scrollbar-hide">
                 {downloadLinks.map((link, idx) => (
-                   <a 
-                     key={idx} 
-                     href={link.url} 
-                     target="_blank" 
-                     rel="noopener noreferrer"
-                     className="block bg-[#232d38] hover:bg-[#00A8E1] border border-white/5 hover:border-transparent text-gray-200 hover:text-white p-4 rounded-xl transition-all group flex items-center justify-between"
-                   >
-                      <span className="font-bold">{link.label}</span>
-                      <Download size={20} className="opacity-50 group-hover:opacity-100" />
-                   </a>
+                   {/* Inside your Modal mapping loop */}
+<a 
+  key={idx} 
+  href={link.url} 
+  target="_blank"  // <--- This MUST be present to open in new tab
+  rel="noopener noreferrer"
+  className="block bg-[#232d38] hover:bg-[#00A8E1] border border-white/5 hover:border-transparent text-gray-200 hover:text-white p-4 rounded-xl transition-all group flex items-center justify-between"
+>
+  <div className="flex flex-col">
+     <span className="font-bold">{link.label}</span>
+     <span className="text-[10px] opacity-70 uppercase tracking-wider">{link.source}</span>
+  </div>
+  <Download size={20} className="opacity-50 group-hover:opacity-100" />
+</a>
                 ))}
              </div>
              <div className="mt-4 text-center text-xs text-gray-500">Links are provided by third-party servers. Use an AdBlocker if needed.</div>
