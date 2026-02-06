@@ -127,7 +127,7 @@ const GlobalStyles = () => (
 );
 
 // --- CONFIGURATION ---
-const TMDB_API_KEY = "09ca3ca71692ba80b848d268502d24ed";
+const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5";
 const BASE_URL = "https://api.themoviedb.org/3";
 const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
 const IMAGE_ORIGINAL_URL = "https://image.tmdb.org/t/p/original";
