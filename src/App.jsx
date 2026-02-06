@@ -59,30 +59,30 @@ const GlobalStyles = () => (
         position: relative;
     }
 
-    /* --- UPDATED: HUGE GLOWING NUMBERS --- */
+    /* --- NEW GLOWING NUMBERS CSS --- */
     .rank-number { 
         position: absolute; 
-        left: -140px; /* Moved far left so it isn't hidden */
-        bottom: -25px; 
-        font-size: 220px; /* Huge size */
+        left: -20px; /* Adjusted to fit better next to the card */
+        bottom: 0; 
+        font-size: 110px; 
         font-weight: 900; 
-        color: #0f171e; /* Dark fill to blend with bg */
-        -webkit-text-stroke: 4px #5a6069; /* Thicker stroke */
-        z-index: 0; /* Behind the card */
-        font-family: 'Impact', sans-serif; 
-        letter-spacing: -10px; 
+        color: #19222b; 
+        -webkit-text-stroke: 2px #5a6069; 
+        z-index: 0; 
+        font-family: sans-serif; 
+        letter-spacing: -5px; 
         line-height: 0.8;
+        text-shadow: 0 0 15px rgba(0, 168, 225, 0.3); /* Initial subtle glow */
     }
 
     @keyframes neon-pulse {
       0%, 100% { 
-        text-shadow: 0 0 10px rgba(0, 168, 225, 0.3);
-        -webkit-text-stroke: 4px #5a6069;
+        text-shadow: 0 0 10px rgba(0, 168, 225, 0.5), 0 0 20px rgba(0, 168, 225, 0.3); 
+        -webkit-text-stroke: 2px rgba(255, 255, 255, 0.8);
       }
       50% { 
-        text-shadow: 0 0 30px rgba(0, 168, 225, 0.8);
-        -webkit-text-stroke: 4px #00A8E1;
-        transform: scale(1.02);
+        text-shadow: 0 0 25px rgba(0, 168, 225, 1), 0 0 50px rgba(0, 168, 225, 0.6); 
+        -webkit-text-stroke: 2px #00A8E1;
       }
     }
 
@@ -98,7 +98,7 @@ const GlobalStyles = () => (
     .animate-glow { animation: pulse-glow 2s infinite; }
 
     /* Cinematic Border Glow for Cards */
-    .glow-card { position: relative; z-index: 10; } /* Ensure card is above number */
+    .glow-card { position: relative; z-index: 1; }
     .glow-card::before {
         content: ""; position: absolute; inset: -2px; border-radius: 14px; padding: 2px;
         background: linear-gradient(45deg, transparent, rgba(0,168,225,0.3), transparent);
@@ -148,9 +148,6 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
   const year = (mediaItem.release_date || mediaItem.first_air_date || '').slice(0, 4);
   const title = mediaItem.title || mediaItem.name;
 
-  // 1. Clean the title for better matching
-  // "Pluribus" -> "pluribus"
-  // "Spider-Man: No Way Home" -> "spider man no way home"
   const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
   const searchKey = normalize(title);
 
@@ -160,7 +157,7 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
     const baseDir = mediaType === 'tv' ? 'tvs' : 'movies';
     const baseUrl = `https://a.111477.xyz/${baseDir}/`;
     
-    // 2. Fetch the main directory list via Proxy
+    // Fetch via Proxy
     const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(baseUrl)}`;
     const response = await fetch(proxyUrl);
     
@@ -168,15 +165,14 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
     
     const html = await response.text();
 
-    // 3. Regex to find links
     const linkRegex = /<a href="([^"]+)">([^<]+)<\/a>/g;
     let match;
     let bestLink = null;
 
     // SCANNINIG LOGIC
     while ((match = linkRegex.exec(html)) !== null) {
-        const href = match[1]; // e.g. "Pluribus/"
-        const text = decodeURIComponent(match[2]); // Decoded text
+        const href = match[1]; 
+        const text = decodeURIComponent(match[2]); 
         
         if (text === '../' || text === 'Name' || text === 'Size') continue;
 
@@ -184,12 +180,10 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
         
         if (mediaType === 'tv') {
             // TV LOGIC: Prioritize Exact Title Match (No Year)
-            // Example: "Pluribus/" matches "Pluribus"
             if (normText === searchKey) {
                 bestLink = href;
-                break; // Found exact title match, stop.
+                break; 
             }
-            // Fallback: Check if it contains the title (e.g. "The Flash (2014)")
             if (!bestLink && normText.includes(searchKey)) {
                 bestLink = href;
             }
@@ -199,32 +193,24 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
                 bestLink = href;
                 break;
             }
-            // Fallback
             if (!bestLink && normText.includes(searchKey)) {
                 bestLink = href;
             }
         }
     }
 
-    // 4. Construct the Final URL
     let finalUrl;
     if (bestLink) {
-        // Fix relative paths
         finalUrl = bestLink.startsWith('http') ? bestLink : `${baseUrl}${bestLink}`;
     } else {
-        // FALLBACK GUESSING LOGIC
         console.warn("[111477] Scan incomplete. Guessing URL.");
         if (mediaType === 'tv') {
-             // TV Guess: usually just Title
-             // e.g. https://a.111477.xyz/tvs/Pluribus/
              finalUrl = `${baseUrl}${encodeURIComponent(title)}/`;
         } else {
-             // Movie Guess: Title (Year)
              finalUrl = `${baseUrl}${encodeURIComponent(title)}%20(${year})/`;
         }
     }
 
-    // Ensure directory trailing slash
     if (!finalUrl.endsWith('/')) finalUrl += '/';
 
     return [{
@@ -237,7 +223,6 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
   } catch (error) {
     console.error("[111477] Error:", error);
     
-    // ERROR FALLBACK (Guess based on type)
     const baseDir = mediaType === 'tv' ? 'tvs' : 'movies';
     let guessUrl;
     if (mediaType === 'tv') {
@@ -1132,7 +1117,7 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
   
   const baseWidth = 'w-[160px] md:w-[200px]';
   const aspectRatio = 'aspect-[360/440]'; 
-  const cardMargin = variant === 'ranked' ? 'ml-[150px]' : ''; 
+  const cardMargin = variant === 'ranked' ? 'ml-[70px]' : ''; 
   const originClass = isFirst ? 'origin-left' : isLast ? 'origin-right' : 'origin-center';
 
   const rating = movie.vote_average ? Math.round(movie.vote_average * 10) + "%" : "98%";
