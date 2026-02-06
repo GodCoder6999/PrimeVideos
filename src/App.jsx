@@ -69,7 +69,6 @@ const GlobalStyles = () => (
     .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
     .nav-gradient { background: linear-gradient(180deg, rgba(0,5,13,0.7) 10%, transparent); }
     
-    /* Adjusted padding for 360x440px expansion */
     .row-container { 
         display: flex; 
         overflow-y: hidden; 
@@ -82,7 +81,7 @@ const GlobalStyles = () => (
         position: relative;
     }
 
-    /* --- UPDATED: HUGE GLOWING NUMBERS --- */
+    /* --- HUGE GLOWING NUMBERS --- */
     .rank-number { 
         position: absolute; 
         left: -75px; 
@@ -99,29 +98,18 @@ const GlobalStyles = () => (
     }
 
     @keyframes neon-pulse {
-      0%, 100% { 
-        text-shadow: 0 0 10px rgba(0, 168, 225, 0.3);
-        -webkit-text-stroke: 4px #5a6069;
-      }
-      50% { 
-        text-shadow: 0 0 30px rgba(0, 168, 225, 0.8);
-        -webkit-text-stroke: 4px #00A8E1;
-        transform: scale(1.02);
-      }
+      0%, 100% { text-shadow: 0 0 10px rgba(0, 168, 225, 0.3); -webkit-text-stroke: 4px #5a6069; }
+      50% { text-shadow: 0 0 30px rgba(0, 168, 225, 0.8); -webkit-text-stroke: 4px #00A8E1; transform: scale(1.02); }
     }
-
-    .animate-neon-pulse {
-        animation: neon-pulse 3s infinite ease-in-out;
-    }
+    .animate-neon-pulse { animation: neon-pulse 3s infinite ease-in-out; }
     
     @keyframes pulse-glow {
       0%, 100% { box-shadow: 0 0 10px rgba(0, 168, 225, 0.2); border-color: rgba(0, 168, 225, 0.3); }
       50% { box-shadow: 0 0 20px rgba(0, 168, 225, 0.6); border-color: rgba(0, 168, 225, 0.8); }
     }
-    
     .animate-glow { animation: pulse-glow 2s infinite; }
 
-    /* Cinematic Border Glow for Cards */
+    /* Cinematic Border Glow */
     .glow-card { position: relative; z-index: 10; } 
     .glow-card::before {
         content: ""; position: absolute; inset: -2px; border-radius: 14px; padding: 2px;
@@ -138,7 +126,6 @@ const GlobalStyles = () => (
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     .animate-in { animation: fadeIn 0.3s ease-out forwards; }
     
-    /* Modal Animation */
     @keyframes modal-pop { 0% { opacity: 0; transform: scale(0.95); } 100% { opacity: 1; transform: scale(1); } }
     .animate-modal-pop { animation: modal-pop 0.2s ease-out forwards; }
 
@@ -156,14 +143,12 @@ const ScrollToTop = () => {
   return null;
 };
 
-// --- 111477 DIRECTORY OPENER (SMART TV/MOVIE LOGIC) ---
+// --- 111477 DIRECTORY OPENER ---
 async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
   const year = (mediaItem.release_date || mediaItem.first_air_date || '').slice(0, 4);
   const title = mediaItem.title || mediaItem.name;
   const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
   const searchKey = normalize(title);
-
-  console.log(`[111477] Searching for index: "${title}" (Type: ${mediaType}, Year: ${year})`);
 
   try {
     const baseDir = mediaType === 'tv' ? 'tvs' : 'movies';
@@ -175,16 +160,13 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
     
     const html = await response.text();
     const linkRegex = /<a href="([^"]+)">([^<]+)<\/a>/g;
-    let match;
-    let bestLink = null;
+    let match, bestLink = null;
 
     while ((match = linkRegex.exec(html)) !== null) {
         const href = match[1]; 
         const text = decodeURIComponent(match[2]); 
-        
         if (text === '../' || text === 'Name' || text === 'Size') continue;
         const normText = normalize(text);
-        
         if (mediaType === 'tv') {
             if (normText === searchKey) { bestLink = href; break; }
             if (!bestLink && normText.includes(searchKey)) { bestLink = href; }
@@ -194,26 +176,15 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
         }
     }
 
-    let finalUrl;
-    if (bestLink) {
-        finalUrl = bestLink.startsWith('http') ? bestLink : `${baseUrl}${bestLink}`;
-    } else {
-        console.warn("[111477] Scan incomplete. Guessing URL.");
-        if (mediaType === 'tv') finalUrl = `${baseUrl}${encodeURIComponent(title)}/`;
-        else finalUrl = `${baseUrl}${encodeURIComponent(title)}%20(${year})/`;
+    let finalUrl = bestLink ? (bestLink.startsWith('http') ? bestLink : `${baseUrl}${bestLink}`) : null;
+    if (!finalUrl) {
+         if (mediaType === 'tv') finalUrl = `${baseUrl}${encodeURIComponent(title)}/`;
+         else finalUrl = `${baseUrl}${encodeURIComponent(title)}%20(${year})/`;
     }
-
     if (!finalUrl.endsWith('/')) finalUrl += '/';
 
-    return [{
-        source: '111477 Index',
-        label: `Open ${mediaType === 'tv' ? 'Series' : 'Movie'} Index`,
-        url: finalUrl,
-        type: 'external' 
-    }];
-
+    return [{ source: '111477 Index', label: `Open ${mediaType === 'tv' ? 'Series' : 'Movie'} Index`, url: finalUrl, type: 'external' }];
   } catch (error) {
-    console.error("[111477] Error:", error);
     const baseDir = mediaType === 'tv' ? 'tvs' : 'movies';
     let guessUrl = mediaType === 'tv' ? `https://a.111477.xyz/${baseDir}/${encodeURIComponent(title)}/` : `https://a.111477.xyz/${baseDir}/${encodeURIComponent(title)}%20(${year})/`;
     return [{ source: '111477 (Guess)', label: 'Open Index Folder', url: guessUrl, type: 'external' }];
@@ -272,7 +243,6 @@ const useInfiniteRows = (type = 'movie', isPrimeOnly = true) => {
 
   const getUrl = (category, pageNum) => {
       const targetType = category.type || (type === 'all' ? 'movie' : type);
-      
       if (isPrimeOnly) {
           let base = `/discover/${targetType}?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&page=${pageNum}`;
           if (category.variant === 'ranked' || category.sort) base += `&sort_by=${category.sort || 'popularity.desc'}`;
@@ -292,56 +262,35 @@ const useInfiniteRows = (type = 'movie', isPrimeOnly = true) => {
   };
 
   useEffect(() => {
-      const filteredDeck = type === 'all' 
-        ? [...CATEGORY_DECK] 
-        : CATEGORY_DECK.filter(item => item.type === type);
-      
+      const filteredDeck = type === 'all' ? [...CATEGORY_DECK] : CATEGORY_DECK.filter(item => item.type === type);
       const initialDeck = shuffleDeck(filteredDeck);
       setDeck(initialDeck);
-
+      
       let heroUrl, topUrl, heroTitle;
+      const getBaseHeroUrl = (t) => isPrimeOnly 
+          ? `/discover/${t}?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc&page=1`
+          : `/trending/${t}/day?api_key=${TMDB_API_KEY}`;
+      const getBaseTopUrl = (t) => isPrimeOnly
+          ? `/discover/${t}?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc&page=1`
+          : `/${t}/top_rated?api_key=${TMDB_API_KEY}`;
 
       if (type === 'tv') {
           heroTitle = "Trending TV Shows";
-          heroUrl = isPrimeOnly 
-            ? `/discover/tv?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc&page=1`
-            : `/trending/tv/day?api_key=${TMDB_API_KEY}`;
-          topUrl = isPrimeOnly
-            ? `/discover/tv?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc&page=1`
-            : `/tv/top_rated?api_key=${TMDB_API_KEY}`;
+          heroUrl = getBaseHeroUrl('tv');
+          topUrl = getBaseTopUrl('tv');
       } else if (type === 'movie') {
           heroTitle = "Trending Movies";
-          heroUrl = isPrimeOnly 
-            ? `/discover/movie?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc&page=1`
-            : `/trending/movie/day?api_key=${TMDB_API_KEY}`;
-          topUrl = isPrimeOnly
-            ? `/discover/movie?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc&page=1`
-            : `/movie/top_rated?api_key=${TMDB_API_KEY}`;
+          heroUrl = getBaseHeroUrl('movie');
+          topUrl = getBaseTopUrl('movie');
       } else {
           heroTitle = isPrimeOnly ? "Prime - Recommended" : "Trending Now";
-          heroUrl = isPrimeOnly
-            ? `/discover/movie?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc&page=1`
-            : `/trending/all/day?api_key=${TMDB_API_KEY}`;
-          topUrl = isPrimeOnly
-            ? `/discover/movie?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc&page=1`
-            : `/trending/all/day?api_key=${TMDB_API_KEY}`;
+          heroUrl = getBaseHeroUrl('movie'); // Fallback to movie discover for reliable images in mixed mode
+          topUrl = getBaseTopUrl('movie');
       }
 
       const initialRows = [
-          { 
-              id: 'trending_hero', 
-              title: heroTitle, 
-              fetchUrl: heroUrl, 
-              variant: 'standard', 
-              itemType: type === 'all' ? 'movie' : type 
-          },
-          { 
-              id: 'top_10', 
-              title: isPrimeOnly ? "Top 10 on Prime" : "Top 10 Globally", 
-              fetchUrl: topUrl, 
-              variant: 'ranked', 
-              itemType: type === 'all' ? 'movie' : type 
-          },
+          { id: 'trending_hero', title: heroTitle, fetchUrl: heroUrl, variant: 'standard', itemType: type === 'all' ? 'movie' : type },
+          { id: 'top_10', title: isPrimeOnly ? "Top 10 on Prime" : "Top 10 Globally", fetchUrl: topUrl, variant: 'ranked', itemType: type === 'all' ? 'movie' : type },
       ];
       setRows(initialRows);
   }, [type, isPrimeOnly]);
@@ -394,15 +343,52 @@ const Navbar = ({ isPrimeOnly }) => {
   const dropdownRef = useRef(null);
   const theme = getTheme(isPrimeOnly);
 
+  // --- 2. UPDATED EVENT LISTENER (100% ACCURATE) ---
   useEffect(() => {
-      const handleClickOutside = (event) => { 
-          if (dropdownRef.current && !dropdownRef.current.contains(event.target)) setMenuOpen(false); 
-          if (searchRef.current && !searchRef.current.contains(event.target)) setShowSuggestions(false);
-      };
-      document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+    const handleVidFastEvent = ({ origin, data }) => {
+        // Security Check
+        if (!VIDFAST_ORIGINS.includes(origin) || !data) return;
 
+        // A. Handle "MEDIA_DATA" (The most accurate full snapshot)
+        if (data.type === 'MEDIA_DATA') {
+            const currentHistory = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
+            
+            // Merge the new data with existing history to prevent data loss
+            // We use spread syntax to ensure we keep old movies while updating the current one
+            const updatedHistory = {
+                ...currentHistory,
+                ...data.data // This contains the accurate progress object for the current media
+            };
+            
+            localStorage.setItem('vidFastProgress', JSON.stringify(updatedHistory));
+        }
+
+        // B. Handle "PLAYER_EVENT" (Real-time fallback for UI updates)
+        if (data.type === 'PLAYER_EVENT') {
+            const { event, currentTime, duration, mediaType, tmdbId } = data.data;
+            
+            // Only update on time ticks or pause to keep it efficient
+            if (event === 'timeupdate' || event === 'pause') {
+                const storageKey = `${mediaType === 'tv' ? 't' : 'm'}${tmdbId}`;
+                const allProgress = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
+                
+                // Get current item or initialize
+                const item = allProgress[storageKey] || { id: tmdbId, type: mediaType, progress: {} };
+                
+                // FORCE UPDATE TIMESTAMP
+                item.last_updated = Date.now(); // Critical for sorting
+                item.progress = { watched: currentTime, duration: duration };
+
+                // Save back
+                allProgress[storageKey] = item;
+                localStorage.setItem('vidFastProgress', JSON.stringify(allProgress));
+            }
+        }
+    };
+
+    window.addEventListener('message', handleVidFastEvent);
+    return () => window.removeEventListener('message', handleVidFastEvent);
+  }, []);
   useEffect(() => {
       const fetchSuggestions = async () => {
           if (query.trim().length < 2) {
@@ -428,15 +414,9 @@ const Navbar = ({ isPrimeOnly }) => {
                           }
                       } catch(e) {}
                   }
-                  setSuggestions({
-                      text: filtered.map(i => i.title || i.name).slice(0, 3), 
-                      visual: filtered 
-                  });
+                  setSuggestions({ text: filtered.map(i => i.title || i.name).slice(0, 3), visual: filtered });
               } else {
-                  setSuggestions({
-                      text: results.map(i => i.title || i.name).slice(0, 3),
-                      visual: results.slice(0, 4)
-                  });
+                  setSuggestions({ text: results.map(i => i.title || i.name).slice(0, 3), visual: results.slice(0, 4) });
               }
               setShowSuggestions(true);
           } catch (e) { console.error("Search Error", e); }
@@ -467,28 +447,19 @@ const Navbar = ({ isPrimeOnly }) => {
   return (
     <nav 
       className="sticky top-0 w-full z-[1000] flex items-center px-[24px]"
-      style={{
-        height: '60px',
-        background: 'linear-gradient(to bottom, #121a22 0%, #0f171e 100%)',
-        fontFamily: '"Amazon Ember", "Inter", "Segoe UI", sans-serif',
-        gap: '28px'
-      }}
+      style={{ height: '60px', background: 'linear-gradient(to bottom, #121a22 0%, #0f171e 100%)', fontFamily: '"Amazon Ember", "Inter", "Segoe UI", sans-serif', gap: '28px' }}
     >
       <Link to={isPrimeOnly ? "/" : "/everything"} className="text-[#ffffff] font-bold text-[21px] tracking-[-0.2px] no-underline leading-none">
           {theme.logoText}
       </Link>
-
       <div className="flex items-center gap-[6px]">
         <Link to={isPrimeOnly ? "/" : "/everything"} className={getNavLinkClass(isPrimeOnly ? "/" : "/everything")}>Home</Link>
         <Link to={isPrimeOnly ? "/movies" : "/everything/movies"} className={getNavLinkClass(isPrimeOnly ? "/movies" : "/everything/movies")}>Movies</Link>
         <Link to={isPrimeOnly ? "/tv" : "/everything/tv"} className={getNavLinkClass(isPrimeOnly ? "/tv" : "/everything/tv")}>TV Shows</Link>
-        
         <Link to="/sports" className={`${getNavLinkClass("/sports")} flex items-center gap-2`}>
-            <Trophy size={16} className={location.pathname === "/sports" ? "text-[#00A8E1]" : "opacity-80"} />
-            Live TV
+            <Trophy size={16} className={location.pathname === "/sports" ? "text-[#00A8E1]" : "opacity-80"} />Live TV
         </Link>
       </div>
-
       <div className="ml-auto flex items-center gap-6">
           <div ref={searchRef} className="relative">
               <form onSubmit={handleSearch} className="bg-[#19222b] border border-white/10 px-3 py-1.5 rounded-md flex items-center group focus-within:border-white/30 transition-all w-[300px] md:w-[400px]">
@@ -496,7 +467,6 @@ const Navbar = ({ isPrimeOnly }) => {
                  <input className="bg-transparent border-none outline-none text-white text-sm font-medium ml-2 w-full placeholder-[#5a6069]" placeholder={isPrimeOnly ? "Search Prime..." : "Search Everything..."} value={query} onChange={(e) => setQuery(e.target.value)} onFocus={() => { if(query.length > 1) setShowSuggestions(true); }} />
                  {query && <X size={16} className="text-[#c7cbd1] cursor-pointer hover:text-white" onClick={handleClear} />}
               </form>
-              
               {showSuggestions && (suggestions.text.length > 0 || suggestions.visual.length > 0) && (
                   <div className="absolute top-12 right-0 w-full bg-[#19222b] border border-gray-700 rounded-lg shadow-2xl overflow-hidden animate-in z-[160]">
                       {suggestions.text.map((text, idx) => ( <div key={idx} onClick={() => { setQuery(text); handleSearch({preventDefault:()=>{}}); }} className="px-4 py-2 text-sm text-gray-300 hover:bg-[#333c46] hover:text-white cursor-pointer flex items-center gap-2 border-b border-white/5 last:border-0"><Search size={14} /> {text}</div> ))}
@@ -512,7 +482,6 @@ const Navbar = ({ isPrimeOnly }) => {
                   </div>
               )}
           </div>
-
           <div className="relative" ref={dropdownRef}>
               <div className={`w-9 h-9 rounded-full bg-[#3d464f] flex items-center justify-center border border-white/10 hover:border-white transition-all cursor-pointer`} onClick={() => setMenuOpen(!menuOpen)}><Grip size={20} className="text-[#c7cbd1]" /></div>
               {menuOpen && (
@@ -523,7 +492,6 @@ const Navbar = ({ isPrimeOnly }) => {
                   </div>
               )}
           </div>
-          
           <div className={`w-9 h-9 rounded-full ${theme.bg} flex items-center justify-center text-white font-bold text-sm cursor-pointer border border-white/10`}>U</div>
       </div>
     </nav>
@@ -540,23 +508,19 @@ const SportsPage = () => {
         'News': ['News', 'News (International)', 'News (National)', 'News (Regional)', 'Business News', 'Political News'],
         'Sports': ['Sports', 'Live Sports', 'Cricket', 'Football (Soccer)', 'Basketball', 'Tennis', 'Motorsports', 'Wrestling (WWE / AEW / UFC)', 'Sports Events (PPV)']
     };
-
     const [activeMainCategory, setActiveMainCategory] = useState('All');
     const [activeSubCategory, setActiveSubCategory] = useState('All');
-    
     const [searchQuery, setSearchQuery] = useState("");
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 60;
     const navigate = useNavigate();
-
     const PLAYLIST_URL = 'https://iptv-org.github.io/iptv/index.m3u';
     
     const normalizeCategory = (groupName) => {
         if (!groupName) return 'Entertainment';
         const lower = groupName.toLowerCase();
-        
         if (lower.includes('cricket')) return 'Cricket';
         if (lower.includes('football') || lower.includes('soccer') || lower.includes('premier league') || lower.includes('laliga') || lower.includes('bundesliga')) return 'Football (Soccer)';
         if (lower.includes('basket') || lower.includes('nba')) return 'Basketball';
@@ -565,19 +529,16 @@ const SportsPage = () => {
         if (lower.includes('wwe') || lower.includes('ufc') || lower.includes('wrestling') || lower.includes('boxing') || lower.includes('fight') || lower.includes('aew') || lower.includes('mma')) return 'Wrestling (WWE / AEW / UFC)';
         if (lower.includes('ppv') || lower.includes('event')) return 'Sports Events (PPV)';
         if (lower.includes('sport')) return 'Live Sports';
-
         if (lower.includes('business') || lower.includes('finance') || lower.includes('market') || lower.includes('bloomberg') || lower.includes('cnbc')) return 'Business News';
         if (lower.includes('politics') || lower.includes('parliament') || lower.includes('c-span')) return 'Political News';
         if (lower.includes('international') || lower.includes('world') || lower.includes('global') || lower.includes('cnn') || lower.includes('bbc') || lower.includes('al jazeera')) return 'News (International)';
         if (lower.includes('national')) return 'News (National)';
         if (lower.includes('regional') || lower.includes('local')) return 'News (Regional)';
         if (lower.includes('news')) return 'News'; 
-
         if (lower.includes('music') || lower.includes('hits') || lower.includes('mtv') || lower.includes('vh1')) return 'Music';
         if (lower.includes('comedy') || lower.includes('funny') || lower.includes('standup')) return 'Comedy';
         if (lower.includes('lifestyle') || lower.includes('fashion') || lower.includes('travel') || lower.includes('food') || lower.includes('cooking') || lower.includes('tlc')) return 'Lifestyle';
         if (lower.includes('gec') || lower.includes('sony') || lower.includes('star') || lower.includes('colors') || lower.includes('zee') || lower.includes('hbo') || lower.includes('amc')) return 'GEC (General Entertainment Channels)';
-        
         return 'Entertainment'; 
     };
 
@@ -589,126 +550,69 @@ const SportsPage = () => {
     };
 
     useEffect(() => {
-        setLoading(true);
-        setError(null);
-
+        setLoading(true); setError(null);
         fetch(PLAYLIST_URL)
-            .then(res => {
-                if (!res.ok) throw new Error("Failed to load playlist");
-                return res.text();
-            })
+            .then(res => { if (!res.ok) throw new Error("Failed to load playlist"); return res.text(); })
             .then(data => {
                 const lines = data.split('\n');
                 const parsed = [];
                 let current = {};
-
                 for (let i = 0; i < lines.length; i++) {
                     let line = lines[i].trim();
-                    
                     if (line.startsWith('#EXTINF:')) {
                         const logoMatch = line.match(/tvg-logo="([^"]*)"/);
                         const groupMatch = line.match(/group-title="([^"]*)"/);
                         const name = line.split(',').pop().trim();
                         const rawGroup = groupMatch ? groupMatch[1].trim() : 'Uncategorized';
                         const normalizedGroup = normalizeCategory(rawGroup);
-
-                        current = { 
-                            name, 
-                            logo: logoMatch ? logoMatch[1] : null, 
-                            group: normalizedGroup,
-                            parentGroup: getParentCategory(normalizedGroup)
-                        };
+                        current = { name, logo: logoMatch ? logoMatch[1] : null, group: normalizedGroup, parentGroup: getParentCategory(normalizedGroup) };
                     } else if (line.startsWith('http') && current.name) {
                         current.url = line;
                         parsed.push(current);
                         current = {}; 
                     }
                 }
-
-                if (parsed.length === 0) {
-                    throw new Error("No channels found in playlist.");
-                }
-                
+                if (parsed.length === 0) { throw new Error("No channels found in playlist."); }
                 setChannels(parsed);
                 setLoading(false);
             })
-            .catch(e => {
-                console.error("Playlist Error:", e);
-                setError("Unable to load live channels. The feed might be down.");
-                setLoading(false);
-            });
+            .catch(e => { console.error("Playlist Error:", e); setError("Unable to load live channels."); setLoading(false); });
     }, []);
 
     useEffect(() => {
         let filtered = channels;
-
-        if (activeMainCategory !== 'All') {
-            filtered = filtered.filter(c => c.parentGroup === activeMainCategory);
-        }
-
-        if (activeSubCategory !== 'All') {
-            filtered = filtered.filter(c => c.group === activeSubCategory);
-        }
-
-        if (searchQuery.trim()) {
-            const lowerQ = searchQuery.toLowerCase();
-            filtered = filtered.filter(c => c.name.toLowerCase().includes(lowerQ));
-        }
-        
+        if (activeMainCategory !== 'All') filtered = filtered.filter(c => c.parentGroup === activeMainCategory);
+        if (activeSubCategory !== 'All') filtered = filtered.filter(c => c.group === activeSubCategory);
+        if (searchQuery.trim()) { const lowerQ = searchQuery.toLowerCase(); filtered = filtered.filter(c => c.name.toLowerCase().includes(lowerQ)); }
         const startIndex = (currentPage - 1) * itemsPerPage;
         const endIndex = startIndex + itemsPerPage;
-        
         setDisplayedChannels(filtered.slice(startIndex, endIndex));
     }, [activeMainCategory, activeSubCategory, searchQuery, channels, currentPage]);
 
+    useEffect(() => { setCurrentPage(1); }, [activeMainCategory, activeSubCategory, searchQuery]);
     useEffect(() => {
-        setCurrentPage(1);
-    }, [activeMainCategory, activeSubCategory, searchQuery]);
-
-    useEffect(() => {
-        const handleKeyDown = (e) => {
-            if (e.key === 'ArrowRight') {
-                setCurrentPage(p => p + 1);
-            } else if (e.key === 'ArrowLeft') {
-                setCurrentPage(p => Math.max(1, p - 1));
-            }
-        };
+        const handleKeyDown = (e) => { if (e.key === 'ArrowRight') setCurrentPage(p => p + 1); else if (e.key === 'ArrowLeft') setCurrentPage(p => Math.max(1, p - 1)); };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, []);
-
-    const totalPages = Math.ceil(
-        (activeMainCategory === 'All' && activeSubCategory === 'All' && !searchQuery 
-            ? channels.length 
-            : channels.filter(c => {
-                const matchMain = activeMainCategory === 'All' || c.parentGroup === activeMainCategory;
-                const matchSub = activeSubCategory === 'All' || c.group === activeSubCategory;
-                const matchSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase());
-                return matchMain && matchSub && matchSearch;
-              }).length
-        ) / itemsPerPage
-    );
+    
+    const totalPages = Math.ceil((activeMainCategory === 'All' && activeSubCategory === 'All' && !searchQuery ? channels.length : channels.filter(c => {
+        const matchMain = activeMainCategory === 'All' || c.parentGroup === activeMainCategory;
+        const matchSub = activeSubCategory === 'All' || c.group === activeSubCategory;
+        const matchSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase());
+        return matchMain && matchSub && matchSearch;
+    }).length) / itemsPerPage);
 
     return (
         <div className="pt-24 px-4 md:px-12 min-h-screen pb-20">
             <div className="flex flex-col md:flex-row justify-between items-end gap-6 mb-8">
                 <div>
-                    <h2 className="text-3xl font-bold text-white flex items-center gap-2 glow-text">
-                        <Monitor className="text-[#00A8E1]" /> Live TV
-                    </h2>
-                    <p className="text-gray-400 text-sm mt-1">
-                        {loading ? "Scanning frequencies..." : `${channels.length} Channels Available`}
-                    </p>
+                    <h2 className="text-3xl font-bold text-white flex items-center gap-2 glow-text"><Monitor className="text-[#00A8E1]" /> Live TV</h2>
+                    <p className="text-gray-400 text-sm mt-1">{loading ? "Scanning frequencies..." : `${channels.length} Channels Available`}</p>
                 </div>
                 <div className="flex w-full md:w-auto gap-2">
                     <div className="relative flex-1 md:w-80">
-                        <input 
-                            type="text" 
-                            placeholder="Find channel..." 
-                            className="w-full bg-[#19222b] border border-white/10 rounded-lg px-4 py-3 pl-10 text-white focus:border-[#00A8E1] outline-none font-medium transition-all duration-300 focus:shadow-[0_0_15px_rgba(0,168,225,0.4)]"
-                            value={searchQuery}
-                            onChange={e => setSearchQuery(e.target.value)}
-                        />
+                        <input type="text" placeholder="Find channel..." className="w-full bg-[#19222b] border border-white/10 rounded-lg px-4 py-3 pl-10 text-white focus:border-[#00A8E1] outline-none font-medium transition-all duration-300 focus:shadow-[0_0_15px_rgba(0,168,225,0.4)]" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
                         <Search className="absolute left-3 top-3.5 text-gray-500" size={18} />
                         {searchQuery && <X onClick={() => setSearchQuery('')} className="absolute right-3 top-3.5 text-gray-400 cursor-pointer hover:text-white" size={18} />}
                     </div>
@@ -719,43 +623,17 @@ const SportsPage = () => {
                 <div className="flex flex-col gap-4 mb-8">
                     <div className="flex items-center gap-3 overflow-x-auto scrollbar-hide pb-2 px-2">
                         {['All', ...Object.keys(CATEGORIES_TREE).filter(k => k !== 'All')].map(cat => (
-                            <button 
-                                key={cat} 
-                                onClick={() => { setActiveMainCategory(cat); setActiveSubCategory('All'); }}
-                                className={`px-6 py-2.5 rounded-lg font-bold text-sm whitespace-nowrap transition-all duration-300 border relative overflow-hidden group ${
-                                    activeMainCategory === cat 
-                                    ? 'bg-[#00A8E1] text-white border-transparent shadow-[0_0_20px_rgba(0,168,225,0.6)] scale-105' 
-                                    : 'bg-[#19222b] text-gray-400 border-transparent hover:text-white hover:bg-[#333c46] hover:shadow-[0_0_15px_rgba(255,255,255,0.1)] hover:scale-105'
-                                }`}
-                            >
+                            <button key={cat} onClick={() => { setActiveMainCategory(cat); setActiveSubCategory('All'); }} className={`px-6 py-2.5 rounded-lg font-bold text-sm whitespace-nowrap transition-all duration-300 border relative overflow-hidden group ${activeMainCategory === cat ? 'bg-[#00A8E1] text-white border-transparent shadow-[0_0_20px_rgba(0,168,225,0.6)] scale-105' : 'bg-[#19222b] text-gray-400 border-transparent hover:text-white hover:bg-[#333c46] hover:shadow-[0_0_15px_rgba(255,255,255,0.1)] hover:scale-105'}`}>
                                 <span className="relative z-10">{cat}</span>
                                 {activeMainCategory === cat && <div className="absolute inset-0 bg-white/20 animate-pulse"></div>}
                             </button>
                         ))}
                     </div>
-
                     {activeMainCategory !== 'All' && CATEGORIES_TREE[activeMainCategory] && (
                         <div className="flex items-center gap-3 overflow-x-auto scrollbar-hide pb-2 px-2 animate-in fade-in slide-in-from-top-2">
-                            <button 
-                                onClick={() => setActiveSubCategory('All')}
-                                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all duration-300 border hover:scale-105 ${
-                                    activeSubCategory === 'All' 
-                                    ? 'bg-white text-black border-white shadow-[0_0_15px_rgba(255,255,255,0.4)]' 
-                                    : 'bg-transparent text-gray-400 border-gray-700 hover:border-white hover:text-white'
-                                }`}
-                            >
-                                All {activeMainCategory}
-                            </button>
+                            <button onClick={() => setActiveSubCategory('All')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all duration-300 border hover:scale-105 ${activeSubCategory === 'All' ? 'bg-white text-black border-white shadow-[0_0_15px_rgba(255,255,255,0.4)]' : 'bg-transparent text-gray-400 border-gray-700 hover:border-white hover:text-white'}`}>All {activeMainCategory}</button>
                             {CATEGORIES_TREE[activeMainCategory].map(sub => (
-                                <button 
-                                    key={sub} 
-                                    onClick={() => setActiveSubCategory(sub)}
-                                    className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all duration-300 border hover:scale-105 ${
-                                        activeSubCategory === sub 
-                                        ? 'bg-[#00A8E1] text-white border-[#00A8E1] shadow-[0_0_15px_rgba(0,168,225,0.5)]' 
-                                        : 'bg-[#19222b] text-gray-400 border-gray-800 hover:border-[#00A8E1] hover:text-[#00A8E1]'
-                                    }`}
-                                >
+                                <button key={sub} onClick={() => setActiveSubCategory(sub)} className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all duration-300 border hover:scale-105 ${activeSubCategory === sub ? 'bg-[#00A8E1] text-white border-[#00A8E1] shadow-[0_0_15px_rgba(0,168,225,0.5)]' : 'bg-[#19222b] text-gray-400 border-gray-800 hover:border-[#00A8E1] hover:text-[#00A8E1]'}`}>
                                     {sub}
                                 </button>
                             ))}
@@ -765,95 +643,38 @@ const SportsPage = () => {
             )}
 
             {loading ? (
-                <div className="h-80 flex flex-col items-center justify-center text-[#00A8E1] gap-4">
-                    <Loader className="animate-spin" size={48} />
-                    <div className="text-gray-400 text-sm font-medium animate-pulse">Fetching global channels feed...</div>
-                </div>
+                <div className="h-80 flex flex-col items-center justify-center text-[#00A8E1] gap-4"><Loader className="animate-spin" size={48} /><div className="text-gray-400 text-sm font-medium animate-pulse">Fetching global channels feed...</div></div>
             ) : error ? (
-                <div className="h-60 flex flex-col items-center justify-center text-red-500 gap-2 border border-dashed border-white/10 rounded-xl">
-                    <Ban size={48} />
-                    <p>{error}</p>
-                    <button onClick={() => window.location.reload()} className="text-white underline mt-2">Retry Connection</button>
-                </div>
+                <div className="h-60 flex flex-col items-center justify-center text-red-500 gap-2 border border-dashed border-white/10 rounded-xl"><Ban size={48} /><p>{error}</p><button onClick={() => window.location.reload()} className="text-white underline mt-2">Retry Connection</button></div>
             ) : displayedChannels.length === 0 ? (
-                <div className="h-60 flex flex-col items-center justify-center text-gray-500 gap-3 border border-dashed border-white/10 rounded-xl">
-                    <Monitor size={48} className="opacity-20" />
-                    <p>No channels found for this search.</p>
-                </div>
+                <div className="h-60 flex flex-col items-center justify-center text-gray-500 gap-3 border border-dashed border-white/10 rounded-xl"><Monitor size={48} className="opacity-20" /><p>No channels found for this search.</p></div>
             ) : (
                 <>
                     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 animate-in fade-in duration-500">
                         {displayedChannels.map((channel, idx) => (
-                            <div 
-                                key={idx} 
-                                onClick={() => navigate('/watch/sport/iptv', { state: { streamUrl: channel.url, title: channel.name, logo: channel.logo, group: channel.group } })}
-                                className="bg-[#19222b] hover:bg-[#232d38] rounded-xl overflow-hidden cursor-pointer group hover:-translate-y-2 transition-all duration-300 shadow-lg hover:shadow-[0_0_30px_rgba(0,168,225,0.3)] relative glow-card border border-white/5"
-                            >
+                            <div key={idx} onClick={() => navigate('/watch/sport/iptv', { state: { streamUrl: channel.url, title: channel.name, logo: channel.logo, group: channel.group } })} className="bg-[#19222b] hover:bg-[#232d38] rounded-xl overflow-hidden cursor-pointer group hover:-translate-y-2 transition-all duration-300 shadow-lg hover:shadow-[0_0_30px_rgba(0,168,225,0.3)] relative glow-card border border-white/5">
                                 <div className="aspect-video bg-black/40 flex items-center justify-center p-4 relative group-hover:bg-black/20 transition-colors">
-                                    {channel.logo ? (
-                                        <img src={channel.logo} className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-300 drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]" alt={channel.name} onError={e => e.target.style.display='none'} />
-                                    ) : (
-                                        <Signal className="text-gray-700 group-hover:text-[#00A8E1] transition-colors" size={32} />
-                                    )}
-                                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-300 backdrop-blur-sm">
-                                        <div className="bg-[#00A8E1] p-3 rounded-full shadow-[0_0_20px_#00A8E1] transform scale-50 group-hover:scale-100 transition-transform duration-300">
-                                            <Play fill="white" className="text-white" size={20} />
-                                        </div>
-                                    </div>
+                                    {channel.logo ? (<img src={channel.logo} className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-300 drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]" alt={channel.name} onError={e => e.target.style.display='none'} />) : (<Signal className="text-gray-700 group-hover:text-[#00A8E1] transition-colors" size={32} />)}
+                                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-300 backdrop-blur-sm"><div className="bg-[#00A8E1] p-3 rounded-full shadow-[0_0_20px_#00A8E1] transform scale-50 group-hover:scale-100 transition-transform duration-300"><Play fill="white" className="text-white" size={20} /></div></div>
                                 </div>
                                 <div className="p-3 bg-[#19222b] group-hover:bg-[#1f2933] transition-colors border-t border-white/5">
                                     <h3 className="text-gray-200 text-xs font-bold truncate group-hover:text-[#00A8E1] transition-colors">{channel.name}</h3>
-                                    <div className="flex items-center gap-1.5 mt-1">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shadow-[0_0_5px_#22c55e]"></span>
-                                        <p className="text-gray-500 text-[10px] font-bold truncate uppercase group-hover:text-white transition-colors">{channel.group}</p>
-                                    </div>
+                                    <div className="flex items-center gap-1.5 mt-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shadow-[0_0_5px_#22c55e]"></span><p className="text-gray-500 text-[10px] font-bold truncate uppercase group-hover:text-white transition-colors">{channel.group}</p></div>
                                 </div>
                             </div>
                         ))}
                     </div>
-                    
                     <div className="flex justify-center items-center gap-4 mt-12 mb-8">
-                        <button 
-                            disabled={currentPage === 1}
-                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                            className="p-3 rounded-full bg-[#19222b] hover:bg-[#333c46] hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] disabled:opacity-50 disabled:cursor-not-allowed text-white transition-all duration-300"
-                        >
-                            <ChevronLeft size={24} />
-                        </button>
-                        
+                        <button disabled={currentPage === 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))} className="p-3 rounded-full bg-[#19222b] hover:bg-[#333c46] hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] disabled:opacity-50 disabled:cursor-not-allowed text-white transition-all duration-300"><ChevronLeft size={24} /></button>
                         <div className="flex gap-2 overflow-x-auto max-w-[300px] scrollbar-hide px-2 items-center">
                             {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                                let pageNum = currentPage - 2 + i;
-                                if (pageNum <= 0) pageNum = i + 1;
-                                if (pageNum > totalPages) return null;
-                                
-                                return (
-                                    <button 
-                                        key={pageNum}
-                                        onClick={() => setCurrentPage(pageNum)}
-                                        className={`w-10 h-10 rounded-full font-bold text-sm transition-all duration-300 ${
-                                            currentPage === pageNum 
-                                            ? 'bg-[#00A8E1] text-white scale-110 shadow-[0_0_15px_#00A8E1]' 
-                                            : 'bg-[#19222b] text-gray-400 hover:text-white hover:bg-[#333c46] hover:shadow-[0_0_10px_rgba(255,255,255,0.1)]'
-                                        }`}
-                                    >
-                                        {pageNum}
-                                    </button>
-                                );
+                                let pageNum = currentPage - 2 + i; if (pageNum <= 0) pageNum = i + 1; if (pageNum > totalPages) return null;
+                                return (<button key={pageNum} onClick={() => setCurrentPage(pageNum)} className={`w-10 h-10 rounded-full font-bold text-sm transition-all duration-300 ${currentPage === pageNum ? 'bg-[#00A8E1] text-white scale-110 shadow-[0_0_15px_#00A8E1]' : 'bg-[#19222b] text-gray-400 hover:text-white hover:bg-[#333c46] hover:shadow-[0_0_10px_rgba(255,255,255,0.1)]'}`}>{pageNum}</button>);
                             })}
                         </div>
-
-                        <button 
-                            disabled={currentPage >= totalPages}
-                            onClick={() => setCurrentPage(p + 1)}
-                            className="p-3 rounded-full bg-[#19222b] hover:bg-[#333c46] hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] disabled:opacity-50 disabled:cursor-not-allowed text-white transition-all duration-300"
-                        >
-                            <ChevronRight size={24} />
-                        </button>
+                        <button disabled={currentPage >= totalPages} onClick={() => setCurrentPage(p + 1)} className="p-3 rounded-full bg-[#19222b] hover:bg-[#333c46] hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] disabled:opacity-50 disabled:cursor-not-allowed text-white transition-all duration-300"><ChevronRight size={24} /></button>
                     </div>
-                    <div className="text-center text-gray-500 text-xs pb-8 animate-pulse">
-                        Page {currentPage} of {totalPages} • Use Arrow Keys &larr; &rarr; to navigate
-                    </div>
+                    <div className="text-center text-gray-500 text-xs pb-8 animate-pulse">Page {currentPage} of {totalPages} • Use Arrow Keys &larr; &rarr; to navigate</div>
                 </>
             )}
         </div>
@@ -869,25 +690,14 @@ const SportsPlayer = () => {
 
     useEffect(() => {
         if (!streamUrl) return;
-
         let hls;
         if (Hls && Hls.isSupported()) {
-            hls = new Hls();
-            hls.loadSource(streamUrl);
-            hls.attachMedia(videoRef.current);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                videoRef.current.play().catch(e => console.log("Auto-play prevented", e));
-            });
+            hls = new Hls(); hls.loadSource(streamUrl); hls.attachMedia(videoRef.current);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => { videoRef.current.play().catch(e => console.log("Auto-play prevented", e)); });
         } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-            videoRef.current.src = streamUrl;
-            videoRef.current.addEventListener('loadedmetadata', () => {
-                videoRef.current.play();
-            });
+            videoRef.current.src = streamUrl; videoRef.current.addEventListener('loadedmetadata', () => { videoRef.current.play(); });
         }
-
-        return () => {
-            if (hls) hls.destroy();
-        };
+        return () => { if (hls) hls.destroy(); };
     }, [streamUrl]);
 
     if (!streamUrl) return <div className="text-white pt-20 text-center">No stream selected. <button onClick={() => navigate(-1)} className="text-[#00A8E1] ml-2 hover:underline">Go Back</button></div>;
@@ -896,42 +706,17 @@ const SportsPlayer = () => {
         <div className="fixed inset-0 bg-[#0f171e] z-[200] flex flex-col">
             <div className="absolute top-0 left-0 w-full h-24 bg-gradient-to-b from-black/80 to-transparent z-50 flex items-center px-6 justify-between pointer-events-none">
                 <div className="flex items-center gap-4 pointer-events-auto">
-                    <button onClick={() => navigate(-1)} className="w-12 h-12 rounded-full bg-black/40 hover:bg-[#00A8E1] backdrop-blur-md flex items-center justify-center text-white transition border border-white/10 group">
-                        <ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" />
-                    </button>
+                    <button onClick={() => navigate(-1)} className="w-12 h-12 rounded-full bg-black/40 hover:bg-[#00A8E1] backdrop-blur-md flex items-center justify-center text-white transition border border-white/10 group"><ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" /></button>
                     <div>
-                        <div className="flex items-center gap-3">
-                            {logo && <img src={logo} className="h-8 w-auto object-contain bg-white/10 rounded px-1" alt="" onError={(e) => e.target.style.display='none'} />}
-                            <h1 className="text-white font-bold text-xl leading-tight drop-shadow-md">{title || "Live Stream"}</h1>
-                        </div>
-                        <div className="flex items-center gap-2 mt-1">
-                            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_red]"></span>
-                            <span className="text-[#00A8E1] text-xs font-bold tracking-widest uppercase">{group || "LIVE BROADCAST"}</span>
-                        </div>
+                        <div className="flex items-center gap-3">{logo && <img src={logo} className="h-8 w-auto object-contain bg-white/10 rounded px-1" alt="" onError={(e) => e.target.style.display='none'} />}<h1 className="text-white font-bold text-xl leading-tight drop-shadow-md">{title || "Live Stream"}</h1></div>
+                        <div className="flex items-center gap-2 mt-1"><span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_red]"></span><span className="text-[#00A8E1] text-xs font-bold tracking-widest uppercase">{group || "LIVE BROADCAST"}</span></div>
                     </div>
                 </div>
-                <div className="pointer-events-auto">
-                    <button onClick={() => { setIsMuted(!isMuted); videoRef.current.muted = !isMuted; }} className="w-12 h-12 rounded-full bg-black/40 hover:bg-white/20 backdrop-blur-md flex items-center justify-center text-white transition border border-white/10 hover:shadow-[0_0_15px_rgba(255,255,255,0.2)]">
-                        {isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}
-                    </button>
-                </div>
+                <div className="pointer-events-auto"><button onClick={() => { setIsMuted(!isMuted); videoRef.current.muted = !isMuted; }} className="w-12 h-12 rounded-full bg-black/40 hover:bg-white/20 backdrop-blur-md flex items-center justify-center text-white transition border border-white/10 hover:shadow-[0_0_15px_rgba(255,255,255,0.2)]">{isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}</button></div>
             </div>
-
             <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden group">
-                <video 
-                    ref={videoRef} 
-                    className="w-full h-full object-contain" 
-                    controls 
-                    autoPlay
-                    playsInline
-                    preload="auto"
-                ></video>
-                
-                <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-black/90 to-transparent pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end px-8 pb-8">
-                    <div className="text-white/80 text-sm font-medium">
-                        Streaming via secure HLS protocol • {new Date().toLocaleTimeString()}
-                    </div>
-                </div>
+                <video ref={videoRef} className="w-full h-full object-contain" controls autoPlay playsInline preload="auto"></video>
+                <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-black/90 to-transparent pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end px-8 pb-8"><div className="text-white/80 text-sm font-medium">Streaming via secure HLS protocol • {new Date().toLocaleTimeString()}</div></div>
             </div>
         </div>
     );
@@ -943,11 +728,9 @@ const Hero = ({ isPrimeOnly }) => {
   const [trailerKey, setTrailerKey] = useState(null);
   const [showVideo, setShowVideo] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
-    
   const playTimeout = useRef(null);
   const stopTimeout = useRef(null);
   const isHovering = useRef(false);
-    
   const navigate = useNavigate();
   const theme = getTheme(isPrimeOnly);
 
@@ -955,130 +738,49 @@ const Hero = ({ isPrimeOnly }) => {
       const endpoint = isPrimeOnly 
         ? `/discover/movie?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc`
         : `/trending/all/day?api_key=${TMDB_API_KEY}`;
-      
-      fetch(`${BASE_URL}${endpoint}`)
-        .then(res => res.json())
-        .then(data => setMovies(data.results.slice(0, 5))); 
+      fetch(`${BASE_URL}${endpoint}`).then(res => res.json()).then(data => setMovies(data.results.slice(0, 5))); 
   }, [isPrimeOnly]);
 
   useEffect(() => {
       if (movies.length === 0) return;
-      
-      setShowVideo(false);
-      setTrailerKey(null);
-      clearTimeout(playTimeout.current);
-      clearTimeout(stopTimeout.current);
-
+      setShowVideo(false); setTrailerKey(null); clearTimeout(playTimeout.current); clearTimeout(stopTimeout.current);
       const movie = movies[currentSlide];
       const mediaType = movie.media_type || 'movie';
-
-      fetch(`${BASE_URL}/${mediaType}/${movie.id}/videos?api_key=${TMDB_API_KEY}`)
-        .then(res => res.json())
-        .then(data => {
+      fetch(`${BASE_URL}/${mediaType}/${movie.id}/videos?api_key=${TMDB_API_KEY}`).then(res => res.json()).then(data => {
             const trailer = data.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube') || data.results?.find(v => v.site === 'YouTube');
-            if (trailer) {
-                setTrailerKey(trailer.key);
-                if (isHovering.current) {
-                    playTimeout.current = setTimeout(() => setShowVideo(true), 4000);
-                }
-            }
-        });
+            if (trailer) { setTrailerKey(trailer.key); if (isHovering.current) { playTimeout.current = setTimeout(() => setShowVideo(true), 4000); } }
+      });
   }, [currentSlide, movies]);
 
-  const handleMouseEnter = () => {
-      isHovering.current = true;
-      clearTimeout(stopTimeout.current);
-      clearTimeout(playTimeout.current);
-      playTimeout.current = setTimeout(() => setShowVideo(true), 4000);
-  };
-
-  const handleMouseLeave = () => {
-      isHovering.current = false;
-      clearTimeout(playTimeout.current);
-      clearTimeout(stopTimeout.current);
-      stopTimeout.current = setTimeout(() => setShowVideo(false), 1000);
-  };
-
+  const handleMouseEnter = () => { isHovering.current = true; clearTimeout(stopTimeout.current); clearTimeout(playTimeout.current); playTimeout.current = setTimeout(() => setShowVideo(true), 4000); };
+  const handleMouseLeave = () => { isHovering.current = false; clearTimeout(playTimeout.current); clearTimeout(stopTimeout.current); stopTimeout.current = setTimeout(() => setShowVideo(false), 1000); };
   const nextSlide = () => setCurrentSlide((prev) => (prev + 1) % movies.length);
   const prevSlide = () => setCurrentSlide((prev) => (prev - 1 + movies.length) % movies.length);
 
   if (movies.length === 0) return <div className="h-[85vh] w-full bg-[#00050D]" />;
-
   const movie = movies[currentSlide];
 
   return (
-    <div 
-        className="relative w-full h-[85vh] overflow-hidden group"
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
-    >
-      <div className={`absolute inset-0 transition-opacity duration-700 ${showVideo ? 'opacity-0' : 'opacity-100'}`}>
-        <img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover" alt="" />
-      </div>
-
+    <div className="relative w-full h-[85vh] overflow-hidden group" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+      <div className={`absolute inset-0 transition-opacity duration-700 ${showVideo ? 'opacity-0' : 'opacity-100'}`}><img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover" alt="" /></div>
       {showVideo && trailerKey && (
-          <div className="absolute inset-0 animate-in pointer-events-none">
-             <iframe 
-                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`}
-                className="w-full h-full scale-[1.3]" 
-                allow="autoplay; encrypted-media"
-                frameBorder="0"
-                title="Hero Trailer"
-             ></iframe>
-          </div>
+          <div className="absolute inset-0 animate-in pointer-events-none"><iframe src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} className="w-full h-full scale-[1.3]" allow="autoplay; encrypted-media" frameBorder="0" title="Hero Trailer"></iframe></div>
       )}
-
-      <div className="absolute inset-0 bg-gradient-to-r from-[#00050D] via-[#00050D]/40 to-transparent" />
-      <div className="absolute inset-0 bg-gradient-to-t from-[#00050D] via-transparent to-transparent" />
-
+      <div className="absolute inset-0 bg-gradient-to-r from-[#00050D] via-[#00050D]/40 to-transparent" /><div className="absolute inset-0 bg-gradient-to-t from-[#00050D] via-transparent to-transparent" />
       <div className="absolute top-[25%] left-[4%] max-w-[600px] z-30 animate-row-enter">
-        <h1 className="text-5xl md:text-7xl font-extrabold text-white mb-4 drop-shadow-[0_4px_10px_rgba(0,0,0,0.8)] tracking-tight leading-tight">
-            {movie.title || movie.name}
-        </h1>
-        
-        <div className="flex items-center gap-3 text-[#a9b7c1] font-bold text-sm mb-6">
-           {isPrimeOnly && <span className={`${theme.color} tracking-wide`}>Included with Prime</span>}
-           <span className="bg-[#33373d]/80 text-white px-1.5 py-0.5 rounded text-xs border border-gray-600 backdrop-blur-md">UHD</span>
-           <span className="bg-[#33373d]/80 text-white px-1.5 py-0.5 rounded text-xs border border-gray-600 backdrop-blur-md">16+</span>
-        </div>
-        
+        <h1 className="text-5xl md:text-7xl font-extrabold text-white mb-4 drop-shadow-[0_4px_10px_rgba(0,0,0,0.8)] tracking-tight leading-tight">{movie.title || movie.name}</h1>
+        <div className="flex items-center gap-3 text-[#a9b7c1] font-bold text-sm mb-6">{isPrimeOnly && <span className={`${theme.color} tracking-wide`}>Included with Prime</span>}<span className="bg-[#33373d]/80 text-white px-1.5 py-0.5 rounded text-xs border border-gray-600 backdrop-blur-md">UHD</span><span className="bg-[#33373d]/80 text-white px-1.5 py-0.5 rounded text-xs border border-gray-600 backdrop-blur-md">16+</span></div>
         <p className="text-lg text-white font-medium line-clamp-3 mb-8 opacity-90 drop-shadow-md text-shadow-sm">{movie.overview}</p>
-        
         <div className="flex items-center gap-4">
-            <button onClick={() => navigate(`/watch/${movie.media_type || 'movie'}/${movie.id}`)} className={`${theme.bg} ${theme.hoverBg} text-white h-14 pl-8 pr-8 rounded-md font-bold text-lg flex items-center gap-3 transition transform hover:scale-105 ${theme.shadow}`}>
-                <Play fill="white" size={24} /> 
-                {isPrimeOnly ? "Play" : "Rent or Play"}
-            </button>
-            <button className="w-14 h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm group">
-                <Plus size={28} className="text-gray-200 group-hover:text-white" />
-            </button>
-            <button onClick={() => navigate(`/detail/${movie.media_type || 'movie'}/${movie.id}`)} className="w-14 h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm group">
-                <Info size={28} className="text-gray-200 group-hover:text-white" />
-            </button>
+            <button onClick={() => navigate(`/watch/${movie.media_type || 'movie'}/${movie.id}`)} className={`${theme.bg} ${theme.hoverBg} text-white h-14 pl-8 pr-8 rounded-md font-bold text-lg flex items-center gap-3 transition transform hover:scale-105 ${theme.shadow}`}><Play fill="white" size={24} /> {isPrimeOnly ? "Play" : "Rent or Play"}</button>
+            <button className="w-14 h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm group"><Plus size={28} className="text-gray-200 group-hover:text-white" /></button>
+            <button onClick={() => navigate(`/detail/${movie.media_type || 'movie'}/${movie.id}`)} className="w-14 h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm group"><Info size={28} className="text-gray-200 group-hover:text-white" /></button>
         </div>
       </div>
-
-      <div className="absolute top-32 right-[4%] z-40">
-          <button 
-            onClick={() => setIsMuted(!isMuted)} 
-            className="w-12 h-12 rounded-full border-2 border-white/20 bg-black/20 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/10 hover:border-white transition"
-          >
-              {isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}
-          </button>
-      </div>
-
-      <button onClick={prevSlide} className="absolute left-4 top-1/2 -translate-y-1/2 z-40 p-2 rounded-full bg-black/20 hover:bg-black/50 text-white/50 hover:text-white transition backdrop-blur-sm border border-transparent hover:border-white/30">
-          <ChevronLeft size={40} />
-      </button>
-      <button onClick={nextSlide} className="absolute right-4 top-1/2 -translate-y-1/2 z-40 p-2 rounded-full bg-black/20 hover:bg-black/50 text-white/50 hover:text-white transition backdrop-blur-sm border border-transparent hover:border-white/30">
-          <ChevronRight size={40} />
-      </button>
-
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-40">
-          {movies.map((_, idx) => (
-              <div key={idx} className={`w-2 h-2 rounded-full transition-all ${idx === currentSlide ? 'bg-white w-4' : 'bg-gray-500'}`} />
-          ))}
-      </div>
+      <div className="absolute top-32 right-[4%] z-40"><button onClick={() => setIsMuted(!isMuted)} className="w-12 h-12 rounded-full border-2 border-white/20 bg-black/20 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/10 hover:border-white transition">{isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}</button></div>
+      <button onClick={prevSlide} className="absolute left-4 top-1/2 -translate-y-1/2 z-40 p-2 rounded-full bg-black/20 hover:bg-black/50 text-white/50 hover:text-white transition backdrop-blur-sm border border-transparent hover:border-white/30"><ChevronLeft size={40} /></button>
+      <button onClick={nextSlide} className="absolute right-4 top-1/2 -translate-y-1/2 z-40 p-2 rounded-full bg-black/20 hover:bg-black/50 text-white/50 hover:text-white transition backdrop-blur-sm border border-transparent hover:border-white/30"><ChevronRight size={40} /></button>
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-40">{movies.map((_, idx) => (<div key={idx} className={`w-2 h-2 rounded-full transition-all ${idx === currentSlide ? 'bg-white w-4' : 'bg-gray-500'}`} />))}</div>
     </div>
   );
 };
@@ -1106,88 +808,21 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
   const duration = movie.media_type === 'tv' ? '1 Season' : '2h 15m';
 
   return (
-    <div 
-      className={`relative flex-shrink-0 ${baseWidth} ${aspectRatio} ${cardMargin} group transition-all duration-300`}
-      onMouseEnter={() => onHover(movie.id)}
-      onMouseLeave={onLeave}
-      onClick={() => navigate(`/detail/${type}/${id}`)}
-      style={{ zIndex: isHovered ? 100 : 10 }} 
-    >
+    <div className={`relative flex-shrink-0 ${baseWidth} ${aspectRatio} ${cardMargin} group transition-all duration-300`} onMouseEnter={() => onHover(movie.id)} onMouseLeave={onLeave} onClick={() => navigate(`/detail/${type}/${id}`)} style={{ zIndex: isHovered ? 100 : 10 }}>
       {variant === 'ranked' && <span className="rank-number animate-neon-pulse">{rank}</span>}
-      
-      <div 
-        className={`
-            relative w-full h-full rounded-xl overflow-hidden cursor-pointer bg-[#19222b] shadow-xl
-            transform transition-all duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1)
-            border border-white/5 ring-1 ring-white/5 glow-card
-            ${originClass}
-        `}
-        style={{
-            transform: isHovered ? 'scale(1.8)' : 'scale(1)',
-            boxShadow: isHovered ? '0 25px 50px rgba(0,0,0,0.8)' : '0 4px 6px rgba(0,0,0,0.1)',
-        }}
-      >
+      <div className={`relative w-full h-full rounded-xl overflow-hidden cursor-pointer bg-[#19222b] shadow-xl transform transition-all duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1) border border-white/5 ring-1 ring-white/5 glow-card ${originClass}`} style={{ transform: isHovered ? 'scale(1.8)' : 'scale(1)', boxShadow: isHovered ? '0 25px 50px rgba(0,0,0,0.8)' : '0 4px 6px rgba(0,0,0,0.1)' }}>
         <div className={`w-full h-full relative bg-black transition-transform duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1) ${isHovered ? 'scale-[1.02]' : 'scale-100'}`}>
             <img src={`${IMAGE_BASE_URL}${imageUrl}`} alt={movie.title} className="w-full h-full object-cover" loading="lazy" />
-            
-            {/* PROGRESS BAR */}
-            {percent > 0 && percent < 95 && (
-                <div className="absolute bottom-0 left-0 w-full h-1 bg-gray-700 z-20">
-                    <div className="h-full bg-[#00A8E1]" style={{ width: `${percent}%` }} />
-                </div>
-            )}
+            {percent > 0 && percent < 95 && (<div className="absolute bottom-0 left-0 w-full h-1 bg-gray-700 z-20"><div className="h-full bg-[#00A8E1]" style={{ width: `${percent}%` }} /></div>)}
         </div>
-
-        <div 
-            className={`
-                absolute inset-0 flex flex-col justify-end px-4 py-5 text-white
-                bg-gradient-to-t from-[#0f171e] via-[#0f171e]/95 to-transparent
-                transition-all duration-300 ease-out z-30
-                ${isHovered ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}
-            `}
-        >
-            <div className="mb-2 opacity-90">
-               <span className="text-[5px] font-black tracking-[0.2em] text-[#00A8E1] uppercase bg-[#00A8E1]/10 px-1 py-0.5 rounded-sm">Prime</span>
-            </div>
-
-            <h3 className="font-extrabold text-[10px] leading-[1.2] text-white drop-shadow-md line-clamp-2 mb-2 w-[90%]">
-                {movie.title || movie.name}
-            </h3>
-            
-            {/* RESUME TEXT */}
-            {percent > 0 && percent < 95 && (
-                <div className="text-[6px] text-[#00A8E1] font-bold mb-1">
-                   Resume {type === 'tv' && progressData.last_season_watched ? `S${progressData.last_season_watched} E${progressData.last_episode_watched}` : ''}
-                </div>
-            )}
-
-            <div className="flex items-center gap-2 mb-3">
-                <button className="bg-white hover:bg-[#d6d6d6] text-black text-[6px] font-bold h-6 px-3 rounded-[3px] transition-colors flex items-center justify-center gap-1 uppercase tracking-wider">
-                    <Play fill="black" size={6} /> Play
-                </button>
-                <button className="w-6 h-6 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white transition flex items-center justify-center">
-                    <Plus size={8} className="text-white" />
-                </button>
-            </div>
-
-            <div className="flex items-center gap-1.5 text-[6px] font-medium text-gray-300 mb-1">
-                <span className="text-[#46d369] font-bold">{rating} Match</span>
-                <span className="text-gray-600 text-[5px]">•</span>
-                <span className="text-white">{year}</span>
-                <span className="text-gray-600 text-[5px]">•</span>
-                <span>{duration}</span>
-                <span className="ml-auto border border-white/20 px-1 rounded-[2px] text-[5px] text-gray-400">U/A 13+</span>
-            </div>
-
-            <div className="flex items-center gap-1 mb-2 opacity-80">
-                <span className="bg-white/10 text-[4.5px] font-bold px-1 py-0.5 rounded-[2px] text-gray-200">4K UHD</span>
-                <span className="bg-white/10 text-[4.5px] font-bold px-1 py-0.5 rounded-[2px] text-gray-200">HDR10</span>
-                <span className="bg-white/10 text-[4.5px] font-bold px-1 py-0.5 rounded-[2px] text-gray-200">Dolby Atmos</span>
-            </div>
-
-            <p className="text-[5.5px] text-gray-400 line-clamp-2 leading-relaxed font-medium">
-                {movie.overview || "Stream this title now on Prime Video."}
-            </p>
+        <div className={`absolute inset-0 flex flex-col justify-end px-4 py-5 text-white bg-gradient-to-t from-[#0f171e] via-[#0f171e]/95 to-transparent transition-all duration-300 ease-out z-30 ${isHovered ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+            <div className="mb-2 opacity-90"><span className="text-[5px] font-black tracking-[0.2em] text-[#00A8E1] uppercase bg-[#00A8E1]/10 px-1 py-0.5 rounded-sm">Prime</span></div>
+            <h3 className="font-extrabold text-[10px] leading-[1.2] text-white drop-shadow-md line-clamp-2 mb-2 w-[90%]">{movie.title || movie.name}</h3>
+            {percent > 0 && percent < 95 && (<div className="text-[6px] text-[#00A8E1] font-bold mb-1">Resume {type === 'tv' && progressData.last_season_watched ? `S${progressData.last_season_watched} E${progressData.last_episode_watched}` : ''}</div>)}
+            <div className="flex items-center gap-2 mb-3"><button className="bg-white hover:bg-[#d6d6d6] text-black text-[6px] font-bold h-6 px-3 rounded-[3px] transition-colors flex items-center justify-center gap-1 uppercase tracking-wider"><Play fill="black" size={6} /> Play</button><button className="w-6 h-6 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white transition flex items-center justify-center"><Plus size={8} className="text-white" /></button></div>
+            <div className="flex items-center gap-1.5 text-[6px] font-medium text-gray-300 mb-1"><span className="text-[#46d369] font-bold">{rating} Match</span><span className="text-gray-600 text-[5px]">•</span><span className="text-white">{year}</span><span className="text-gray-600 text-[5px]">•</span><span>{duration}</span><span className="ml-auto border border-white/20 px-1 rounded-[2px] text-[5px] text-gray-400">U/A 13+</span></div>
+            <div className="flex items-center gap-1 mb-2 opacity-80"><span className="bg-white/10 text-[4.5px] font-bold px-1 py-0.5 rounded-[2px] text-gray-200">4K UHD</span><span className="bg-white/10 text-[4.5px] font-bold px-1 py-0.5 rounded-[2px] text-gray-200">HDR10</span><span className="bg-white/10 text-[4.5px] font-bold px-1 py-0.5 rounded-[2px] text-gray-200">Dolby Atmos</span></div>
+            <p className="text-[5.5px] text-gray-400 line-clamp-2 leading-relaxed font-medium">{movie.overview || "Stream this title now on Prime Video."}</p>
         </div>
       </div>
     </div>
@@ -1203,58 +838,25 @@ const Row = ({ title, fetchUrl, data = null, variant = 'standard', itemType = 'm
   const theme = getTheme(isPrimeOnly);
 
   useEffect(() => { 
-      if (data) {
-          setMovies(data);
-          return;
-      }
-      fetch(`${BASE_URL}${fetchUrl}`)
-        .then(res => res.json())
-        .then(data => {
-            const validResults = (data.results || []).filter(m => m.backdrop_path || m.poster_path);
-            setMovies(validResults);
-        })
-        .catch(err => console.error(err)); 
+      if (data) { setMovies(data); return; }
+      fetch(`${BASE_URL}${fetchUrl}`).then(res => res.json()).then(data => { const validResults = (data.results || []).filter(m => m.backdrop_path || m.poster_path); setMovies(validResults); }).catch(err => console.error(err)); 
   }, [fetchUrl, data]);
 
   const handleHover = (id) => { if (timeoutRef.current) clearTimeout(timeoutRef.current); timeoutRef.current = setTimeout(() => setHoveredId(id), 400); };
   const handleLeave = () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); setHoveredId(null); };
-
   const slideLeft = () => { if (rowRef.current) rowRef.current.scrollBy({ left: -800, behavior: 'smooth' }); };
   const slideRight = () => { if (rowRef.current) rowRef.current.scrollBy({ left: 800, behavior: 'smooth' }); };
-
   const displayMovies = variant === 'ranked' ? movies.slice(0, 10) : movies;
 
   return (
     <div className="mb-6 pl-4 md:pl-12 relative z-20 group/row animate-row-enter hover:z-30 transition-all duration-300">
-      <h3 className="text-[19px] font-bold text-white mb-2 flex items-center gap-2">
-          {variant === 'ranked' ? <span className={theme.color}>Top 10</span> : <span className={theme.color}>{theme.name}</span>} 
-          {title}
-          <ChevronRight size={18} className="text-[#8197a4] opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer"/>
-      </h3>
+      <h3 className="text-[19px] font-bold text-white mb-2 flex items-center gap-2">{variant === 'ranked' ? <span className={theme.color}>Top 10</span> : <span className={theme.color}>{theme.name}</span>} {title}<ChevronRight size={18} className="text-[#8197a4] opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer"/></h3>
       <div className="relative">
-          <button onClick={slideLeft} className="absolute left-0 top-[40%] -translate-y-1/2 z-[60] w-12 h-full bg-gradient-to-r from-black/80 to-transparent opacity-0 group-hover/row:opacity-100 transition-opacity duration-300 flex items-center justify-start pl-3 hover:w-16 cursor-pointer">
-             <ChevronLeft size={40} className="text-white hover:scale-125 transition-transform" />
-          </button>
+          <button onClick={slideLeft} className="absolute left-0 top-[40%] -translate-y-1/2 z-[60] w-12 h-full bg-gradient-to-r from-black/80 to-transparent opacity-0 group-hover/row:opacity-100 transition-opacity duration-300 flex items-center justify-start pl-3 hover:w-16 cursor-pointer"><ChevronLeft size={40} className="text-white hover:scale-125 transition-transform" /></button>
           <div ref={rowRef} className={`row-container ${variant === 'vertical' ? 'vertical' : ''} scrollbar-hide`}>
-            {displayMovies.map((movie, index) => ( 
-               <MovieCard 
-                   key={movie.id} 
-                   movie={movie} 
-                   variant={variant} 
-                   itemType={itemType} 
-                   rank={index + 1} 
-                   isHovered={hoveredId === movie.id} 
-                   onHover={handleHover} 
-                   onLeave={handleLeave} 
-                   isPrimeOnly={isPrimeOnly}
-                   isFirst={index === 0}
-                   isLast={index === displayMovies.length - 1}
-               /> 
-            ))}
+            {displayMovies.map((movie, index) => ( <MovieCard key={movie.id} movie={movie} variant={variant} itemType={itemType} rank={index + 1} isHovered={hoveredId === movie.id} onHover={handleHover} onLeave={handleLeave} isPrimeOnly={isPrimeOnly} isFirst={index === 0} isLast={index === displayMovies.length - 1} /> ))}
           </div>
-          <button onClick={slideRight} className="absolute right-0 top-[40%] -translate-y-1/2 z-[60] w-12 h-full bg-gradient-to-l from-black/80 to-transparent opacity-0 group-hover/row:opacity-100 transition-opacity duration-300 flex items-center justify-end pr-3 hover:w-16 cursor-pointer">
-             <ChevronRight size={40} className="text-white hover:scale-125 transition-transform" />
-          </button>
+          <button onClick={slideRight} className="absolute right-0 top-[40%] -translate-y-1/2 z-[60] w-12 h-full bg-gradient-to-l from-black/80 to-transparent opacity-0 group-hover/row:opacity-100 transition-opacity duration-300 flex items-center justify-end pr-3 hover:w-16 cursor-pointer"><ChevronRight size={40} className="text-white hover:scale-125 transition-transform" /></button>
       </div>
     </div>
   );
@@ -1269,30 +871,23 @@ const SearchResults = ({ isPrimeOnly }) => {
     
   useEffect(() => { 
       if (query) {
-          setLoading(true);
-          setMovies([]); 
-          fetch(`${BASE_URL}/search/multi?api_key=${TMDB_API_KEY}&query=${query}`)
-            .then(res => res.json())
-            .then(async (data) => {
+          setLoading(true); setMovies([]); 
+          fetch(`${BASE_URL}/search/multi?api_key=${TMDB_API_KEY}&query=${query}`).then(res => res.json()).then(async (data) => {
                 let results = data.results || [];
                 if (isPrimeOnly) {
                     const filteredResults = [];
                     for (const item of results) {
-                        const mediaType = item.media_type || 'movie'; 
-                        if (mediaType !== 'movie' && mediaType !== 'tv') continue;
+                        const mediaType = item.media_type || 'movie'; if (mediaType !== 'movie' && mediaType !== 'tv') continue;
                         try {
                             const providerRes = await fetch(`${BASE_URL}/${mediaType}/${item.id}/watch/providers?api_key=${TMDB_API_KEY}`);
                             const providerData = await providerRes.json();
                             const inProviders = providerData.results?.[PRIME_REGION]?.flatrate || [];
-                            const isOnPrime = inProviders.some(p => p.provider_id.toString() === "9" || p.provider_id.toString() === "119");
-                            if (isOnPrime) { filteredResults.push(item); }
+                            if (inProviders.some(p => p.provider_id.toString() === "9" || p.provider_id.toString() === "119")) { filteredResults.push(item); }
                             await new Promise(r => setTimeout(r, 50)); 
                         } catch (e) {}
                     }
                     setMovies(filteredResults);
-                } else {
-                    setMovies(results);
-                }
+                } else { setMovies(results); }
                 setLoading(false);
             });
       } 
@@ -1300,16 +895,9 @@ const SearchResults = ({ isPrimeOnly }) => {
 
   return (
     <div className="pt-28 px-8 min-h-screen">
-        <h2 className="text-white text-2xl mb-6 flex items-center gap-2">
-            Results for "{query}" 
-            {loading && <Loader className="animate-spin ml-2" size={20} />}
-        </h2>
+        <h2 className="text-white text-2xl mb-6 flex items-center gap-2">Results for "{query}" {loading && <Loader className="animate-spin ml-2" size={20} />}</h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            {movies.map(m => (m.poster_path && (
-                <div key={m.id} className="cursor-pointer" onClick={() => navigate(`/detail/${m.media_type || 'movie'}/${m.id}`)}>
-                    <img src={`${IMAGE_BASE_URL}${m.poster_path}`} className={`rounded-md hover:scale-105 transition-transform border-2 border-transparent hover:${theme.border}`} alt={m.title} />
-                </div>
-            )))}
+            {movies.map(m => (m.poster_path && (<div key={m.id} className="cursor-pointer" onClick={() => navigate(`/detail/${m.media_type || 'movie'}/${m.id}`)}><img src={`${IMAGE_BASE_URL}${m.poster_path}`} className={`rounded-md hover:scale-105 transition-transform border-2 border-transparent hover:${theme.border}`} alt={m.title} /></div>)))}
         </div>
     </div>
   ); 
@@ -1319,7 +907,6 @@ const SearchResults = ({ isPrimeOnly }) => {
 const MovieDetail = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
-  
   const [movie, setMovie] = useState(null);
   const [relatedMovies, setRelatedMovies] = useState([]);
   const [credits, setCredits] = useState(null);
@@ -1334,7 +921,6 @@ const MovieDetail = () => {
   useEffect(() => {
     setShowVideo(false); setTrailerKey(null); setIsMuted(true); setMovie(null); setRelatedMovies([]); setDownloadLinks([]); setShowDownloadModal(false);
     window.scrollTo(0, 0);
-
     fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}&language=en-US`).then(res => res.json()).then(data => setMovie(data)).catch(err => console.error(err));
     fetch(`${BASE_URL}/${type}/${id}/credits?api_key=${TMDB_API_KEY}`).then(res => res.json()).then(data => setCredits(data));
     fetch(`${BASE_URL}/${type}/${id}/videos?api_key=${TMDB_API_KEY}`).then(res => res.json()).then(data => {
@@ -1348,10 +934,8 @@ const MovieDetail = () => {
     setLoadingDownloads(true);
     try {
         const links = await get111477Downloads({ mediaItem: movie, mediaType: type });
-        if (links.length > 0) { setDownloadLinks(links); setShowDownloadModal(true); } 
-        else { alert("No download links found for this title."); }
-    } catch (e) { console.error("Download Error", e); alert("An error occurred while fetching links."); } 
-    finally { setLoadingDownloads(false); }
+        if (links.length > 0) { setDownloadLinks(links); setShowDownloadModal(true); } else { alert("No download links found for this title."); }
+    } catch (e) { console.error("Download Error", e); alert("An error occurred while fetching links."); } finally { setLoadingDownloads(false); }
   };
 
   if (!movie) return <div className="min-h-screen w-full bg-[#0f171e]" />;
@@ -1380,56 +964,23 @@ const MovieDetail = () => {
     <div className="min-h-screen bg-[#0f171e] text-white font-sans selection:bg-[#00A8E1] selection:text-white pb-20">
       <div className="relative w-full h-[85vh] overflow-hidden">
           <div className="absolute inset-0 w-full h-full">
-                <div className={`absolute inset-0 transition-opacity duration-1000 ${showVideo ? 'opacity-0' : 'opacity-100'}`}>
-                    <img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover object-top md:object-right-top" alt="" />
-                </div>
-                {showVideo && trailerKey && (
-                  <div className="absolute inset-0 animate-in fade-in duration-1000 pointer-events-none">
-                      <iframe 
-                        src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`}
-                        className="w-full h-full scale-[1.5] origin-center" 
-                        allow="autoplay; encrypted-media"
-                        frameBorder="0"
-                        title="Hero Background"
-                      />
-                  </div>
-                )}
+                <div className={`absolute inset-0 transition-opacity duration-1000 ${showVideo ? 'opacity-0' : 'opacity-100'}`}><img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover object-top md:object-right-top" alt="" /></div>
+                {showVideo && trailerKey && (<div className="absolute inset-0 animate-in fade-in duration-1000 pointer-events-none"><iframe src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} className="w-full h-full scale-[1.5] origin-center" allow="autoplay; encrypted-media" frameBorder="0" title="Hero Background" /></div>)}
           </div>
           <div className="absolute inset-0 bg-gradient-to-r from-[#0f171e] via-[#0f171e]/90 to-transparent w-[90%] md:w-[65%] z-10" />
           <div className="absolute inset-0 bg-gradient-to-t from-[#0f171e] via-transparent to-transparent z-10" />
-
           <div className="absolute inset-0 z-20 flex flex-col justify-center px-6 md:px-16 lg:px-24 max-w-3xl pt-20">
-              <div className="mb-4 opacity-0 animate-fade-in-up" style={{ animationDelay: '0ms' }}>
-                  <span className="text-[11px] font-black tracking-[0.2em] text-[#00A8E1] uppercase bg-[#00A8E1]/10 px-2 py-1 rounded">INCLUDED WITH PRIME</span>
-              </div>
-              <h1 className="text-4xl md:text-6xl lg:text-7xl font-extrabold mb-4 leading-[0.95] tracking-tight drop-shadow-2xl opacity-0 animate-fade-in-up" style={{ animationDelay: '100ms' }}>
-                  {movie.title || movie.name}
-              </h1>
-              <div className="flex items-center flex-wrap gap-3 text-sm font-medium text-gray-300 mb-8 opacity-0 animate-fade-in-up" style={{ animationDelay: '200ms' }}>
-                  <span className="text-[#00A8E1] font-bold">IMDb {rating}</span>
-                  <span>•</span><span>{runtime}</span><span>•</span><span>{year}</span>
-              </div>
+              <div className="mb-4 opacity-0 animate-fade-in-up" style={{ animationDelay: '0ms' }}><span className="text-[11px] font-black tracking-[0.2em] text-[#00A8E1] uppercase bg-[#00A8E1]/10 px-2 py-1 rounded">INCLUDED WITH PRIME</span></div>
+              <h1 className="text-4xl md:text-6xl lg:text-7xl font-extrabold mb-4 leading-[0.95] tracking-tight drop-shadow-2xl opacity-0 animate-fade-in-up" style={{ animationDelay: '100ms' }}>{movie.title || movie.name}</h1>
+              <div className="flex items-center flex-wrap gap-3 text-sm font-medium text-gray-300 mb-8 opacity-0 animate-fade-in-up" style={{ animationDelay: '200ms' }}><span className="text-[#00A8E1] font-bold">IMDb {rating}</span><span>•</span><span>{runtime}</span><span>•</span><span>{year}</span></div>
               <div className="flex items-center gap-4 mb-8 opacity-0 animate-fade-in-up" style={{ animationDelay: '300ms' }}>
-                  <button onClick={() => navigate(`/watch/${type}/${id}`)} className="h-14 px-8 rounded bg-white text-black font-bold text-lg hover:bg-gray-200 transition-transform transform hover:scale-105 flex items-center gap-3 shadow-[0_0_40px_rgba(255,255,255,0.2)]">
-                      <Play fill="black" size={24} /> 
-                      {playLabel}
-                  </button>
-                  <button onClick={handleDownload} disabled={loadingDownloads} className="h-14 px-6 rounded bg-[#2a333d]/60 border-2 border-[#4a5561] hover:border-white hover:bg-[#2a333d] flex items-center justify-center gap-2 transition text-gray-200 hover:text-white">
-                      {loadingDownloads ? <Loader className="animate-spin" size={24} /> : <Download size={24} />}
-                      <span className="font-bold">Download</span>
-                  </button>
-                  <div className="flex gap-3">
-                      <button className="w-12 h-12 rounded-full bg-[#2a333d]/60 border-2 border-[#4a5561] hover:border-white hover:bg-[#2a333d] flex items-center justify-center transition text-gray-200 hover:text-white"><Plus size={22} /></button>
-                      <button onClick={() => setIsMuted(!isMuted)} className="w-12 h-12 rounded-full bg-[#2a333d]/60 border-2 border-[#4a5561] hover:border-white hover:bg-[#2a333d] flex items-center justify-center transition text-gray-200 hover:text-white">{isMuted ? <VolumeX size={22}/> : <Volume2 size={22}/>}</button>
-                  </div>
+                  <button onClick={() => navigate(`/watch/${type}/${id}`)} className="h-14 px-8 rounded bg-white text-black font-bold text-lg hover:bg-gray-200 transition-transform transform hover:scale-105 flex items-center gap-3 shadow-[0_0_40px_rgba(255,255,255,0.2)]"><Play fill="black" size={24} /> {playLabel}</button>
+                  <button onClick={handleDownload} disabled={loadingDownloads} className="h-14 px-6 rounded bg-[#2a333d]/60 border-2 border-[#4a5561] hover:border-white hover:bg-[#2a333d] flex items-center justify-center gap-2 transition text-gray-200 hover:text-white">{loadingDownloads ? <Loader className="animate-spin" size={24} /> : <Download size={24} />}<span className="font-bold">Download</span></button>
+                  <div className="flex gap-3"><button className="w-12 h-12 rounded-full bg-[#2a333d]/60 border-2 border-[#4a5561] hover:border-white hover:bg-[#2a333d] flex items-center justify-center transition text-gray-200 hover:text-white"><Plus size={22} /></button><button onClick={() => setIsMuted(!isMuted)} className="w-12 h-12 rounded-full bg-[#2a333d]/60 border-2 border-[#4a5561] hover:border-white hover:bg-[#2a333d] flex items-center justify-center transition text-gray-200 hover:text-white">{isMuted ? <VolumeX size={22}/> : <Volume2 size={22}/>}</button></div>
               </div>
-              <div className="text-gray-300 text-lg leading-relaxed line-clamp-3 max-w-2xl opacity-0 animate-fade-in-up" style={{ animationDelay: '400ms' }}>
-                  {movie.overview}
-              </div>
+              <div className="text-gray-300 text-lg leading-relaxed line-clamp-3 max-w-2xl opacity-0 animate-fade-in-up" style={{ animationDelay: '400ms' }}>{movie.overview}</div>
           </div>
       </div>
-      
-      {/* RELATED MOVIES & DETAILS SECTIONS KEPT COMPACT */}
       <div className="relative z-30 -mt-24 px-6 md:px-16 mb-16">
           <h3 className="text-xl font-bold text-white mb-4 drop-shadow-md">Customers also watched</h3>
           {relatedMovies.length > 0 ? (
@@ -1442,7 +993,6 @@ const MovieDetail = () => {
               </div>
           ) : <div className="text-gray-500 italic text-sm py-4">No related titles found.</div>}
       </div>
-
       <div className="px-6 md:px-16 grid grid-cols-1 lg:grid-cols-3 gap-10">
           <div className="lg:col-span-2 space-y-8">
               <div className="bg-[#19222b] p-6 rounded-lg border border-white/5">
@@ -1453,14 +1003,10 @@ const MovieDetail = () => {
           </div>
           <div className="space-y-6">
               <div className="bg-[#19222b] p-6 rounded-lg border border-white/5">
-                   <div className="grid grid-cols-1 gap-4">
-                      <div><span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Director</span><span className="text-[#00A8E1]">{director}</span></div>
-                      <div><span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Starring</span><span className="text-[#00A8E1]">{cast}</span></div>
-                   </div>
+                   <div className="grid grid-cols-1 gap-4"><div><span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Director</span><span className="text-[#00A8E1]">{director}</span></div><div><span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Starring</span><span className="text-[#00A8E1]">{cast}</span></div></div>
               </div>
           </div>
       </div>
-
       {showDownloadModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
           <div className="bg-[#19222b] border border-white/10 rounded-2xl w-full max-w-md p-6 shadow-2xl relative animate-modal-pop">
@@ -1488,7 +1034,6 @@ const Player = () => {
   const location = useLocation();
   const queryParams = new URLSearchParams(location.search);
 
-  // 1. Initial State from Saved Progress
   const savedState = getMediaProgress(type, id) || {};
   const initialSeason = Number(queryParams.get('season')) || savedState.last_season_watched || 1;
   const initialEpisode = Number(queryParams.get('episode')) || savedState.last_episode_watched || 1;
@@ -1500,98 +1045,88 @@ const Player = () => {
   const [seasonData, setSeasonData] = useState(null);
   const [totalSeasons, setTotalSeasons] = useState(1);
 
-  // --- FETCH TV DATA ---
-  useEffect(() => {
-    if (type === 'tv') {
-        fetch(`${BASE_URL}/tv/${id}?api_key=${TMDB_API_KEY}`)
-          .then(res => res.json())
-          .then(data => { if(data.number_of_seasons) setTotalSeasons(data.number_of_seasons); });
-    }
-  }, [type, id]);
+  // FETCH TV DATA
+  useEffect(() => { if (type === 'tv') { fetch(`${BASE_URL}/tv/${id}?api_key=${TMDB_API_KEY}`).then(res => res.json()).then(data => { if(data.number_of_seasons) setTotalSeasons(data.number_of_seasons); }); } }, [type, id]);
+  useEffect(() => { if (type === 'tv') { fetch(`${BASE_URL}/tv/${id}/season/${season}?api_key=${TMDB_API_KEY}`).then(res => res.json()).then(data => setSeasonData(data)); } }, [type, id, season]);
 
+  // EVENT LISTENER FOR VIDFAST
   useEffect(() => {
-    if (type === 'tv') {
-        fetch(`${BASE_URL}/tv/${id}/season/${season}?api_key=${TMDB_API_KEY}`)
-          .then(res => res.json())
-          .then(data => setSeasonData(data));
-    }
-  }, [type, id, season]);
+    // PRE-FETCH METADATA to ensure Home screen has image/title immediately upon playing
+    const prefetchMeta = async () => {
+        try {
+            const res = await fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}`);
+            const data = await res.json();
+            const storageKey = `${type === 'tv' ? 't' : 'm'}${id}`;
+            const allProgress = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
+            // Only update if it doesn't exist to avoid overwriting progress
+            if (!allProgress[storageKey]) {
+                allProgress[storageKey] = {
+                    id: parseInt(id),
+                    type: type,
+                    title: data.title || data.name,
+                    poster_path: data.poster_path,
+                    backdrop_path: data.backdrop_path,
+                    vote_average: data.vote_average,
+                    progress: { watched: 0, duration: 0 },
+                    last_updated: Date.now() // Initialize so it appears at top
+                };
+                localStorage.setItem('vidFastProgress', JSON.stringify(allProgress));
+            }
+        } catch(e) {}
+    };
+    prefetchMeta();
 
-
-  // --- 2. EVENT LISTENER FOR VIDFAST ---
-  useEffect(() => {
     const handleVidFastEvent = ({ origin, data }) => {
-        // Security Check
         if (!VIDFAST_ORIGINS.includes(origin) || !data) return;
-
-        // Handle PLAYER_EVENT (Time Updates)
         if (data.type === 'PLAYER_EVENT') {
             const { event, currentTime, duration, mediaType, tmdbId, season: evtSeason, episode: evtEpisode } = data.data;
-            
             if (event === 'timeupdate' || event === 'pause') {
-                // Construct the Storage Object
                 const storageKey = `${mediaType === 'tv' ? 't' : 'm'}${tmdbId}`;
                 const allProgress = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
+                const currentEntry = allProgress[storageKey] || { id: tmdbId, type: mediaType, progress: {}, last_updated: Date.now() };
                 
-                const currentEntry = allProgress[storageKey] || {
-                    id: tmdbId,
-                    type: mediaType,
-                    // We might not have title here if the player doesn't send it, 
-                    // but we can update it from our API fetch if needed.
-                    progress: {},
-                    last_updated: Date.now()
-                };
-
-                // Update basic progress
-                currentEntry.progress = { watched: currentTime, duration: duration };
+                // CRITICAL: Always update last_updated so sorting works
                 currentEntry.last_updated = Date.now();
+                currentEntry.progress = { watched: currentTime, duration: duration };
 
-                // Update TV specific logic
                 if (mediaType === 'tv') {
                     currentEntry.last_season_watched = evtSeason || season;
                     currentEntry.last_episode_watched = evtEpisode || episode;
-                    
                     if (!currentEntry.show_progress) currentEntry.show_progress = {};
                     const epKey = `s${evtSeason || season}e${evtEpisode || episode}`;
-                    currentEntry.show_progress[epKey] = {
-                        season: evtSeason || season,
-                        episode: evtEpisode || episode,
-                        progress: { watched: currentTime, duration: duration },
-                        last_updated: Date.now()
-                    };
+                    currentEntry.show_progress[epKey] = { season: evtSeason || season, episode: evtEpisode || episode, progress: { watched: currentTime, duration: duration }, last_updated: Date.now() };
                 }
-
-                // Save to LocalStorage
                 allProgress[storageKey] = currentEntry;
                 localStorage.setItem('vidFastProgress', JSON.stringify(allProgress));
             }
         }
     };
-
     window.addEventListener('message', handleVidFastEvent);
     return () => window.removeEventListener('message', handleVidFastEvent);
-  }, [season, episode]); // Re-bind if season/episode state changes locally
+  }, [season, episode, type, id]); 
 
-
-  // --- 3. URL GENERATOR (With startAt) ---
+  // URL GENERATOR (With startAt & Rewind)
   const getSourceUrl = () => {
     const isVidFast = activeServer === 'vidfast';
     
-    // Calculate Start Time
+    // Calculate Start Time (Precision Resume)
     let startParams = "";
     if (isVidFast) {
-        // Check if we have progress for this SPECIFIC episode/movie
+        // Read fresh data directly from storage
+        const currentProgress = getMediaProgress(type, id);
         let startTime = 0;
-        if (type === 'movie' && savedState.progress?.watched) {
-            startTime = savedState.progress.watched;
-        } else if (type === 'tv' && savedState.show_progress) {
+
+        if (type === 'movie' && currentProgress?.progress?.watched) {
+            startTime = currentProgress.progress.watched;
+        } else if (type === 'tv' && currentProgress?.show_progress) {
             const epKey = `s${season}e${episode}`;
-            if (savedState.show_progress[epKey]?.progress?.watched) {
-                startTime = savedState.show_progress[epKey].progress.watched;
+            // Check if specific episode progress exists
+            if (currentProgress.show_progress[epKey]?.progress?.watched) {
+                startTime = currentProgress.show_progress[epKey].progress.watched;
             }
         }
         
-        // Only resume if > 5 seconds and not finished
+        // Resume only if watched > 5 seconds and strictly strictly use Math.floor
         if (startTime > 5) {
              startParams = `&startAt=${Math.floor(startTime)}`;
         }
@@ -1612,90 +1147,27 @@ const Player = () => {
         }
     }
   };
-
   return (
     <div className="fixed inset-0 bg-black z-[100] overflow-hidden flex flex-col" style={{ transform: 'translateZ(0)' }}>
-      {/* 1. TOP CONTROLS LAYER */}
       <div className="absolute top-0 left-0 w-full h-20 pointer-events-none z-[120] flex items-center justify-between px-6">
-          <button 
-            onClick={() => navigate(-1)} 
-            className="pointer-events-auto bg-black/50 hover:bg-[#00A8E1] text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all shadow-lg group"
-          >
-            <ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" />
-          </button>
-
+          <button onClick={() => navigate(-1)} className="pointer-events-auto bg-black/50 hover:bg-[#00A8E1] text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all shadow-lg group"><ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" /></button>
           <div className="pointer-events-auto flex flex-col items-center gap-1 bg-black/60 backdrop-blur-md border border-white/10 p-1.5 rounded-xl shadow-2xl transform translate-y-2">
-               <div className="flex bg-[#19222b] rounded-lg p-1">
-                   <button 
-                     onClick={() => setActiveServer('vidfast')}
-                     className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'vidfast' ? 'bg-[#00A8E1] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
-                   >
-                       VidFast (Resumes)
-                   </button>
-                   <button 
-                     onClick={() => setActiveServer('zxcstream')}
-                     className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'zxcstream' ? 'bg-[#00A8E1] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
-                   >
-                       Multi-Audio
-                   </button>
-               </div>
-               {activeServer === 'zxcstream' && (
-                   <div className="text-[10px] text-[#00A8E1] font-bold animate-pulse">
-                       Resume not supported on this server
-                   </div>
-               )}
+               <div className="flex bg-[#19222b] rounded-lg p-1"><button onClick={() => setActiveServer('vidfast')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'vidfast' ? 'bg-[#00A8E1] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}>VidFast (Resumes)</button><button onClick={() => setActiveServer('zxcstream')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'zxcstream' ? 'bg-[#00A8E1] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}>Multi-Audio</button></div>
+               {activeServer === 'zxcstream' && (<div className="text-[10px] text-[#00A8E1] font-bold animate-pulse">Resume not supported on this server</div>)}
           </div>
-
-          {activeServer === 'vidfast' && type === 'tv' ? (
-              <button 
-                onClick={() => setShowEpisodes(!showEpisodes)} 
-                className={`pointer-events-auto p-3 rounded-full backdrop-blur-md border border-white/10 transition-all ${showEpisodes ? 'bg-[#00A8E1] text-white' : 'bg-black/50 hover:bg-[#333c46] text-gray-200'}`}
-              >
-                  <List size={24} />
-              </button>
-          ) : (
-              <div className="w-12"></div>
-          )}
+          {activeServer === 'vidfast' && type === 'tv' ? (<button onClick={() => setShowEpisodes(!showEpisodes)} className={`pointer-events-auto p-3 rounded-full backdrop-blur-md border border-white/10 transition-all ${showEpisodes ? 'bg-[#00A8E1] text-white' : 'bg-black/50 hover:bg-[#333c46] text-gray-200'}`}><List size={24} /></button>) : (<div className="w-12"></div>)}
       </div>
-
-      {/* 2. PLAYER FRAME */}
       <div className="flex-1 relative w-full h-full bg-black">
-        <iframe
-          key={activeServer + season + episode}
-          src={getSourceUrl()}
-          className="w-full h-full border-none"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
-          loading="eager" 
-          fetchPriority="high"
-          referrerPolicy="origin"
-          allowFullScreen
-          title="Player"
-        ></iframe>
+        <iframe key={activeServer + season + episode} src={getSourceUrl()} className="w-full h-full border-none" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen" loading="eager" fetchPriority="high" referrerPolicy="origin" allowFullScreen title="Player"></iframe>
       </div>
-
-      {/* 3. EPISODE SIDEBAR */}
       {activeServer === 'vidfast' && type === 'tv' && (
         <div className={`fixed right-0 top-0 h-full bg-[#00050D]/95 backdrop-blur-xl border-l border-white/10 transition-all duration-500 ease-in-out z-[110] flex flex-col ${showEpisodes ? 'w-[350px] translate-x-0 shadow-2xl' : 'w-[350px] translate-x-full shadow-none'}`}>
-            <div className="pt-24 px-6 pb-4 border-b border-white/10 flex items-center justify-between bg-[#1a242f]/50">
-                <h2 className="font-bold text-white text-lg">Episodes</h2>
-                <div className="relative">
-                    <select value={season} onChange={(e) => setSeason(Number(e.target.value))} className="appearance-none bg-[#00A8E1] text-white font-bold py-1.5 pl-3 pr-8 rounded cursor-pointer text-sm outline-none hover:bg-[#008ebf] transition">
-                        {Array.from({length: totalSeasons}, (_, i) => i + 1).map(s => (<option key={s} value={s} className="bg-[#1a242f]">Season {s}</option>))}
-                    </select>
-                    <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-white pointer-events-none" />
-                </div>
-            </div>
+            <div className="pt-24 px-6 pb-4 border-b border-white/10 flex items-center justify-between bg-[#1a242f]/50"><h2 className="font-bold text-white text-lg">Episodes</h2><div className="relative"><select value={season} onChange={(e) => setSeason(Number(e.target.value))} className="appearance-none bg-[#00A8E1] text-white font-bold py-1.5 pl-3 pr-8 rounded cursor-pointer text-sm outline-none hover:bg-[#008ebf] transition">{Array.from({length: totalSeasons}, (_, i) => i + 1).map(s => (<option key={s} value={s} className="bg-[#1a242f]">Season {s}</option>))}</select><ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-white pointer-events-none" /></div></div>
             <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-hide">
                 {seasonData?.episodes ? (seasonData.episodes.map(ep => (
                         <div key={ep.id} onClick={() => setEpisode(ep.episode_number)} className={`flex gap-3 p-2 rounded-lg cursor-pointer transition-all group ${episode === ep.episode_number ? 'bg-[#333c46] border border-[#00A8E1]' : 'hover:bg-[#333c46] border border-transparent'}`}>
-                            <div className="relative w-28 h-16 flex-shrink-0 bg-black rounded overflow-hidden">
-                                {ep.still_path ? (<img src={`${IMAGE_BASE_URL}${ep.still_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" />) : (<div className="w-full h-full flex items-center justify-center text-gray-600 text-xs">No Img</div>)}
-                                {episode === ep.episode_number && (<div className="absolute inset-0 bg-black/40 flex items-center justify-center"><Play size={16} fill="white" className="text-white" /></div>)}
-                            </div>
-                            <div className="flex flex-col justify-center min-w-0">
-                                <span className={`text-xs font-bold mb-0.5 ${episode === ep.episode_number ? 'text-[#00A8E1]' : 'text-gray-400'}`}>Episode {ep.episode_number}</span>
-                                <h4 className={`text-sm font-medium truncate leading-tight ${episode === ep.episode_number ? 'text-white' : 'text-gray-300 group-hover:text-white'}`}>{ep.name}</h4>
-                            </div>
+                            <div className="relative w-28 h-16 flex-shrink-0 bg-black rounded overflow-hidden">{ep.still_path ? (<img src={`${IMAGE_BASE_URL}${ep.still_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" />) : (<div className="w-full h-full flex items-center justify-center text-gray-600 text-xs">No Img</div>)}{episode === ep.episode_number && (<div className="absolute inset-0 bg-black/40 flex items-center justify-center"><Play size={16} fill="white" className="text-white" /></div>)}</div>
+                            <div className="flex flex-col justify-center min-w-0"><span className={`text-xs font-bold mb-0.5 ${episode === ep.episode_number ? 'text-[#00A8E1]' : 'text-gray-400'}`}>Episode {ep.episode_number}</span><h4 className={`text-sm font-medium truncate leading-tight ${episode === ep.episode_number ? 'text-white' : 'text-gray-300 group-hover:text-white'}`}>{ep.name}</h4></div>
                         </div>
                 ))) : (<div className="text-center text-gray-500 mt-10 flex flex-col items-center"><Loader className="animate-spin mb-2" /><span>Loading Season {season}...</span></div>)}
             </div>
@@ -1711,24 +1183,26 @@ const Home = ({ isPrimeOnly }) => {
   const [history, setHistory] = useState([]);
 
   useEffect(() => {
-      // READ FROM NEW 'vidFastProgress' KEY
+      // READ FROM 'vidFastProgress'
       const rawProgress = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
       
-      // Convert Dictionary to Array & Sort by last_updated
+      // Convert Dictionary to Array & STRICT SORT by 'last_updated'
       const historyArray = Object.values(rawProgress)
-          .sort((a, b) => b.last_updated - a.last_updated)
+          .filter(item => item && item.last_updated) // Filter out broken entries
+          .sort((a, b) => b.last_updated - a.last_updated) // Latest first
           .map(item => ({
               ...item,
-              poster_path: item.poster_path, // Ensure these fields exist if saved
+              id: item.id,
+              poster_path: item.poster_path, 
               backdrop_path: item.backdrop_path,
               media_type: item.type,
               vote_average: item.vote_average
           }));
       
       // OPTIONAL: Fetch missing details if they weren't saved by the player
-      // (This loop enhances the display if local data is sparse)
       const enrichHistory = async () => {
          const enriched = await Promise.all(historyArray.map(async (h) => {
+             // If we don't have an image, fetch it from TMDB
              if(!h.poster_path) {
                  try {
                      const res = await fetch(`${BASE_URL}/${h.type}/${h.id}?api_key=${TMDB_API_KEY}`);
@@ -1741,34 +1215,21 @@ const Home = ({ isPrimeOnly }) => {
          setHistory(enriched);
       };
       
-      if(historyArray.length > 0) enrichHistory();
+      if(historyArray.length > 0) {
+          enrichHistory();
+      } else {
+          setHistory([]);
+      }
 
   }, []);
-
   return (
     <>
       <Hero isPrimeOnly={isPrimeOnly} />
       <div className="-mt-10 relative z-20 pb-20">
         {history.length > 0 && (
-            <Row 
-                key="continue_watching" 
-                title="Continue Watching" 
-                data={history} 
-                variant="standard" 
-                itemType="history" 
-                isPrimeOnly={isPrimeOnly} 
-            />
+            <Row key="continue_watching" title="Continue Watching" data={history} variant="standard" itemType="history" isPrimeOnly={isPrimeOnly} />
         )}
-        {rows.map(row => (
-            <Row 
-                key={row.id} 
-                title={row.title} 
-                fetchUrl={row.fetchUrl} 
-                variant={row.variant} 
-                itemType={row.itemType} 
-                isPrimeOnly={isPrimeOnly} 
-            />
-        ))}
+        {rows.map(row => ( <Row key={row.id} title={row.title} fetchUrl={row.fetchUrl} variant={row.variant} itemType={row.itemType} isPrimeOnly={isPrimeOnly} /> ))}
         <InfiniteScrollTrigger onIntersect={loadMore} />
       </div>
     </>
@@ -1781,7 +1242,6 @@ const StorePage = () => <div className="pt-32 px-12 text-white">Store</div>;
 
 function App() {
   useConnectionOptimizer(); 
-
   return (
     <BrowserRouter>
       <GlobalStyles />
@@ -1792,15 +1252,12 @@ function App() {
           <Route path="/movies" element={<><Navbar isPrimeOnly={true} /><MoviesPage isPrimeOnly={true} /></>} />
           <Route path="/tv" element={<><Navbar isPrimeOnly={true} /><TVPage isPrimeOnly={true} /></>} />
           <Route path="/search" element={<><Navbar isPrimeOnly={true} /><SearchResults isPrimeOnly={true} /></>} />
-          
           <Route path="/everything" element={<><Navbar isPrimeOnly={false} /><Home isPrimeOnly={false} /></>} />
           <Route path="/everything/movies" element={<><Navbar isPrimeOnly={false} /><MoviesPage isPrimeOnly={false} /></>} />
           <Route path="/everything/tv" element={<><Navbar isPrimeOnly={false} /><TVPage isPrimeOnly={false} /></>} />
           <Route path="/everything/search" element={<><Navbar isPrimeOnly={false} /><SearchResults isPrimeOnly={false} /></>} />
-
           <Route path="/detail/:type/:id" element={<><Navbar isPrimeOnly={true} /><MovieDetail /></>} />
           <Route path="/watch/:type/:id" element={<Player />} />
-
           <Route path="/sports" element={<><Navbar isPrimeOnly={true} /><SportsPage /></>} />
           <Route path="/watch/sport/iptv" element={<SportsPlayer />} />
           <Route path="/live" element={<><Navbar isPrimeOnly={true} /><SportsPage /></>} />
