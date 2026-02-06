@@ -464,6 +464,7 @@ const Navbar = ({ isPrimeOnly }) => {
 };
 
 // --- SPORTS / LIVE TV COMPONENTS ---
+// --- SPORTS / LIVE TV COMPONENTS ---
 const SportsPage = () => {
     const [channels, setChannels] = useState([]);
     const [displayedChannels, setDisplayedChannels] = useState([]);
@@ -473,19 +474,23 @@ const SportsPage = () => {
         'News': ['News', 'News (International)', 'News (National)', 'News (Regional)', 'Business News', 'Political News'],
         'Sports': ['Sports', 'Live Sports', 'Cricket', 'Football (Soccer)', 'Basketball', 'Tennis', 'Motorsports', 'Wrestling (WWE / AEW / UFC)', 'Sports Events (PPV)']
     };
+
     const [activeMainCategory, setActiveMainCategory] = useState('All');
     const [activeSubCategory, setActiveSubCategory] = useState('All');
+    
     const [searchQuery, setSearchQuery] = useState("");
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 60;
     const navigate = useNavigate();
+
     const PLAYLIST_URL = 'https://iptv-org.github.io/iptv/index.m3u';
     
     const normalizeCategory = (groupName) => {
         if (!groupName) return 'Entertainment';
         const lower = groupName.toLowerCase();
+        
         if (lower.includes('cricket')) return 'Cricket';
         if (lower.includes('football') || lower.includes('soccer') || lower.includes('premier league') || lower.includes('laliga') || lower.includes('bundesliga')) return 'Football (Soccer)';
         if (lower.includes('basket') || lower.includes('nba')) return 'Basketball';
@@ -494,16 +499,19 @@ const SportsPage = () => {
         if (lower.includes('wwe') || lower.includes('ufc') || lower.includes('wrestling') || lower.includes('boxing') || lower.includes('fight') || lower.includes('aew') || lower.includes('mma')) return 'Wrestling (WWE / AEW / UFC)';
         if (lower.includes('ppv') || lower.includes('event')) return 'Sports Events (PPV)';
         if (lower.includes('sport')) return 'Live Sports';
+
         if (lower.includes('business') || lower.includes('finance') || lower.includes('market') || lower.includes('bloomberg') || lower.includes('cnbc')) return 'Business News';
         if (lower.includes('politics') || lower.includes('parliament') || lower.includes('c-span')) return 'Political News';
         if (lower.includes('international') || lower.includes('world') || lower.includes('global') || lower.includes('cnn') || lower.includes('bbc') || lower.includes('al jazeera')) return 'News (International)';
         if (lower.includes('national')) return 'News (National)';
         if (lower.includes('regional') || lower.includes('local')) return 'News (Regional)';
         if (lower.includes('news')) return 'News'; 
+
         if (lower.includes('music') || lower.includes('hits') || lower.includes('mtv') || lower.includes('vh1')) return 'Music';
         if (lower.includes('comedy') || lower.includes('funny') || lower.includes('standup')) return 'Comedy';
         if (lower.includes('lifestyle') || lower.includes('fashion') || lower.includes('travel') || lower.includes('food') || lower.includes('cooking') || lower.includes('tlc')) return 'Lifestyle';
         if (lower.includes('gec') || lower.includes('sony') || lower.includes('star') || lower.includes('colors') || lower.includes('zee') || lower.includes('hbo') || lower.includes('amc')) return 'GEC (General Entertainment Channels)';
+        
         return 'Entertainment'; 
     };
 
@@ -515,69 +523,135 @@ const SportsPage = () => {
     };
 
     useEffect(() => {
-        setLoading(true); setError(null);
+        setLoading(true);
+        setError(null);
+
         fetch(PLAYLIST_URL)
-            .then(res => { if (!res.ok) throw new Error("Failed to load playlist"); return res.text(); })
+            .then(res => {
+                if (!res.ok) throw new Error("Failed to load playlist");
+                return res.text();
+            })
             .then(data => {
                 const lines = data.split('\n');
                 const parsed = [];
                 let current = {};
+
                 for (let i = 0; i < lines.length; i++) {
                     let line = lines[i].trim();
+                    
                     if (line.startsWith('#EXTINF:')) {
                         const logoMatch = line.match(/tvg-logo="([^"]*)"/);
                         const groupMatch = line.match(/group-title="([^"]*)"/);
                         const name = line.split(',').pop().trim();
                         const rawGroup = groupMatch ? groupMatch[1].trim() : 'Uncategorized';
                         const normalizedGroup = normalizeCategory(rawGroup);
-                        current = { name, logo: logoMatch ? logoMatch[1] : null, group: normalizedGroup, parentGroup: getParentCategory(normalizedGroup) };
+
+                        current = { 
+                            name, 
+                            logo: logoMatch ? logoMatch[1] : null, 
+                            group: normalizedGroup,
+                            parentGroup: getParentCategory(normalizedGroup)
+                        };
                     } else if (line.startsWith('http') && current.name) {
                         current.url = line;
                         parsed.push(current);
                         current = {}; 
                     }
                 }
-                if (parsed.length === 0) { throw new Error("No channels found in playlist."); }
+
+                if (parsed.length === 0) {
+                    throw new Error("No channels found in playlist.");
+                }
+                
                 setChannels(parsed);
                 setLoading(false);
             })
-            .catch(e => { console.error("Playlist Error:", e); setError("Unable to load live channels."); setLoading(false); });
+            .catch(e => {
+                console.error("Playlist Error:", e);
+                setError("Unable to load live channels. The feed might be down.");
+                setLoading(false);
+            });
     }, []);
 
+    // Filter Logic
     useEffect(() => {
         let filtered = channels;
-        if (activeMainCategory !== 'All') filtered = filtered.filter(c => c.parentGroup === activeMainCategory);
-        if (activeSubCategory !== 'All') filtered = filtered.filter(c => c.group === activeSubCategory);
-        if (searchQuery.trim()) { const lowerQ = searchQuery.toLowerCase(); filtered = filtered.filter(c => c.name.toLowerCase().includes(lowerQ)); }
+
+        if (activeMainCategory !== 'All') {
+            filtered = filtered.filter(c => c.parentGroup === activeMainCategory);
+        }
+
+        if (activeSubCategory !== 'All') {
+            filtered = filtered.filter(c => c.group === activeSubCategory);
+        }
+
+        if (searchQuery.trim()) {
+            const lowerQ = searchQuery.toLowerCase();
+            filtered = filtered.filter(c => c.name.toLowerCase().includes(lowerQ));
+        }
+        
         const startIndex = (currentPage - 1) * itemsPerPage;
         const endIndex = startIndex + itemsPerPage;
+        
         setDisplayedChannels(filtered.slice(startIndex, endIndex));
     }, [activeMainCategory, activeSubCategory, searchQuery, channels, currentPage]);
 
-    useEffect(() => { setCurrentPage(1); }, [activeMainCategory, activeSubCategory, searchQuery]);
+    // Reset Page on Filter Change
     useEffect(() => {
-        const handleKeyDown = (e) => { if (e.key === 'ArrowRight') setCurrentPage(p => p + 1); else if (e.key === 'ArrowLeft') setCurrentPage(p => Math.max(1, p - 1)); };
+        setCurrentPage(1);
+    }, [activeMainCategory, activeSubCategory, searchQuery]);
+
+    // --- 1. CALCULATE TOTAL PAGES (MOVED UP) ---
+    // We calculate this here so the keyboard listener knows the limit
+    const totalPages = Math.ceil(
+        (activeMainCategory === 'All' && activeSubCategory === 'All' && !searchQuery 
+            ? channels.length 
+            : channels.filter(c => {
+                const matchMain = activeMainCategory === 'All' || c.parentGroup === activeMainCategory;
+                const matchSub = activeSubCategory === 'All' || c.group === activeSubCategory;
+                const matchSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase());
+                return matchMain && matchSub && matchSearch;
+              }).length
+        ) / itemsPerPage
+    );
+
+    // --- 2. KEYBOARD NAVIGATION (FIXED) ---
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            // Prevent page change if typing in search box
+            if (document.activeElement.tagName === 'INPUT') return;
+
+            if (e.key === 'ArrowRight') {
+                // Fix: Ensure we don't go past the last page
+                setCurrentPage(p => Math.min(p + 1, totalPages));
+            } else if (e.key === 'ArrowLeft') {
+                setCurrentPage(p => Math.max(1, p - 1));
+            }
+        };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, []);
-    
-    const totalPages = Math.ceil((activeMainCategory === 'All' && activeSubCategory === 'All' && !searchQuery ? channels.length : channels.filter(c => {
-        const matchMain = activeMainCategory === 'All' || c.parentGroup === activeMainCategory;
-        const matchSub = activeSubCategory === 'All' || c.group === activeSubCategory;
-        const matchSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase());
-        return matchMain && matchSub && matchSearch;
-    }).length) / itemsPerPage);
+    }, [totalPages]); // Fix: Re-run effect when totalPages changes
 
     return (
         <div className="pt-24 px-4 md:px-12 min-h-screen pb-20">
             <div className="flex flex-col md:flex-row justify-between items-end gap-6 mb-8">
                 <div>
-                    <h2 className="text-3xl font-bold text-white flex items-center gap-2 glow-text"><Monitor className="text-[#00A8E1]" /> Live TV</h2>
-                    <p className="text-gray-400 text-sm mt-1">{loading ? "Scanning frequencies..." : `${channels.length} Channels Available`}</p>
+                    <h2 className="text-3xl font-bold text-white flex items-center gap-2 glow-text">
+                        <Monitor className="text-[#00A8E1]" /> Live TV
+                    </h2>
+                    <p className="text-gray-400 text-sm mt-1">
+                        {loading ? "Scanning frequencies..." : `${channels.length} Channels Available`}
+                    </p>
                 </div>
                 <div className="flex w-full md:w-auto gap-2">
                     <div className="relative flex-1 md:w-80">
-                        <input type="text" placeholder="Find channel..." className="w-full bg-[#19222b] border border-white/10 rounded-lg px-4 py-3 pl-10 text-white focus:border-[#00A8E1] outline-none font-medium transition-all duration-300 focus:shadow-[0_0_15px_rgba(0,168,225,0.4)]" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+                        <input 
+                            type="text" 
+                            placeholder="Find channel..." 
+                            className="w-full bg-[#19222b] border border-white/10 rounded-lg px-4 py-3 pl-10 text-white focus:border-[#00A8E1] outline-none font-medium transition-all duration-300 focus:shadow-[0_0_15px_rgba(0,168,225,0.4)]"
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                        />
                         <Search className="absolute left-3 top-3.5 text-gray-500" size={18} />
                         {searchQuery && <X onClick={() => setSearchQuery('')} className="absolute right-3 top-3.5 text-gray-400 cursor-pointer hover:text-white" size={18} />}
                     </div>
@@ -588,17 +662,43 @@ const SportsPage = () => {
                 <div className="flex flex-col gap-4 mb-8">
                     <div className="flex items-center gap-3 overflow-x-auto scrollbar-hide pb-2 px-2">
                         {['All', ...Object.keys(CATEGORIES_TREE).filter(k => k !== 'All')].map(cat => (
-                            <button key={cat} onClick={() => { setActiveMainCategory(cat); setActiveSubCategory('All'); }} className={`px-6 py-2.5 rounded-lg font-bold text-sm whitespace-nowrap transition-all duration-300 border relative overflow-hidden group ${activeMainCategory === cat ? 'bg-[#00A8E1] text-white border-transparent shadow-[0_0_20px_rgba(0,168,225,0.6)] scale-105' : 'bg-[#19222b] text-gray-400 border-transparent hover:text-white hover:bg-[#333c46] hover:shadow-[0_0_15px_rgba(255,255,255,0.1)] hover:scale-105'}`}>
+                            <button 
+                                key={cat} 
+                                onClick={() => { setActiveMainCategory(cat); setActiveSubCategory('All'); }}
+                                className={`px-6 py-2.5 rounded-lg font-bold text-sm whitespace-nowrap transition-all duration-300 border relative overflow-hidden group ${
+                                    activeMainCategory === cat 
+                                    ? 'bg-[#00A8E1] text-white border-transparent shadow-[0_0_20px_rgba(0,168,225,0.6)] scale-105' 
+                                    : 'bg-[#19222b] text-gray-400 border-transparent hover:text-white hover:bg-[#333c46] hover:shadow-[0_0_15px_rgba(255,255,255,0.1)] hover:scale-105'
+                                }`}
+                            >
                                 <span className="relative z-10">{cat}</span>
                                 {activeMainCategory === cat && <div className="absolute inset-0 bg-white/20 animate-pulse"></div>}
                             </button>
                         ))}
                     </div>
+
                     {activeMainCategory !== 'All' && CATEGORIES_TREE[activeMainCategory] && (
                         <div className="flex items-center gap-3 overflow-x-auto scrollbar-hide pb-2 px-2 animate-in fade-in slide-in-from-top-2">
-                            <button onClick={() => setActiveSubCategory('All')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all duration-300 border hover:scale-105 ${activeSubCategory === 'All' ? 'bg-white text-black border-white shadow-[0_0_15px_rgba(255,255,255,0.4)]' : 'bg-transparent text-gray-400 border-gray-700 hover:border-white hover:text-white'}`}>All {activeMainCategory}</button>
+                            <button 
+                                onClick={() => setActiveSubCategory('All')}
+                                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all duration-300 border hover:scale-105 ${
+                                    activeSubCategory === 'All' 
+                                    ? 'bg-white text-black border-white shadow-[0_0_15px_rgba(255,255,255,0.4)]' 
+                                    : 'bg-transparent text-gray-400 border-gray-700 hover:border-white hover:text-white'
+                                }`}
+                            >
+                                All {activeMainCategory}
+                            </button>
                             {CATEGORIES_TREE[activeMainCategory].map(sub => (
-                                <button key={sub} onClick={() => setActiveSubCategory(sub)} className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all duration-300 border hover:scale-105 ${activeSubCategory === sub ? 'bg-[#00A8E1] text-white border-[#00A8E1] shadow-[0_0_15px_rgba(0,168,225,0.5)]' : 'bg-[#19222b] text-gray-400 border-gray-800 hover:border-[#00A8E1] hover:text-[#00A8E1]'}`}>
+                                <button 
+                                    key={sub} 
+                                    onClick={() => setActiveSubCategory(sub)}
+                                    className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all duration-300 border hover:scale-105 ${
+                                        activeSubCategory === sub 
+                                        ? 'bg-[#00A8E1] text-white border-[#00A8E1] shadow-[0_0_15px_rgba(0,168,225,0.5)]' 
+                                        : 'bg-[#19222b] text-gray-400 border-gray-800 hover:border-[#00A8E1] hover:text-[#00A8E1]'
+                                    }`}
+                                >
                                     {sub}
                                 </button>
                             ))}
@@ -608,54 +708,105 @@ const SportsPage = () => {
             )}
 
             {loading ? (
-                <div className="h-80 flex flex-col items-center justify-center text-[#00A8E1] gap-4"><Loader className="animate-spin" size={48} /><div className="text-gray-400 text-sm font-medium animate-pulse">Fetching global channels feed...</div></div>
+                <div className="h-80 flex flex-col items-center justify-center text-[#00A8E1] gap-4">
+                    <Loader className="animate-spin" size={48} />
+                    <div className="text-gray-400 text-sm font-medium animate-pulse">Fetching global channels feed...</div>
+                </div>
             ) : error ? (
-                <div className="h-60 flex flex-col items-center justify-center text-red-500 gap-2 border border-dashed border-white/10 rounded-xl"><Ban size={48} /><p>{error}</p><button onClick={() => window.location.reload()} className="text-white underline mt-2">Retry Connection</button></div>
+                <div className="h-60 flex flex-col items-center justify-center text-red-500 gap-2 border border-dashed border-white/10 rounded-xl">
+                    <Ban size={48} />
+                    <p>{error}</p>
+                    <button onClick={() => window.location.reload()} className="text-white underline mt-2">Retry Connection</button>
+                </div>
             ) : displayedChannels.length === 0 ? (
-                <div className="h-60 flex flex-col items-center justify-center text-gray-500 gap-3 border border-dashed border-white/10 rounded-xl"><Monitor size={48} className="opacity-20" /><p>No channels found for this search.</p></div>
+                <div className="h-60 flex flex-col items-center justify-center text-gray-500 gap-3 border border-dashed border-white/10 rounded-xl">
+                    <Monitor size={48} className="opacity-20" />
+                    <p>No channels found for this search.</p>
+                </div>
             ) : (
                 <>
                     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 animate-in fade-in duration-500">
                         {displayedChannels.map((channel, idx) => (
-                            <div key={idx} onClick={() => navigate('/watch/sport/iptv', { state: { streamUrl: channel.url, title: channel.name, logo: channel.logo, group: channel.group } })} className="bg-[#19222b] hover:bg-[#232d38] rounded-xl overflow-hidden cursor-pointer group hover:-translate-y-2 transition-all duration-300 shadow-lg hover:shadow-[0_0_30px_rgba(0,168,225,0.3)] relative glow-card border border-white/5">
+                            <div 
+                                key={idx} 
+                                onClick={() => navigate('/watch/sport/iptv', { state: { streamUrl: channel.url, title: channel.name, logo: channel.logo, group: channel.group } })}
+                                className="bg-[#19222b] hover:bg-[#232d38] rounded-xl overflow-hidden cursor-pointer group hover:-translate-y-2 transition-all duration-300 shadow-lg hover:shadow-[0_0_30px_rgba(0,168,225,0.3)] relative glow-card border border-white/5"
+                            >
                                 <div className="aspect-video bg-black/40 flex items-center justify-center p-4 relative group-hover:bg-black/20 transition-colors">
-                                    {channel.logo ? (<img src={channel.logo} className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-300 drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]" alt={channel.name} onError={e => e.target.style.display='none'} />) : (<Signal className="text-gray-700 group-hover:text-[#00A8E1] transition-colors" size={32} />)}
-                                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-300 backdrop-blur-sm"><div className="bg-[#00A8E1] p-3 rounded-full shadow-[0_0_20px_#00A8E1] transform scale-50 group-hover:scale-100 transition-transform duration-300"><Play fill="white" className="text-white" size={20} /></div></div>
+                                    {channel.logo ? (
+                                        <img src={channel.logo} className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-300 drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]" alt={channel.name} onError={e => e.target.style.display='none'} />
+                                    ) : (
+                                        <Signal className="text-gray-700 group-hover:text-[#00A8E1] transition-colors" size={32} />
+                                    )}
+                                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-300 backdrop-blur-sm">
+                                        <div className="bg-[#00A8E1] p-3 rounded-full shadow-[0_0_20px_#00A8E1] transform scale-50 group-hover:scale-100 transition-transform duration-300">
+                                            <Play fill="white" className="text-white" size={20} />
+                                        </div>
+                                    </div>
                                 </div>
                                 <div className="p-3 bg-[#19222b] group-hover:bg-[#1f2933] transition-colors border-t border-white/5">
                                     <h3 className="text-gray-200 text-xs font-bold truncate group-hover:text-[#00A8E1] transition-colors">{channel.name}</h3>
-                                    <div className="flex items-center gap-1.5 mt-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shadow-[0_0_5px_#22c55e]"></span><p className="text-gray-500 text-[10px] font-bold truncate uppercase group-hover:text-white transition-colors">{channel.group}</p></div>
+                                    <div className="flex items-center gap-1.5 mt-1">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shadow-[0_0_5px_#22c55e]"></span>
+                                        <p className="text-gray-500 text-[10px] font-bold truncate uppercase group-hover:text-white transition-colors">{channel.group}</p>
+                                    </div>
                                 </div>
                             </div>
                         ))}
                     </div>
+                    
                     <div className="flex justify-center items-center gap-4 mt-12 mb-8">
-                        <button disabled={currentPage === 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))} className="p-3 rounded-full bg-[#19222b] hover:bg-[#333c46] hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] disabled:opacity-50 disabled:cursor-not-allowed text-white transition-all duration-300"><ChevronLeft size={24} /></button>
+                        <button 
+                            disabled={currentPage === 1}
+                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                            className="p-3 rounded-full bg-[#19222b] hover:bg-[#333c46] hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] disabled:opacity-50 disabled:cursor-not-allowed text-white transition-all duration-300"
+                        >
+                            <ChevronLeft size={24} />
+                        </button>
+                        
+                        {/* --- PAGINATION FIX APPLIED HERE --- */}
                         <div className="flex gap-2 overflow-x-auto max-w-[300px] scrollbar-hide px-2 items-center">
-    {(() => {
-        const maxVisible = 5;
-        let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
-        let end = Math.min(totalPages, start + maxVisible - 1);
+                            {(() => {
+                                const maxVisible = 5;
+                                let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+                                let end = Math.min(totalPages, start + maxVisible - 1);
 
-        if (end - start + 1 < maxVisible) {
-            start = Math.max(1, end - maxVisible + 1);
-        }
+                                if (end - start + 1 < maxVisible) {
+                                    start = Math.max(1, end - maxVisible + 1);
+                                }
 
-        return Array.from({ length: end - start + 1 }, (_, i) => start + i).map(pageNum => (
-            <button 
-                key={pageNum}
-                onClick={() => setCurrentPage(pageNum)}
-                className={`w-10 h-10 rounded-full font-bold text-sm transition-all duration-300 ${
-                    currentPage === pageNum 
-                    ? 'bg-[#00A8E1] text-white scale-110 shadow-[0_0_15px_#00A8E1]' 
-                    : 'bg-[#19222b] text-gray-400 hover:text-white hover:bg-[#333c46] hover:shadow-[0_0_10px_rgba(255,255,255,0.1)]'
-                }`}
-            >
-                {pageNum}
-            </button>
-        ));
-    })()}
-</div>
+                                return Array.from({ length: end - start + 1 }, (_, i) => start + i).map(pageNum => (
+                                    <button 
+                                        key={pageNum}
+                                        onClick={() => setCurrentPage(pageNum)}
+                                        className={`w-10 h-10 rounded-full font-bold text-sm transition-all duration-300 ${
+                                            currentPage === pageNum 
+                                            ? 'bg-[#00A8E1] text-white scale-110 shadow-[0_0_15px_#00A8E1]' 
+                                            : 'bg-[#19222b] text-gray-400 hover:text-white hover:bg-[#333c46] hover:shadow-[0_0_10px_rgba(255,255,255,0.1)]'
+                                        }`}
+                                    >
+                                        {pageNum}
+                                    </button>
+                                ));
+                            })()}
+                        </div>
+
+                        <button 
+                            disabled={currentPage >= totalPages}
+                            onClick={() => setCurrentPage(p + 1)}
+                            className="p-3 rounded-full bg-[#19222b] hover:bg-[#333c46] hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] disabled:opacity-50 disabled:cursor-not-allowed text-white transition-all duration-300"
+                        >
+                            <ChevronRight size={24} />
+                        </button>
+                    </div>
+                    <div className="text-center text-gray-500 text-xs pb-8 animate-pulse">
+                        Page {currentPage} of {totalPages} • Use Arrow Keys &larr; &rarr; to navigate
+                    </div>
+                </>
+            )}
+        </div>
+    );
+};
 
 const SportsPlayer = () => {
     const navigate = useNavigate();
