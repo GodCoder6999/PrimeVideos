@@ -15,7 +15,8 @@ const useConnectionOptimizer = () => {
       "https://api.themoviedb.org",
       "https://image.tmdb.org",
       "https://iptv-org.github.io",
-      "https://xuzfdkkkklmrilcitsec.supabase.co" // Added Supabase
+      "https://a.111477.xyz", // Added new source
+      "https://api.allorigins.win" // Added proxy
     ];
     
     domains.forEach(domain => {
@@ -113,44 +114,70 @@ const ScrollToTop = () => {
   return null;
 };
 
-// --- AG DOWNLOAD SOURCE (SUPABASE) ---
-async function getAgDownloads({ tmdbId, mediaItem, mediaType = 'movie' }) {
-  if (!tmdbId) return [];
-
-  const baseUrl = 'https://xuzfdkkkklmrilcitsec.supabase.co/rest/v1';
-  // NOTE: This is the key you provided. Ensure it is the FULL key.
-  const apikey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'; 
-  const headers = { 
-    'apikey': apikey, 
-    'Authorization': `Bearer ${apikey}`, 
-    'Content-Type': 'application/json' 
-  };
-
+// --- 111477 DOWNLOAD SOURCE ---
+async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
   try {
-    const table = mediaType === 'tv' ? 'tv_shows' : 'movies';
-    const res = await fetch(`${baseUrl}/${table}?tmdb_id=eq.${tmdbId}`, { headers });
+    const tmdbTitle = mediaItem?.title || mediaItem?.name;
+    const releaseYear = mediaItem?.release_date?.slice(0, 4) || mediaItem?.first_air_date?.slice(0, 4) || '';
+    // Normalize title: replace colons with ' - ' to match common file naming conventions
+    const searchName = (tmdbTitle || '').replace(/:/g, ' - ');
     
-    // Safely parse JSON
-    const response = await res.json().catch(() => []);
-    if (!response || !response[0]) return [];
+    // Determine the listing page URL
+    const listingUrl = (mediaType === 'tv' || mediaType === 'show' || mediaType === 'tvshow')
+      ? 'https://a.111477.xyz/tvs/'
+      : 'https://a.111477.xyz/movies/';
 
-    const downloadUrl = response[0]?.download_url;
-    if (!downloadUrl) return [];
+    // 1. Fetch Listing Page via Proxy (to bypass CORS)
+    const proxyUrl = "https://api.allorigins.win/raw?url=";
+    const listingHtml = await fetch(proxyUrl + encodeURIComponent(listingUrl)).then(r => r.text());
+    
+    if (!listingHtml) return [];
 
-    const title = mediaItem?.title || mediaItem?.name || '';
-    const date = mediaItem?.release_date || mediaItem?.first_air_date;
-    const releaseYear = date ? date.slice(0, 4) : '';
-    const displayTitle = releaseYear && title ? `${title} (${releaseYear})` : title || 'AG Download';
+    // 2. Parse Listing Page
+    const parser = new DOMParser();
+    const listingDoc = parser.parseFromString(listingHtml, 'text/html');
+    const rows = listingDoc.querySelectorAll('tr[data-name][data-url]');
 
-    // Format for the UI
-    return [{ 
-      label: 'Direct Download (High Speed)', 
-      url: downloadUrl, 
-      quality: 'HD' 
-    }];
+    // 3. Find matching row
+    // First try: Strict match including year (if available)
+    let targetRow = Array.from(rows).find((row) => {
+      const dataName = row.getAttribute('data-name') || '';
+      const normalized = dataName.toLowerCase();
+      return normalized.includes(searchName.toLowerCase()) && (!releaseYear || normalized.includes(releaseYear));
+    });
+
+    // Second try: Relaxed match (just name)
+    if (!targetRow) {
+      targetRow = Array.from(rows).find((row) => {
+        const dataName = row.getAttribute('data-name') || '';
+        return dataName.toLowerCase().includes(searchName.toLowerCase());
+      });
+    }
+
+    if (!targetRow) return [];
+
+    // 4. Construct Detail URL
+    const detailHref = targetRow.getAttribute('data-url');
+    let detailUrl = detailHref;
+    if (detailUrl.startsWith('/')) detailUrl = `https://a.111477.xyz${detailUrl}`;
+    else if (!detailUrl.startsWith('http')) detailUrl = `https://a.111477.xyz/${detailUrl}`;
+
+    // 5. Fetch Detail Page via Proxy
+    const detailHtml = await fetch(proxyUrl + encodeURIComponent(detailUrl)).then(r => r.text());
+    if (!detailHtml) return [];
+
+    // 6. Extract Download Links (looking for 'maxbutton' class)
+    const detailDoc = parser.parseFromString(detailHtml, 'text/html');
+    const downloadNodes = detailDoc.querySelectorAll('a[href][class*="maxbutton"]');
+
+    return Array.from(downloadNodes).map((node) => ({ 
+        label: node.textContent.trim() || 'Download Link',
+        url: node.getAttribute('href'), 
+        type: 'download' 
+    }));
 
   } catch (error) {
-    console.error('AG Download Error:', error);
+    console.error("111477 Download Error:", error);
     return [];
   }
 }
@@ -780,7 +807,7 @@ const SportsPage = () => {
 
                         <button 
                             disabled={currentPage >= totalPages}
-                            onClick={() => setCurrentPage(p => p + 1)}
+                            onClick={() => setCurrentPage(p + 1)}
                             className="p-3 rounded-full bg-[#19222b] hover:bg-[#333c46] hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] disabled:opacity-50 disabled:cursor-not-allowed text-white transition-all duration-300"
                         >
                             <ChevronRight size={24} />
@@ -1275,12 +1302,11 @@ const MovieDetail = () => {
     fetch(`${BASE_URL}/${type}/${id}/recommendations?api_key=${TMDB_API_KEY}&language=en-US`).then(res => res.json()).then(data => setRelatedMovies(data.results?.slice(0, 10) || []));
   }, [type, id]);
 
-  // --- NEW DOWNLOAD HANDLER (Supabase Source) ---
+  // --- NEW DOWNLOAD HANDLER (111477 Source) ---
   const handleDownload = async () => {
     setLoadingDownloads(true);
     try {
-        const links = await getAgDownloads({
-            tmdbId: id,
+        const links = await get111477Downloads({
             mediaItem: movie,
             mediaType: type
         });
@@ -1289,7 +1315,6 @@ const MovieDetail = () => {
             setDownloadLinks(links);
             setShowDownloadModal(true);
         } else {
-            // Optional: fallback logic could go here
             alert("No download links found for this title.");
         }
     } catch (e) {
