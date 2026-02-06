@@ -667,19 +667,30 @@ const SportsPage = () => {
                     <div className="flex justify-center items-center gap-4 mt-12 mb-8">
                         <button disabled={currentPage === 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))} className="p-3 rounded-full bg-[#19222b] hover:bg-[#333c46] hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] disabled:opacity-50 disabled:cursor-not-allowed text-white transition-all duration-300"><ChevronLeft size={24} /></button>
                         <div className="flex gap-2 overflow-x-auto max-w-[300px] scrollbar-hide px-2 items-center">
-                            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                                let pageNum = currentPage - 2 + i; if (pageNum <= 0) pageNum = i + 1; if (pageNum > totalPages) return null;
-                                return (<button key={pageNum} onClick={() => setCurrentPage(pageNum)} className={`w-10 h-10 rounded-full font-bold text-sm transition-all duration-300 ${currentPage === pageNum ? 'bg-[#00A8E1] text-white scale-110 shadow-[0_0_15px_#00A8E1]' : 'bg-[#19222b] text-gray-400 hover:text-white hover:bg-[#333c46] hover:shadow-[0_0_10px_rgba(255,255,255,0.1)]'}`}>{pageNum}</button>);
-                            })}
-                        </div>
-                        <button disabled={currentPage >= totalPages} onClick={() => setCurrentPage(p + 1)} className="p-3 rounded-full bg-[#19222b] hover:bg-[#333c46] hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] disabled:opacity-50 disabled:cursor-not-allowed text-white transition-all duration-300"><ChevronRight size={24} /></button>
-                    </div>
-                    <div className="text-center text-gray-500 text-xs pb-8 animate-pulse">Page {currentPage} of {totalPages} • Use Arrow Keys &larr; &rarr; to navigate</div>
-                </>
-            )}
-        </div>
-    );
-};
+    {(() => {
+        const maxVisible = 5;
+        let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+        let end = Math.min(totalPages, start + maxVisible - 1);
+
+        if (end - start + 1 < maxVisible) {
+            start = Math.max(1, end - maxVisible + 1);
+        }
+
+        return Array.from({ length: end - start + 1 }, (_, i) => start + i).map(pageNum => (
+            <button 
+                key={pageNum}
+                onClick={() => setCurrentPage(pageNum)}
+                className={`w-10 h-10 rounded-full font-bold text-sm transition-all duration-300 ${
+                    currentPage === pageNum 
+                    ? 'bg-[#00A8E1] text-white scale-110 shadow-[0_0_15px_#00A8E1]' 
+                    : 'bg-[#19222b] text-gray-400 hover:text-white hover:bg-[#333c46] hover:shadow-[0_0_10px_rgba(255,255,255,0.1)]'
+                }`}
+            >
+                {pageNum}
+            </button>
+        ));
+    })()}
+</div>
 
 const SportsPlayer = () => {
     const navigate = useNavigate();
