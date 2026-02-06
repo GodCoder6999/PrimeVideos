@@ -115,46 +115,78 @@ const ScrollToTop = () => {
 };
 
 // --- 111477 DOWNLOAD SOURCE ---
+// --- 111477 DOWNLOAD SOURCE (FIXED & ROBUST) ---
 async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
+  console.log(`[111477] Starting search for: ${mediaItem.title || mediaItem.name}`);
+
   try {
     const tmdbTitle = mediaItem?.title || mediaItem?.name;
     const releaseYear = mediaItem?.release_date?.slice(0, 4) || mediaItem?.first_air_date?.slice(0, 4) || '';
-    // Normalize title: replace colons with ' - ' to match common file naming conventions
-    const searchName = (tmdbTitle || '').replace(/:/g, ' - ');
+    
+    // Normalize title: remove special chars to improve matching chances
+    // e.g., "Spider-Man: No Way Home" -> "Spider Man No Way Home"
+    const cleanName = (tmdbTitle || '').replace(/[^a-zA-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
     
     // Determine the listing page URL
     const listingUrl = (mediaType === 'tv' || mediaType === 'show' || mediaType === 'tvshow')
       ? 'https://a.111477.xyz/tvs/'
       : 'https://a.111477.xyz/movies/';
 
-    // 1. Fetch Listing Page via Proxy (to bypass CORS)
-    const proxyUrl = "https://api.allorigins.win/raw?url=";
-    const listingHtml = await fetch(proxyUrl + encodeURIComponent(listingUrl)).then(r => r.text());
+    // 1. Fetch Listing Page via Proxy (CodeTabs is often more reliable for text)
+    // We use a random param to prevent caching
+    const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(listingUrl)}&cache=${Date.now()}`;
     
-    if (!listingHtml) return [];
+    console.log(`[111477] Fetching listing: ${listingUrl}`);
+    const listingHtml = await fetch(proxyUrl).then(r => r.text());
+    
+    if (!listingHtml || listingHtml.length < 500) {
+        console.error("[111477] Failed to fetch listing or empty response.");
+        return [];
+    }
 
     // 2. Parse Listing Page
     const parser = new DOMParser();
     const listingDoc = parser.parseFromString(listingHtml, 'text/html');
-    const rows = listingDoc.querySelectorAll('tr[data-name][data-url]');
+    
+    // STRATEGY A: Specific Table Rows (Original Logic)
+    let rows = Array.from(listingDoc.querySelectorAll('tr[data-name][data-url]'));
+    
+    // STRATEGY B: All Links (Fallback if Strategy A fails)
+    if (rows.length === 0) {
+        console.warn("[111477] No data-rows found. Switching to link scanning...");
+        const links = Array.from(listingDoc.querySelectorAll('a[href]'));
+        rows = links.map(link => ({
+            getAttribute: (attr) => {
+                if (attr === 'data-name') return link.textContent.trim();
+                if (attr === 'data-url') return link.getAttribute('href');
+                return null;
+            }
+        }));
+    }
+
+    console.log(`[111477] Scanning ${rows.length} items for "${cleanName}"...`);
 
     // 3. Find matching row
-    // First try: Strict match including year (if available)
-    let targetRow = Array.from(rows).find((row) => {
-      const dataName = row.getAttribute('data-name') || '';
-      const normalized = dataName.toLowerCase();
-      return normalized.includes(searchName.toLowerCase()) && (!releaseYear || normalized.includes(releaseYear));
+    // Priority 1: Name + Year
+    let targetRow = rows.find((row) => {
+      const dataName = (row.getAttribute('data-name') || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ');
+      return dataName.includes(cleanName) && (!releaseYear || dataName.includes(releaseYear));
     });
 
-    // Second try: Relaxed match (just name)
+    // Priority 2: Just Name
     if (!targetRow) {
-      targetRow = Array.from(rows).find((row) => {
-        const dataName = row.getAttribute('data-name') || '';
-        return dataName.toLowerCase().includes(searchName.toLowerCase());
+      targetRow = rows.find((row) => {
+        const dataName = (row.getAttribute('data-name') || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ');
+        return dataName.includes(cleanName);
       });
     }
 
-    if (!targetRow) return [];
+    if (!targetRow) {
+        console.warn(`[111477] No match found for "${cleanName}".`);
+        return [];
+    }
+
+    console.log(`[111477] Match found: ${targetRow.getAttribute('data-name')}`);
 
     // 4. Construct Detail URL
     const detailHref = targetRow.getAttribute('data-url');
@@ -162,22 +194,33 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
     if (detailUrl.startsWith('/')) detailUrl = `https://a.111477.xyz${detailUrl}`;
     else if (!detailUrl.startsWith('http')) detailUrl = `https://a.111477.xyz/${detailUrl}`;
 
-    // 5. Fetch Detail Page via Proxy
-    const detailHtml = await fetch(proxyUrl + encodeURIComponent(detailUrl)).then(r => r.text());
+    // 5. Fetch Detail Page
+    console.log(`[111477] Fetching details: ${detailUrl}`);
+    const detailProxy = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(detailUrl)}`;
+    const detailHtml = await fetch(detailProxy).then(r => r.text());
+    
     if (!detailHtml) return [];
 
-    // 6. Extract Download Links (looking for 'maxbutton' class)
+    // 6. Extract Download Links
     const detailDoc = parser.parseFromString(detailHtml, 'text/html');
-    const downloadNodes = detailDoc.querySelectorAll('a[href][class*="maxbutton"]');
+    
+    // Try multiple selectors for download buttons
+    let downloadNodes = detailDoc.querySelectorAll('a[class*="maxbutton"], .wp-block-button__link, a[href$=".mkv"], a[href$=".mp4"]');
+    
+    // Filter out junk links
+    const links = Array.from(downloadNodes)
+        .map(node => ({
+            label: node.textContent.trim() || 'Download',
+            url: node.getAttribute('href'),
+            type: 'download'
+        }))
+        .filter(l => l.url && l.url.startsWith('http') && !l.url.includes('codetabs')); // Avoid proxy loops
 
-    return Array.from(downloadNodes).map((node) => ({ 
-        label: node.textContent.trim() || 'Download Link',
-        url: node.getAttribute('href'), 
-        type: 'download' 
-    }));
+    console.log(`[111477] Found ${links.length} download links.`);
+    return links;
 
   } catch (error) {
-    console.error("111477 Download Error:", error);
+    console.error("[111477] Critical Error:", error);
     return [];
   }
 }
