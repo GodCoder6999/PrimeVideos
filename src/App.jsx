@@ -1626,17 +1626,35 @@ const Player = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const queryParams = new URLSearchParams(location.search);
+
+  // --- 1. HISTORY INITIALIZATION (Smart Resume) ---
+  // Check if we have history for this item to set initial Season/Episode
+  const getSavedProgress = () => {
+      try {
+          const history = JSON.parse(localStorage.getItem('watch_history')) || [];
+          const item = history.find(h => h.id.toString() === id.toString());
+          return item || {};
+      } catch (e) { return {}; }
+  };
+  
+  const savedState = getSavedProgress();
 
   // --- STATE ---
   const [activeServer, setActiveServer] = useState('vidfast');
-  const queryParams = new URLSearchParams(location.search);
-  const [season, setSeason] = useState(Number(queryParams.get('season')) || 1);
-  const [episode, setEpisode] = useState(Number(queryParams.get('episode')) || 1);
+  // Priority: URL Param -> Saved History -> Default to 1
+  const [season, setSeason] = useState(Number(queryParams.get('season')) || savedState.last_season || 1);
+  const [episode, setEpisode] = useState(Number(queryParams.get('episode')) || savedState.last_episode || 1);
   const [showEpisodes, setShowEpisodes] = useState(false);
   const [seasonData, setSeasonData] = useState(null);
   const [totalSeasons, setTotalSeasons] = useState(1);
+  
+  // Track current time to save it
+  const currentTimeRef = useRef(0);
+  // Track if we have loaded the initial "resume" time
+  const hasResumedRef = useRef(false);
 
-  // --- FETCH LOGIC ---
+  // --- FETCH TV DETAILS ---
   useEffect(() => {
     if (type === 'tv') {
         fetch(`${BASE_URL}/tv/${id}?api_key=${TMDB_API_KEY}`)
@@ -1653,51 +1671,99 @@ const Player = () => {
     }
   }, [type, id, season]);
 
-  // --- HISTORY SAVER (Fixed) ---
+  // --- 2. PROGRESS TRACKER (PostMessage Listener) ---
   useEffect(() => {
-    const saveToHistory = async () => {
-        if (!id) return;
-        
-        try {
-            const res = await fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}`);
-            const data = await res.json();
+      const handleMessage = (event) => {
+          // Filter messages to ensure they are from VidFast (or relevant source)
+          // VidFast often sends data like: { type: "timeupdate", time: 123.45 }
+          if (!event.data) return;
 
-            const historyItem = {
-                id: data.id,
-                media_type: type, 
-                title: data.title || data.name,
-                poster_path: data.poster_path,
-                backdrop_path: data.backdrop_path,
-                vote_average: data.vote_average,
-                release_date: data.release_date || data.first_air_date,
-                last_season: season,
-                last_episode: episode,
-                watched_at: Date.now()
-            };
+          // Try to detect time data from various player formats
+          let time = null;
+          if (event.data.time) time = event.data.time;
+          if (event.data.currentTime) time = event.data.currentTime;
+          
+          // Debugging: Uncomment this to see what the player sends in Console
+          // console.log("Player Event:", event.data);
 
-            let history = JSON.parse(localStorage.getItem('watch_history')) || [];
-            history = history.filter(h => h.id.toString() !== data.id.toString());
-            history.unshift(historyItem);
-            localStorage.setItem('watch_history', JSON.stringify(history.slice(0, 20)));
-            
-        } catch (error) {
-            console.error("Failed to save watch history", error);
-        }
-    };
+          if (time && typeof time === 'number') {
+              currentTimeRef.current = time;
+          }
+      };
 
-    saveToHistory();
-  }, [type, id, season, episode]); // <--- THIS WAS MISSING IN YOUR CODE
+      window.addEventListener("message", handleMessage);
+      return () => window.removeEventListener("message", handleMessage);
+  }, []);
 
-  // --- SOURCE GENERATOR ---
+  // --- 3. SAVE HISTORY LOGIC (Throttled + Unmount) ---
+  const saveProgress = useCallback(async () => {
+      if (!id) return;
+      try {
+          // Fetch details only if we don't have title/images (optimization)
+          // For now, we fetch to be safe, or you could pass this via state
+          const res = await fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}`);
+          const data = await res.json();
+
+          const historyItem = {
+              id: data.id,
+              media_type: type, 
+              title: data.title || data.name,
+              poster_path: data.poster_path,
+              backdrop_path: data.backdrop_path,
+              vote_average: data.vote_average,
+              release_date: data.release_date || data.first_air_date,
+              last_season: season,
+              last_episode: episode,
+              // SAVE TIMESTAMP (Default to 0 if undefined)
+              watched_at: currentTimeRef.current || 0,
+              updated_at: Date.now()
+          };
+
+          let history = JSON.parse(localStorage.getItem('watch_history')) || [];
+          // Remove old entry for this ID
+          history = history.filter(h => h.id.toString() !== data.id.toString());
+          // Add new entry to top
+          history.unshift(historyItem);
+          // Limit to 20 items
+          localStorage.setItem('watch_history', JSON.stringify(history.slice(0, 20)));
+          
+      } catch (error) {
+          console.error("Failed to save history", error);
+      }
+  }, [id, type, season, episode]);
+
+  // Save every 10 seconds while watching
+  useEffect(() => {
+      const interval = setInterval(saveProgress, 10000);
+      return () => {
+          clearInterval(interval);
+          saveProgress(); // Also save immediately on unmount/close
+      };
+  }, [saveProgress]);
+
+  // --- 4. SOURCE GENERATOR (With Resume) ---
   const getSourceUrl = () => {
+    // Only use resume time if we are on the same episode/season that was saved
+    const isSameEpisode = savedState.last_season === season && savedState.last_episode === episode;
+    // Or if it's a movie (no season/episode to check)
+    const isMovie = type === 'movie';
+    
+    // Calculate start time (VidFast uses 'startAt' or 't' usually)
+    let startParams = "";
+    if ((isSameEpisode || isMovie) && savedState.watched_at > 10) {
+        // Resume if watched more than 10 seconds
+        startParams = `&startAt=${Math.floor(savedState.watched_at)}`;
+    }
+
     if (activeServer === 'vidfast') {
         const themeParam = "theme=00A8E1";
         if (type === 'tv') {
-          return `${VIDFAST_BASE}/tv/${id}/${season}/${episode}?autoPlay=true&${themeParam}&nextButton=true&autoNext=true`;
+          return `${VIDFAST_BASE}/tv/${id}/${season}/${episode}?autoPlay=true&${themeParam}&nextButton=true&autoNext=true${startParams}`;
         } else {
-          return `${VIDFAST_BASE}/movie/${id}?autoPlay=true&${themeParam}`;
+          return `${VIDFAST_BASE}/movie/${id}?autoPlay=true&${themeParam}${startParams}`;
         }
     } else {
+        // Zxcstream usually doesn't support startAt via URL in the same way, but we keep the fallback
         if (type === 'tv') {
           return `https://www.zxcstream.xyz/player/tv/${id}/${season}/${episode}?autoplay=false&back=true&server=0`;
         } else {
@@ -1723,7 +1789,7 @@ const Player = () => {
                      onClick={() => setActiveServer('vidfast')}
                      className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'vidfast' ? 'bg-[#00A8E1] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
                    >
-                       VidFast (Default)
+                       VidFast (Resumes)
                    </button>
                    <button 
                      onClick={() => setActiveServer('zxcstream')}
@@ -1734,7 +1800,7 @@ const Player = () => {
                </div>
                {activeServer === 'zxcstream' && (
                    <div className="text-[10px] text-[#00A8E1] font-bold animate-pulse">
-                       Select Audio Language in Player Settings
+                       Resume not supported on this server
                    </div>
                )}
           </div>
@@ -1766,7 +1832,7 @@ const Player = () => {
         ></iframe>
       </div>
 
-      {/* 3. EPISODE SIDEBAR */}
+      {/* 3. EPISODE SIDEBAR (VidFast Only) */}
       {activeServer === 'vidfast' && type === 'tv' && (
         <div className={`fixed right-0 top-0 h-full bg-[#00050D]/95 backdrop-blur-xl border-l border-white/10 transition-all duration-500 ease-in-out z-[110] flex flex-col ${showEpisodes ? 'w-[350px] translate-x-0 shadow-2xl' : 'w-[350px] translate-x-full shadow-none'}`}>
             <div className="pt-24 px-6 pb-4 border-b border-white/10 flex items-center justify-between bg-[#1a242f]/50">
@@ -1780,7 +1846,7 @@ const Player = () => {
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-hide">
                 {seasonData?.episodes ? (seasonData.episodes.map(ep => (
-                        <div key={ep.id} onClick={() => setEpisode(ep.episode_number)} className={`flex gap-3 p-2 rounded-lg cursor-pointer transition-all group ${episode === ep.episode_number ? 'bg-[#333c46] border border-[#00A8E1]' : 'hover:bg-[#333c46] border border-transparent'}`}>
+                        <div key={ep.id} onClick={() => { setEpisode(ep.episode_number); currentTimeRef.current = 0; }} className={`flex gap-3 p-2 rounded-lg cursor-pointer transition-all group ${episode === ep.episode_number ? 'bg-[#333c46] border border-[#00A8E1]' : 'hover:bg-[#333c46] border border-transparent'}`}>
                             <div className="relative w-28 h-16 flex-shrink-0 bg-black rounded overflow-hidden">
                                 {ep.still_path ? (<img src={`${IMAGE_BASE_URL}${ep.still_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" />) : (<div className="w-full h-full flex items-center justify-center text-gray-600 text-xs">No Img</div>)}
                                 {episode === ep.episode_number && (<div className="absolute inset-0 bg-black/40 flex items-center justify-center"><Play size={16} fill="white" className="text-white" /></div>)}
