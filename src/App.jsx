@@ -1628,10 +1628,7 @@ const Player = () => {
   const location = useLocation();
 
   // --- STATE ---
-  // Server Selection: 'vidfast' (Default) or 'zxcstream'
   const [activeServer, setActiveServer] = useState('vidfast');
-   
-  // Episode & Season State (Restored for Vidfast)
   const queryParams = new URLSearchParams(location.search);
   const [season, setSeason] = useState(Number(queryParams.get('season')) || 1);
   const [episode, setEpisode] = useState(Number(queryParams.get('episode')) || 1);
@@ -1639,7 +1636,7 @@ const Player = () => {
   const [seasonData, setSeasonData] = useState(null);
   const [totalSeasons, setTotalSeasons] = useState(1);
 
-  // --- FETCH LOGIC (Only needed for TV shows) ---
+  // --- FETCH LOGIC ---
   useEffect(() => {
     if (type === 'tv') {
         fetch(`${BASE_URL}/tv/${id}?api_key=${TMDB_API_KEY}`)
@@ -1650,22 +1647,21 @@ const Player = () => {
 
   useEffect(() => {
     if (type === 'tv') {
-        // Fetch season data for the list
         fetch(`${BASE_URL}/tv/${id}/season/${season}?api_key=${TMDB_API_KEY}`)
           .then(res => res.json())
           .then(data => setSeasonData(data));
     }
   }, [type, id, season]);
+
+  // --- HISTORY SAVER (Fixed) ---
   useEffect(() => {
     const saveToHistory = async () => {
         if (!id) return;
         
         try {
-            // 1. Fetch details to get the image/title for the card
             const res = await fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}`);
             const data = await res.json();
 
-            // 2. Create the history item object
             const historyItem = {
                 id: data.id,
                 media_type: type, 
@@ -1674,22 +1670,14 @@ const Player = () => {
                 backdrop_path: data.backdrop_path,
                 vote_average: data.vote_average,
                 release_date: data.release_date || data.first_air_date,
-                // Save specific season/episode if it's a TV show
                 last_season: season,
                 last_episode: episode,
                 watched_at: Date.now()
             };
 
-            // 3. Get existing history from LocalStorage
             let history = JSON.parse(localStorage.getItem('watch_history')) || [];
-            
-            // 4. Remove duplicates (if already in list, remove old version)
             history = history.filter(h => h.id.toString() !== data.id.toString());
-            
-            // 5. Add new item to the FRONT of the array
             history.unshift(historyItem);
-            
-            // 6. Limit to last 20 items and Save
             localStorage.setItem('watch_history', JSON.stringify(history.slice(0, 20)));
             
         } catch (error) {
@@ -1698,6 +1686,7 @@ const Player = () => {
     };
 
     saveToHistory();
+  }, [type, id, season, episode]); // <--- THIS WAS MISSING IN YOUR CODE
 
   // --- SOURCE GENERATOR ---
   const getSourceUrl = () => {
@@ -1709,7 +1698,6 @@ const Player = () => {
           return `${VIDFAST_BASE}/movie/${id}?autoPlay=true&${themeParam}`;
         }
     } else {
-        // Zxcstream (Multi-Audio) logic
         if (type === 'tv') {
           return `https://www.zxcstream.xyz/player/tv/${id}/${season}/${episode}?autoplay=false&back=true&server=0`;
         } else {
@@ -1720,11 +1708,8 @@ const Player = () => {
 
   return (
     <div className="fixed inset-0 bg-black z-[100] overflow-hidden flex flex-col" style={{ transform: 'translateZ(0)' }}>
-      
       {/* 1. TOP CONTROLS LAYER */}
       <div className="absolute top-0 left-0 w-full h-20 pointer-events-none z-[120] flex items-center justify-between px-6">
-          
-          {/* Back Button */}
           <button 
             onClick={() => navigate(-1)} 
             className="pointer-events-auto bg-black/50 hover:bg-[#00A8E1] text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all shadow-lg group"
@@ -1732,7 +1717,6 @@ const Player = () => {
             <ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" />
           </button>
 
-          {/* Server Switcher (Top Middle) */}
           <div className="pointer-events-auto flex flex-col items-center gap-1 bg-black/60 backdrop-blur-md border border-white/10 p-1.5 rounded-xl shadow-2xl transform translate-y-2">
                <div className="flex bg-[#19222b] rounded-lg p-1">
                    <button 
@@ -1748,7 +1732,6 @@ const Player = () => {
                        Multi-Audio
                    </button>
                </div>
-               {/* Helper Comment for Multi-Audio */}
                {activeServer === 'zxcstream' && (
                    <div className="text-[10px] text-[#00A8E1] font-bold animate-pulse">
                        Select Audio Language in Player Settings
@@ -1756,7 +1739,6 @@ const Player = () => {
                )}
           </div>
 
-          {/* Episode List Toggle (ONLY VISIBLE IF SERVER IS VIDFAST & TYPE IS TV) */}
           {activeServer === 'vidfast' && type === 'tv' ? (
               <button 
                 onClick={() => setShowEpisodes(!showEpisodes)} 
@@ -1765,14 +1747,14 @@ const Player = () => {
                   <List size={24} />
               </button>
           ) : (
-              <div className="w-12"></div> // Spacer to keep center alignment
+              <div className="w-12"></div>
           )}
       </div>
 
       {/* 2. PLAYER FRAME */}
       <div className="flex-1 relative w-full h-full bg-black">
         <iframe
-          key={activeServer + season + episode} // Force re-render on change
+          key={activeServer + season + episode}
           src={getSourceUrl()}
           className="w-full h-full border-none"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
@@ -1784,7 +1766,7 @@ const Player = () => {
         ></iframe>
       </div>
 
-      {/* 3. EPISODE SIDEBAR (ONLY RENDERED IF VIDFAST & TV) */}
+      {/* 3. EPISODE SIDEBAR */}
       {activeServer === 'vidfast' && type === 'tv' && (
         <div className={`fixed right-0 top-0 h-full bg-[#00050D]/95 backdrop-blur-xl border-l border-white/10 transition-all duration-500 ease-in-out z-[110] flex flex-col ${showEpisodes ? 'w-[350px] translate-x-0 shadow-2xl' : 'w-[350px] translate-x-full shadow-none'}`}>
             <div className="pt-24 px-6 pb-4 border-b border-white/10 flex items-center justify-between bg-[#1a242f]/50">
@@ -1815,7 +1797,6 @@ const Player = () => {
     </div>
   );
 };
-
 // --- MAIN WRAPPERS ---
 // --- MAIN WRAPPERS ---
 
