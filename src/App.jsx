@@ -1214,7 +1214,8 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
   );
 };
 
-const Row = ({ title, fetchUrl, variant = 'standard', itemType = 'movie', isPrimeOnly }) => {
+// Update the props to include 'data'
+const Row = ({ title, fetchUrl, data = null, variant = 'standard', itemType = 'movie', isPrimeOnly }) => {
   const [movies, setMovies] = useState([]);
   const [hoveredId, setHoveredId] = useState(null);
   const rowRef = useRef(null); 
@@ -1222,6 +1223,13 @@ const Row = ({ title, fetchUrl, variant = 'standard', itemType = 'movie', isPrim
   const theme = getTheme(isPrimeOnly);
 
   useEffect(() => { 
+      // 1. Check if 'data' prop exists. If so, use it directly.
+      if (data) {
+          setMovies(data);
+          return;
+      }
+
+      // 2. Otherwise, fetch from URL (Existing Logic)
       fetch(`${BASE_URL}${fetchUrl}`)
         .then(res => res.json())
         .then(data => {
@@ -1229,8 +1237,9 @@ const Row = ({ title, fetchUrl, variant = 'standard', itemType = 'movie', isPrim
             setMovies(validResults);
         })
         .catch(err => console.error(err)); 
-  }, [fetchUrl]);
+  }, [fetchUrl, data]); // Add data to dependency array
 
+  // ... rest of the component (handleHover, slideLeft, return statement, etc.) stays the same ...
   const handleHover = (id) => { if (timeoutRef.current) clearTimeout(timeoutRef.current); timeoutRef.current = setTimeout(() => setHoveredId(id), 400); };
   const handleLeave = () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); setHoveredId(null); };
 
@@ -1647,6 +1656,48 @@ const Player = () => {
           .then(data => setSeasonData(data));
     }
   }, [type, id, season]);
+  useEffect(() => {
+    const saveToHistory = async () => {
+        if (!id) return;
+        
+        try {
+            // 1. Fetch details to get the image/title for the card
+            const res = await fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}`);
+            const data = await res.json();
+
+            // 2. Create the history item object
+            const historyItem = {
+                id: data.id,
+                media_type: type, 
+                title: data.title || data.name,
+                poster_path: data.poster_path,
+                backdrop_path: data.backdrop_path,
+                vote_average: data.vote_average,
+                release_date: data.release_date || data.first_air_date,
+                // Save specific season/episode if it's a TV show
+                last_season: season,
+                last_episode: episode,
+                watched_at: Date.now()
+            };
+
+            // 3. Get existing history from LocalStorage
+            let history = JSON.parse(localStorage.getItem('watch_history')) || [];
+            
+            // 4. Remove duplicates (if already in list, remove old version)
+            history = history.filter(h => h.id.toString() !== data.id.toString());
+            
+            // 5. Add new item to the FRONT of the array
+            history.unshift(historyItem);
+            
+            // 6. Limit to last 20 items and Save
+            localStorage.setItem('watch_history', JSON.stringify(history.slice(0, 20)));
+            
+        } catch (error) {
+            console.error("Failed to save watch history", error);
+        }
+    };
+
+    saveToHistory();
 
   // --- SOURCE GENERATOR ---
   const getSourceUrl = () => {
@@ -1766,7 +1817,57 @@ const Player = () => {
 };
 
 // --- MAIN WRAPPERS ---
-const Home = ({ isPrimeOnly }) => { const { rows, loadMore } = useInfiniteRows('all', isPrimeOnly); return <><Hero isPrimeOnly={isPrimeOnly} /><div className="-mt-10 relative z-20 pb-20">{rows.map(row => <Row key={row.id} title={row.title} fetchUrl={row.fetchUrl} variant={row.variant} itemType={row.itemType} isPrimeOnly={isPrimeOnly} />)}<InfiniteScrollTrigger onIntersect={loadMore} /></div></>; };
+// --- MAIN WRAPPERS ---
+
+const Home = ({ isPrimeOnly }) => { 
+  // 1. Existing Infinite Scroll Hook
+  const { rows, loadMore } = useInfiniteRows('all', isPrimeOnly);
+  
+  // 2. NEW: History State
+  const [history, setHistory] = useState([]);
+
+  // 3. NEW: Load History from Local Storage on Mount
+  useEffect(() => {
+      const saved = JSON.parse(localStorage.getItem('watch_history')) || [];
+      setHistory(saved);
+  }, []);
+
+  return (
+    <>
+      <Hero isPrimeOnly={isPrimeOnly} />
+      <div className="-mt-10 relative z-20 pb-20">
+        
+        {/* 4. NEW: Render "Continue Watching" Row if history exists */}
+        {history.length > 0 && (
+            <Row 
+                key="continue_watching" 
+                title="Continue Watching" 
+                data={history}       // Passing the history data directly
+                variant="standard" 
+                itemType="history" 
+                isPrimeOnly={isPrimeOnly} 
+            />
+        )}
+
+        {/* 5. Existing Rows (Trending, Top 10, etc.) */}
+        {rows.map(row => (
+            <Row 
+                key={row.id} 
+                title={row.title} 
+                fetchUrl={row.fetchUrl} 
+                variant={row.variant} 
+                itemType={row.itemType} 
+                isPrimeOnly={isPrimeOnly} 
+            />
+        ))}
+        
+        <InfiniteScrollTrigger onIntersect={loadMore} />
+      </div>
+    </>
+  ); 
+};
+
+// --- These components remain unchanged, but are included here for context ---
 const MoviesPage = ({ isPrimeOnly }) => { const { rows, loadMore } = useInfiniteRows('movie', isPrimeOnly); return <><Hero isPrimeOnly={isPrimeOnly} /><div className="-mt-10 relative z-20 pb-20">{rows.map(row => <Row key={row.id} title={row.title} fetchUrl={row.fetchUrl} variant={row.variant} itemType={row.itemType} isPrimeOnly={isPrimeOnly} />)}<InfiniteScrollTrigger onIntersect={loadMore} /></div></>; };
 const TVPage = ({ isPrimeOnly }) => { const { rows, loadMore } = useInfiniteRows('tv', isPrimeOnly); return <><Hero isPrimeOnly={isPrimeOnly} /><div className="-mt-10 relative z-20 pb-20">{rows.map(row => <Row key={row.id} title={row.title} fetchUrl={row.fetchUrl} variant={row.variant} itemType={row.itemType} isPrimeOnly={isPrimeOnly} />)}<InfiniteScrollTrigger onIntersect={loadMore} /></div></>; };
 const StorePage = () => <div className="pt-32 px-12 text-white">Store</div>;
