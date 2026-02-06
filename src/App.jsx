@@ -15,8 +15,8 @@ const useConnectionOptimizer = () => {
       "https://api.themoviedb.org",
       "https://image.tmdb.org",
       "https://iptv-org.github.io",
-      "https://a.111477.xyz", // Added new source
-      "https://api.allorigins.win" // Added proxy
+      "https://a.111477.xyz",
+      "https://corsproxy.io"
     ];
     
     domains.forEach(domain => {
@@ -114,16 +114,12 @@ const ScrollToTop = () => {
   return null;
 };
 
-/**
- * 111477 DIRECTORY OPENER
- * Finds and opens the exact Index folder for the movie/series.
- */
+// --- 111477 DIRECTORY OPENER ---
 async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
   const year = (mediaItem.release_date || mediaItem.first_air_date || '').slice(0, 4);
   const title = mediaItem.title || mediaItem.name;
 
   // 1. Clean the title for better matching (remove colons, extra spaces)
-  // e.g., "Spider-Man: No Way Home" -> "spider man no way home"
   const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
   const searchKey = normalize(title);
 
@@ -133,8 +129,7 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
     const baseDir = mediaType === 'tv' ? 'tvs' : 'movies';
     const baseUrl = `https://a.111477.xyz/${baseDir}/`;
     
-    // 2. Fetch the main directory list via Proxy (corsproxy.io is fast)
-    // We use a simplified regex scan instead of full DOM parsing for speed
+    // 2. Fetch the main directory list via Proxy
     const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(baseUrl)}`;
     const response = await fetch(proxyUrl);
     
@@ -176,7 +171,6 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
         finalUrl = bestLink.startsWith('http') ? bestLink : `${baseUrl}${bestLink}`;
     } else {
         // FALLBACK: If scanning failed, GUESS the standard format: "Title (Year)"
-        // This ensures the user gets a link even if the scan failed.
         console.warn("[111477] Scan incomplete. Guessing URL.");
         finalUrl = `${baseUrl}${encodeURIComponent(title)}%20(${year})/`;
     }
@@ -195,7 +189,6 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
     console.error("[111477] Error:", error);
     
     // ERROR FALLBACK: Even if the code crashes, return the Guessed URL
-    // so the user can still try to open it.
     const baseDir = mediaType === 'tv' ? 'tvs' : 'movies';
     const guessUrl = `https://a.111477.xyz/${baseDir}/${encodeURIComponent(title)}%20(${year})/`;
     
@@ -207,6 +200,12 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
     }];
   }
 }
+
+// --- MAIN DOWNLOAD AGGREGATOR ---
+async function getDownloadLinks(params) {
+    return await get111477Downloads(params);
+}
+
 
 // --- CATEGORY DECK ---
 const CATEGORY_DECK = [
@@ -1332,7 +1331,7 @@ const MovieDetail = () => {
   const handleDownload = async () => {
     setLoadingDownloads(true);
     try {
-        const links = await get111477Downloads({
+        const links = await getDownloadLinks({
             mediaItem: movie,
             mediaType: type
         });
@@ -1526,28 +1525,30 @@ const MovieDetail = () => {
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
           <div className="bg-[#19222b] border border-white/10 rounded-2xl w-full max-w-md p-6 shadow-2xl relative animate-modal-pop">
              <button onClick={() => setShowDownloadModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white"><X size={24} /></button>
-             <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2"><Download className="text-[#00A8E1]" /> Download Links</h3>
-             <p className="text-sm text-gray-400 mb-6">Select a quality to download <strong>{movie.title}</strong> directly.</p>
+             
+             <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
+                <Download className="text-[#00A8E1]" /> Download Options
+             </h3>
+             <p className="text-sm text-gray-400 mb-6">Found 111477 Index for <strong>{movie.title || movie.name}</strong>.</p>
              
              <div className="space-y-3 max-h-[60vh] overflow-y-auto scrollbar-hide">
                 {downloadLinks.map((link, idx) => (
-                   {/* Inside your Modal mapping loop */}
-<a 
-  key={idx} 
-  href={link.url} 
-  target="_blank"  // <--- This MUST be present to open in new tab
-  rel="noopener noreferrer"
-  className="block bg-[#232d38] hover:bg-[#00A8E1] border border-white/5 hover:border-transparent text-gray-200 hover:text-white p-4 rounded-xl transition-all group flex items-center justify-between"
->
-  <div className="flex flex-col">
-     <span className="font-bold">{link.label}</span>
-     <span className="text-[10px] opacity-70 uppercase tracking-wider">{link.source}</span>
-  </div>
-  <Download size={20} className="opacity-50 group-hover:opacity-100" />
-</a>
+                   <a 
+                     key={idx} 
+                     href={link.url} 
+                     target="_blank" 
+                     rel="noopener noreferrer"
+                     className="block bg-[#232d38] hover:bg-[#00A8E1] border border-white/5 hover:border-transparent text-gray-200 hover:text-white p-4 rounded-xl transition-all group flex items-center justify-between"
+                   >
+                      <div className="flex flex-col">
+                          <span className="font-bold">{link.label}</span>
+                          <span className="text-[10px] opacity-70 uppercase tracking-wider">{link.source}</span>
+                      </div>
+                      <Download size={20} className="opacity-50 group-hover:opacity-100" />
+                   </a>
                 ))}
              </div>
-             <div className="mt-4 text-center text-xs text-gray-500">Links are provided by third-party servers. Use an AdBlocker if needed.</div>
+             <div className="mt-4 text-center text-xs text-gray-500">Links open in a new tab. Select your file from the directory.</div>
           </div>
         </div>
       )}
