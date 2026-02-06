@@ -16,7 +16,8 @@ const useConnectionOptimizer = () => {
       "https://image.tmdb.org",
       "https://iptv-org.github.io",
       "https://a.111477.xyz",
-      "https://corsproxy.io"
+      "https://corsproxy.io",
+      "https://www.youtube.com"
     ];
     
     domains.forEach(domain => {
@@ -44,7 +45,7 @@ const GlobalStyles = () => (
   <style>{`
     .scrollbar-hide::-webkit-scrollbar { display: none; }
     .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
-    .nav-gradient { background: linear-gradient(180deg, rgba(0,5,13,0.7) 10%, transparent); }
+    .nav-gradient { background: linear-gradient(180deg, rgba(0,0,0,0.7) 10%, transparent); }
     
     /* Adjusted padding for 360x440px expansion */
     .row-container { 
@@ -59,16 +60,16 @@ const GlobalStyles = () => (
         position: relative;
     }
 
-    /* --- UPDATED: HUGE GLOWING NUMBERS --- */
+    /* --- HUGE GLOWING NUMBERS CSS --- */
     .rank-number { 
         position: absolute; 
-        left: -140px; /* Moved far left so it isn't hidden */
+        left: -140px; 
         bottom: -25px; 
-        font-size: 220px; /* Huge size */
+        font-size: 220px; 
         font-weight: 900; 
-        color: #0f171e; /* Dark fill to blend with bg */
-        -webkit-text-stroke: 4px #5a6069; /* Thicker stroke */
-        z-index: 0; /* Behind the card */
+        color: #000; /* True black fill */
+        -webkit-text-stroke: 4px #4b5563; 
+        z-index: 0; 
         font-family: 'Impact', sans-serif; 
         letter-spacing: -10px; 
         line-height: 0.8;
@@ -76,11 +77,11 @@ const GlobalStyles = () => (
 
     @keyframes neon-pulse {
       0%, 100% { 
-        text-shadow: 0 0 10px rgba(0, 168, 225, 0.3);
-        -webkit-text-stroke: 4px #5a6069;
+        text-shadow: 0 0 10px rgba(0, 168, 225, 0.2);
+        -webkit-text-stroke: 4px #4b5563;
       }
       50% { 
-        text-shadow: 0 0 30px rgba(0, 168, 225, 0.8);
+        text-shadow: 0 0 30px rgba(0, 168, 225, 0.6);
         -webkit-text-stroke: 4px #00A8E1;
         transform: scale(1.02);
       }
@@ -90,23 +91,16 @@ const GlobalStyles = () => (
         animation: neon-pulse 3s infinite ease-in-out;
     }
     
-    @keyframes pulse-glow {
-      0%, 100% { box-shadow: 0 0 10px rgba(0, 168, 225, 0.2); border-color: rgba(0, 168, 225, 0.3); }
-      50% { box-shadow: 0 0 20px rgba(0, 168, 225, 0.6); border-color: rgba(0, 168, 225, 0.8); }
-    }
-    
-    .animate-glow { animation: pulse-glow 2s infinite; }
-
     /* Cinematic Border Glow for Cards */
-    .glow-card { position: relative; z-index: 10; } /* Ensure card is above number */
+    .glow-card { position: relative; z-index: 10; } 
     .glow-card::before {
         content: ""; position: absolute; inset: -2px; border-radius: 14px; padding: 2px;
-        background: linear-gradient(45deg, transparent, rgba(0,168,225,0.3), transparent);
+        background: linear-gradient(45deg, transparent, rgba(255,255,255,0.1), transparent);
         -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
         -webkit-mask-composite: xor; mask-composite: exclude; opacity: 0.5; transition: opacity 0.3s ease;
     }
     .glow-card:hover::before {
-        background: linear-gradient(45deg, #00A8E1, #ffffff, #00A8E1); opacity: 1; box-shadow: 0 0 20px rgba(0,168,225,0.5);
+        background: linear-gradient(45deg, #00A8E1, #ffffff, #00A8E1); opacity: 1; box-shadow: 0 0 25px rgba(0,168,225,0.4);
     }
 
     @keyframes row-enter { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
@@ -129,7 +123,8 @@ const GlobalStyles = () => (
 // --- CONFIGURATION ---
 const TMDB_API_KEY = "09ca3ca71692ba80b848d268502d24ed";
 const BASE_URL = "https://api.themoviedb.org/3";
-const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
+// UPGRADED TO HIGH RES FOR 4K LOOK
+const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w780"; 
 const IMAGE_ORIGINAL_URL = "https://image.tmdb.org/t/p/original";
 const VIDFAST_BASE = "https://vidfast.pro";
 
@@ -148,9 +143,6 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
   const year = (mediaItem.release_date || mediaItem.first_air_date || '').slice(0, 4);
   const title = mediaItem.title || mediaItem.name;
 
-  // 1. Clean the title for better matching
-  // "Pluribus" -> "pluribus"
-  // "Spider-Man: No Way Home" -> "spider man no way home"
   const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
   const searchKey = normalize(title);
 
@@ -160,7 +152,7 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
     const baseDir = mediaType === 'tv' ? 'tvs' : 'movies';
     const baseUrl = `https://a.111477.xyz/${baseDir}/`;
     
-    // 2. Fetch the main directory list via Proxy
+    // Fetch via Proxy
     const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(baseUrl)}`;
     const response = await fetch(proxyUrl);
     
@@ -168,63 +160,49 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
     
     const html = await response.text();
 
-    // 3. Regex to find links
     const linkRegex = /<a href="([^"]+)">([^<]+)<\/a>/g;
     let match;
     let bestLink = null;
 
-    // SCANNINIG LOGIC
     while ((match = linkRegex.exec(html)) !== null) {
-        const href = match[1]; // e.g. "Pluribus/"
-        const text = decodeURIComponent(match[2]); // Decoded text
+        const href = match[1]; 
+        const text = decodeURIComponent(match[2]); 
         
         if (text === '../' || text === 'Name' || text === 'Size') continue;
 
         const normText = normalize(text);
         
         if (mediaType === 'tv') {
-            // TV LOGIC: Prioritize Exact Title Match (No Year)
-            // Example: "Pluribus/" matches "Pluribus"
             if (normText === searchKey) {
                 bestLink = href;
-                break; // Found exact title match, stop.
+                break; 
             }
-            // Fallback: Check if it contains the title (e.g. "The Flash (2014)")
             if (!bestLink && normText.includes(searchKey)) {
                 bestLink = href;
             }
         } else {
-            // MOVIE LOGIC: Prioritize Title + Year
             if (normText.includes(searchKey) && year && normText.includes(year)) {
                 bestLink = href;
                 break;
             }
-            // Fallback
             if (!bestLink && normText.includes(searchKey)) {
                 bestLink = href;
             }
         }
     }
 
-    // 4. Construct the Final URL
     let finalUrl;
     if (bestLink) {
-        // Fix relative paths
         finalUrl = bestLink.startsWith('http') ? bestLink : `${baseUrl}${bestLink}`;
     } else {
-        // FALLBACK GUESSING LOGIC
         console.warn("[111477] Scan incomplete. Guessing URL.");
         if (mediaType === 'tv') {
-             // TV Guess: usually just Title
-             // e.g. https://a.111477.xyz/tvs/Pluribus/
              finalUrl = `${baseUrl}${encodeURIComponent(title)}/`;
         } else {
-             // Movie Guess: Title (Year)
              finalUrl = `${baseUrl}${encodeURIComponent(title)}%20(${year})/`;
         }
     }
 
-    // Ensure directory trailing slash
     if (!finalUrl.endsWith('/')) finalUrl += '/';
 
     return [{
@@ -237,7 +215,6 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
   } catch (error) {
     console.error("[111477] Error:", error);
     
-    // ERROR FALLBACK (Guess based on type)
     const baseDir = mediaType === 'tv' ? 'tvs' : 'movies';
     let guessUrl;
     if (mediaType === 'tv') {
@@ -265,7 +242,7 @@ async function getDownloadLinks(params) {
 const CATEGORY_DECK = [
     { type: 'movie', label: "Action-Packed Thrillers", genre: 28, variant: 'standard' },
     { type: 'tv', label: "Binge-Worthy TV Dramas", genre: 18, variant: 'standard' },
-    { type: 'movie', label: "Top 10 in India", variant: 'ranked' }, // This variant triggers the Top 10 look
+    { type: 'movie', label: "Top 10 in India", variant: 'ranked' }, 
     { type: 'movie', label: "Laugh Out Loud", genre: 35, variant: 'vertical' },
     { type: 'movie', label: "Sci-Fi Masterpieces", genre: 878, variant: 'standard' },
     { type: 'movie', label: "Horror Nights", genre: 27, variant: 'vertical' },
@@ -509,9 +486,10 @@ const Navbar = ({ isPrimeOnly }) => {
       className="sticky top-0 w-full z-[1000] flex items-center px-[24px]"
       style={{
         height: '60px',
-        background: 'linear-gradient(to bottom, #121a22 0%, #0f171e 100%)',
+        background: 'linear-gradient(to bottom, #000000 0%, #000000 100%)',
         fontFamily: '"Amazon Ember", "Inter", "Segoe UI", sans-serif',
-        gap: '28px'
+        gap: '28px',
+        borderBottom: '1px solid rgba(255,255,255,0.05)'
       }}
     >
       <Link to={isPrimeOnly ? "/" : "/everything"} className="text-[#ffffff] font-bold text-[21px] tracking-[-0.2px] no-underline leading-none">
@@ -570,414 +548,6 @@ const Navbar = ({ isPrimeOnly }) => {
   );
 };
 
-// --- SPORTS / LIVE TV COMPONENTS ---
-
-const SportsPage = () => {
-    const [channels, setChannels] = useState([]);
-    const [displayedChannels, setDisplayedChannels] = useState([]);
-    const CATEGORIES_TREE = {
-        'All': [],
-        'General Entertainment': ['Entertainment', 'GEC (General Entertainment Channels)', 'Lifestyle', 'Music', 'Comedy'],
-        'News': ['News', 'News (International)', 'News (National)', 'News (Regional)', 'Business News', 'Political News'],
-        'Sports': ['Sports', 'Live Sports', 'Cricket', 'Football (Soccer)', 'Basketball', 'Tennis', 'Motorsports', 'Wrestling (WWE / AEW / UFC)', 'Sports Events (PPV)']
-    };
-
-    const [activeMainCategory, setActiveMainCategory] = useState('All');
-    const [activeSubCategory, setActiveSubCategory] = useState('All');
-    
-    const [searchQuery, setSearchQuery] = useState("");
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-    const [currentPage, setCurrentPage] = useState(1);
-    const itemsPerPage = 60;
-    const navigate = useNavigate();
-
-    const PLAYLIST_URL = 'https://iptv-org.github.io/iptv/index.m3u';
-    
-    const normalizeCategory = (groupName) => {
-        if (!groupName) return 'Entertainment';
-        const lower = groupName.toLowerCase();
-        
-        if (lower.includes('cricket')) return 'Cricket';
-        if (lower.includes('football') || lower.includes('soccer') || lower.includes('premier league') || lower.includes('laliga') || lower.includes('bundesliga')) return 'Football (Soccer)';
-        if (lower.includes('basket') || lower.includes('nba')) return 'Basketball';
-        if (lower.includes('tennis') || lower.includes('wimbledon') || lower.includes('atp')) return 'Tennis';
-        if (lower.includes('motor') || lower.includes('racing') || lower.includes('f1') || lower.includes('formula') || lower.includes('nascar')) return 'Motorsports';
-        if (lower.includes('wwe') || lower.includes('ufc') || lower.includes('wrestling') || lower.includes('boxing') || lower.includes('fight') || lower.includes('aew') || lower.includes('mma')) return 'Wrestling (WWE / AEW / UFC)';
-        if (lower.includes('ppv') || lower.includes('event')) return 'Sports Events (PPV)';
-        if (lower.includes('sport')) return 'Live Sports';
-
-        if (lower.includes('business') || lower.includes('finance') || lower.includes('market') || lower.includes('bloomberg') || lower.includes('cnbc')) return 'Business News';
-        if (lower.includes('politics') || lower.includes('parliament') || lower.includes('c-span')) return 'Political News';
-        if (lower.includes('international') || lower.includes('world') || lower.includes('global') || lower.includes('cnn') || lower.includes('bbc') || lower.includes('al jazeera')) return 'News (International)';
-        if (lower.includes('national')) return 'News (National)';
-        if (lower.includes('regional') || lower.includes('local')) return 'News (Regional)';
-        if (lower.includes('news')) return 'News'; 
-
-        if (lower.includes('music') || lower.includes('hits') || lower.includes('mtv') || lower.includes('vh1')) return 'Music';
-        if (lower.includes('comedy') || lower.includes('funny') || lower.includes('standup')) return 'Comedy';
-        if (lower.includes('lifestyle') || lower.includes('fashion') || lower.includes('travel') || lower.includes('food') || lower.includes('cooking') || lower.includes('tlc')) return 'Lifestyle';
-        if (lower.includes('gec') || lower.includes('sony') || lower.includes('star') || lower.includes('colors') || lower.includes('zee') || lower.includes('hbo') || lower.includes('amc')) return 'GEC (General Entertainment Channels)';
-        
-        return 'Entertainment'; 
-    };
-
-    const getParentCategory = (subCat) => {
-        for (const [main, subs] of Object.entries(CATEGORIES_TREE)) {
-            if (subs.includes(subCat)) return main;
-        }
-        return 'General Entertainment';
-    };
-
-    useEffect(() => {
-        setLoading(true);
-        setError(null);
-
-        fetch(PLAYLIST_URL)
-            .then(res => {
-                if (!res.ok) throw new Error("Failed to load playlist");
-                return res.text();
-            })
-            .then(data => {
-                const lines = data.split('\n');
-                const parsed = [];
-                let current = {};
-
-                for (let i = 0; i < lines.length; i++) {
-                    let line = lines[i].trim();
-                    
-                    if (line.startsWith('#EXTINF:')) {
-                        const logoMatch = line.match(/tvg-logo="([^"]*)"/);
-                        const groupMatch = line.match(/group-title="([^"]*)"/);
-                        const name = line.split(',').pop().trim();
-                        const rawGroup = groupMatch ? groupMatch[1].trim() : 'Uncategorized';
-                        const normalizedGroup = normalizeCategory(rawGroup);
-
-                        current = { 
-                            name, 
-                            logo: logoMatch ? logoMatch[1] : null, 
-                            group: normalizedGroup,
-                            parentGroup: getParentCategory(normalizedGroup)
-                        };
-                    } else if (line.startsWith('http') && current.name) {
-                        current.url = line;
-                        parsed.push(current);
-                        current = {}; 
-                    }
-                }
-
-                if (parsed.length === 0) {
-                    throw new Error("No channels found in playlist.");
-                }
-                
-                setChannels(parsed);
-                setLoading(false);
-            })
-            .catch(e => {
-                console.error("Playlist Error:", e);
-                setError("Unable to load live channels. The feed might be down.");
-                setLoading(false);
-            });
-    }, []);
-
-    useEffect(() => {
-        let filtered = channels;
-
-        if (activeMainCategory !== 'All') {
-            filtered = filtered.filter(c => c.parentGroup === activeMainCategory);
-        }
-
-        if (activeSubCategory !== 'All') {
-            filtered = filtered.filter(c => c.group === activeSubCategory);
-        }
-
-        if (searchQuery.trim()) {
-            const lowerQ = searchQuery.toLowerCase();
-            filtered = filtered.filter(c => c.name.toLowerCase().includes(lowerQ));
-        }
-        
-        const startIndex = (currentPage - 1) * itemsPerPage;
-        const endIndex = startIndex + itemsPerPage;
-        
-        setDisplayedChannels(filtered.slice(startIndex, endIndex));
-    }, [activeMainCategory, activeSubCategory, searchQuery, channels, currentPage]);
-
-    useEffect(() => {
-        setCurrentPage(1);
-    }, [activeMainCategory, activeSubCategory, searchQuery]);
-
-    useEffect(() => {
-        const handleKeyDown = (e) => {
-            if (e.key === 'ArrowRight') {
-                setCurrentPage(p => p + 1);
-            } else if (e.key === 'ArrowLeft') {
-                setCurrentPage(p => Math.max(1, p - 1));
-            }
-        };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, []);
-
-    const totalPages = Math.ceil(
-        (activeMainCategory === 'All' && activeSubCategory === 'All' && !searchQuery 
-            ? channels.length 
-            : channels.filter(c => {
-                const matchMain = activeMainCategory === 'All' || c.parentGroup === activeMainCategory;
-                const matchSub = activeSubCategory === 'All' || c.group === activeSubCategory;
-                const matchSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase());
-                return matchMain && matchSub && matchSearch;
-              }).length
-        ) / itemsPerPage
-    );
-
-    return (
-        <div className="pt-24 px-4 md:px-12 min-h-screen pb-20">
-            <div className="flex flex-col md:flex-row justify-between items-end gap-6 mb-8">
-                <div>
-                    <h2 className="text-3xl font-bold text-white flex items-center gap-2 glow-text">
-                        <Monitor className="text-[#00A8E1]" /> Live TV
-                    </h2>
-                    <p className="text-gray-400 text-sm mt-1">
-                        {loading ? "Scanning frequencies..." : `${channels.length} Channels Available`}
-                    </p>
-                </div>
-                <div className="flex w-full md:w-auto gap-2">
-                    <div className="relative flex-1 md:w-80">
-                        <input 
-                            type="text" 
-                            placeholder="Find channel..." 
-                            className="w-full bg-[#19222b] border border-white/10 rounded-lg px-4 py-3 pl-10 text-white focus:border-[#00A8E1] outline-none font-medium transition-all duration-300 focus:shadow-[0_0_15px_rgba(0,168,225,0.4)]"
-                            value={searchQuery}
-                            onChange={e => setSearchQuery(e.target.value)}
-                        />
-                        <Search className="absolute left-3 top-3.5 text-gray-500" size={18} />
-                        {searchQuery && <X onClick={() => setSearchQuery('')} className="absolute right-3 top-3.5 text-gray-400 cursor-pointer hover:text-white" size={18} />}
-                    </div>
-                </div>
-            </div>
-
-            {!loading && !error && (
-                <div className="flex flex-col gap-4 mb-8">
-                    <div className="flex items-center gap-3 overflow-x-auto scrollbar-hide pb-2 px-2">
-                        {['All', ...Object.keys(CATEGORIES_TREE).filter(k => k !== 'All')].map(cat => (
-                            <button 
-                                key={cat} 
-                                onClick={() => { setActiveMainCategory(cat); setActiveSubCategory('All'); }}
-                                className={`px-6 py-2.5 rounded-lg font-bold text-sm whitespace-nowrap transition-all duration-300 border relative overflow-hidden group ${
-                                    activeMainCategory === cat 
-                                    ? 'bg-[#00A8E1] text-white border-transparent shadow-[0_0_20px_rgba(0,168,225,0.6)] scale-105' 
-                                    : 'bg-[#19222b] text-gray-400 border-transparent hover:text-white hover:bg-[#333c46] hover:shadow-[0_0_15px_rgba(255,255,255,0.1)] hover:scale-105'
-                                }`}
-                            >
-                                <span className="relative z-10">{cat}</span>
-                                {activeMainCategory === cat && <div className="absolute inset-0 bg-white/20 animate-pulse"></div>}
-                            </button>
-                        ))}
-                    </div>
-
-                    {activeMainCategory !== 'All' && CATEGORIES_TREE[activeMainCategory] && (
-                        <div className="flex items-center gap-3 overflow-x-auto scrollbar-hide pb-2 px-2 animate-in fade-in slide-in-from-top-2">
-                            <button 
-                                onClick={() => setActiveSubCategory('All')}
-                                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all duration-300 border hover:scale-105 ${
-                                    activeSubCategory === 'All' 
-                                    ? 'bg-white text-black border-white shadow-[0_0_15px_rgba(255,255,255,0.4)]' 
-                                    : 'bg-transparent text-gray-400 border-gray-700 hover:border-white hover:text-white'
-                                }`}
-                            >
-                                All {activeMainCategory}
-                            </button>
-                            {CATEGORIES_TREE[activeMainCategory].map(sub => (
-                                <button 
-                                    key={sub} 
-                                    onClick={() => setActiveSubCategory(sub)}
-                                    className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all duration-300 border hover:scale-105 ${
-                                        activeSubCategory === sub 
-                                        ? 'bg-[#00A8E1] text-white border-[#00A8E1] shadow-[0_0_15px_rgba(0,168,225,0.5)]' 
-                                        : 'bg-[#19222b] text-gray-400 border-gray-800 hover:border-[#00A8E1] hover:text-[#00A8E1]'
-                                    }`}
-                                >
-                                    {sub}
-                                </button>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {loading ? (
-                <div className="h-80 flex flex-col items-center justify-center text-[#00A8E1] gap-4">
-                    <Loader className="animate-spin" size={48} />
-                    <div className="text-gray-400 text-sm font-medium animate-pulse">Fetching global channels feed...</div>
-                </div>
-            ) : error ? (
-                <div className="h-60 flex flex-col items-center justify-center text-red-500 gap-2 border border-dashed border-white/10 rounded-xl">
-                    <Ban size={48} />
-                    <p>{error}</p>
-                    <button onClick={() => window.location.reload()} className="text-white underline mt-2">Retry Connection</button>
-                </div>
-            ) : displayedChannels.length === 0 ? (
-                <div className="h-60 flex flex-col items-center justify-center text-gray-500 gap-3 border border-dashed border-white/10 rounded-xl">
-                    <Monitor size={48} className="opacity-20" />
-                    <p>No channels found for this search.</p>
-                </div>
-            ) : (
-                <>
-                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 animate-in fade-in duration-500">
-                        {displayedChannels.map((channel, idx) => (
-                            <div 
-                                key={idx} 
-                                onClick={() => navigate('/watch/sport/iptv', { state: { streamUrl: channel.url, title: channel.name, logo: channel.logo, group: channel.group } })}
-                                className="bg-[#19222b] hover:bg-[#232d38] rounded-xl overflow-hidden cursor-pointer group hover:-translate-y-2 transition-all duration-300 shadow-lg hover:shadow-[0_0_30px_rgba(0,168,225,0.3)] relative glow-card border border-white/5"
-                            >
-                                <div className="aspect-video bg-black/40 flex items-center justify-center p-4 relative group-hover:bg-black/20 transition-colors">
-                                    {channel.logo ? (
-                                        <img src={channel.logo} className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-300 drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]" alt={channel.name} onError={e => e.target.style.display='none'} />
-                                    ) : (
-                                        <Signal className="text-gray-700 group-hover:text-[#00A8E1] transition-colors" size={32} />
-                                    )}
-                                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-300 backdrop-blur-sm">
-                                        <div className="bg-[#00A8E1] p-3 rounded-full shadow-[0_0_20px_#00A8E1] transform scale-50 group-hover:scale-100 transition-transform duration-300">
-                                            <Play fill="white" className="text-white" size={20} />
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="p-3 bg-[#19222b] group-hover:bg-[#1f2933] transition-colors border-t border-white/5">
-                                    <h3 className="text-gray-200 text-xs font-bold truncate group-hover:text-[#00A8E1] transition-colors">{channel.name}</h3>
-                                    <div className="flex items-center gap-1.5 mt-1">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shadow-[0_0_5px_#22c55e]"></span>
-                                        <p className="text-gray-500 text-[10px] font-bold truncate uppercase group-hover:text-white transition-colors">{channel.group}</p>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                    
-                    <div className="flex justify-center items-center gap-4 mt-12 mb-8">
-                        <button 
-                            disabled={currentPage === 1}
-                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                            className="p-3 rounded-full bg-[#19222b] hover:bg-[#333c46] hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] disabled:opacity-50 disabled:cursor-not-allowed text-white transition-all duration-300"
-                        >
-                            <ChevronLeft size={24} />
-                        </button>
-                        
-                        <div className="flex gap-2 overflow-x-auto max-w-[300px] scrollbar-hide px-2 items-center">
-                            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                                let pageNum = currentPage - 2 + i;
-                                if (pageNum <= 0) pageNum = i + 1;
-                                if (pageNum > totalPages) return null;
-                                
-                                return (
-                                    <button 
-                                        key={pageNum}
-                                        onClick={() => setCurrentPage(pageNum)}
-                                        className={`w-10 h-10 rounded-full font-bold text-sm transition-all duration-300 ${
-                                            currentPage === pageNum 
-                                            ? 'bg-[#00A8E1] text-white scale-110 shadow-[0_0_15px_#00A8E1]' 
-                                            : 'bg-[#19222b] text-gray-400 hover:text-white hover:bg-[#333c46] hover:shadow-[0_0_10px_rgba(255,255,255,0.1)]'
-                                        }`}
-                                    >
-                                        {pageNum}
-                                    </button>
-                                );
-                            })}
-                        </div>
-
-                        <button 
-                            disabled={currentPage >= totalPages}
-                            onClick={() => setCurrentPage(p + 1)}
-                            className="p-3 rounded-full bg-[#19222b] hover:bg-[#333c46] hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] disabled:opacity-50 disabled:cursor-not-allowed text-white transition-all duration-300"
-                        >
-                            <ChevronRight size={24} />
-                        </button>
-                    </div>
-                    <div className="text-center text-gray-500 text-xs pb-8 animate-pulse">
-                        Page {currentPage} of {totalPages} • Use Arrow Keys &larr; &rarr; to navigate
-                    </div>
-                </>
-            )}
-        </div>
-    );
-};
-
-const SportsPlayer = () => {
-    const navigate = useNavigate();
-    const location = useLocation();
-    const videoRef = useRef(null);
-    const { streamUrl, title, logo, group } = location.state || {};
-    const [isMuted, setIsMuted] = useState(false);
-
-    useEffect(() => {
-        if (!streamUrl) return;
-
-        let hls;
-        if (Hls && Hls.isSupported()) {
-            hls = new Hls();
-            hls.loadSource(streamUrl);
-            hls.attachMedia(videoRef.current);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                videoRef.current.play().catch(e => console.log("Auto-play prevented", e));
-            });
-        } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-            videoRef.current.src = streamUrl;
-            videoRef.current.addEventListener('loadedmetadata', () => {
-                videoRef.current.play();
-            });
-        }
-
-        return () => {
-            if (hls) hls.destroy();
-        };
-    }, [streamUrl]);
-
-    if (!streamUrl) return <div className="text-white pt-20 text-center">No stream selected. <button onClick={() => navigate(-1)} className="text-[#00A8E1] ml-2 hover:underline">Go Back</button></div>;
-
-    return (
-        <div className="fixed inset-0 bg-[#0f171e] z-[200] flex flex-col">
-            <div className="absolute top-0 left-0 w-full h-24 bg-gradient-to-b from-black/80 to-transparent z-50 flex items-center px-6 justify-between pointer-events-none">
-                <div className="flex items-center gap-4 pointer-events-auto">
-                    <button onClick={() => navigate(-1)} className="w-12 h-12 rounded-full bg-black/40 hover:bg-[#00A8E1] backdrop-blur-md flex items-center justify-center text-white transition border border-white/10 group">
-                        <ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" />
-                    </button>
-                    <div>
-                        <div className="flex items-center gap-3">
-                            {logo && <img src={logo} className="h-8 w-auto object-contain bg-white/10 rounded px-1" alt="" onError={(e) => e.target.style.display='none'} />}
-                            <h1 className="text-white font-bold text-xl leading-tight drop-shadow-md">{title || "Live Stream"}</h1>
-                        </div>
-                        <div className="flex items-center gap-2 mt-1">
-                            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_red]"></span>
-                            <span className="text-[#00A8E1] text-xs font-bold tracking-widest uppercase">{group || "LIVE BROADCAST"}</span>
-                        </div>
-                    </div>
-                </div>
-                <div className="pointer-events-auto">
-                    <button onClick={() => { setIsMuted(!isMuted); videoRef.current.muted = !isMuted; }} className="w-12 h-12 rounded-full bg-black/40 hover:bg-white/20 backdrop-blur-md flex items-center justify-center text-white transition border border-white/10 hover:shadow-[0_0_15px_rgba(255,255,255,0.2)]">
-                        {isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}
-                    </button>
-                </div>
-            </div>
-
-            <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden group">
-                <video 
-                    ref={videoRef} 
-                    className="w-full h-full object-contain" 
-                    controls 
-                    autoPlay
-                    playsInline
-                    preload="auto"
-                ></video>
-                
-                <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-black/90 to-transparent pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end px-8 pb-8">
-                    <div className="text-white/80 text-sm font-medium">
-                        Streaming via secure HLS protocol • {new Date().toLocaleTimeString()}
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-};
-
 // --- HERO SECTION ---
 const Hero = ({ isPrimeOnly }) => {
   const [movies, setMovies] = useState([]);
@@ -1017,6 +587,7 @@ const Hero = ({ isPrimeOnly }) => {
       fetch(`${BASE_URL}/${mediaType}/${movie.id}/videos?api_key=${TMDB_API_KEY}`)
         .then(res => res.json())
         .then(data => {
+            // Find Official Trailer if possible, else any YouTube video
             const trailer = data.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube') || data.results?.find(v => v.site === 'YouTube');
             if (trailer) {
                 setTrailerKey(trailer.key);
@@ -1044,13 +615,13 @@ const Hero = ({ isPrimeOnly }) => {
   const nextSlide = () => setCurrentSlide((prev) => (prev + 1) % movies.length);
   const prevSlide = () => setCurrentSlide((prev) => (prev - 1 + movies.length) % movies.length);
 
-  if (movies.length === 0) return <div className="h-[85vh] w-full bg-[#00050D]" />;
+  if (movies.length === 0) return <div className="h-[85vh] w-full bg-[#000000]" />;
 
   const movie = movies[currentSlide];
 
   return (
     <div 
-        className="relative w-full h-[85vh] overflow-hidden group"
+        className="relative w-full h-[85vh] overflow-hidden group bg-black"
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
     >
@@ -1059,10 +630,10 @@ const Hero = ({ isPrimeOnly }) => {
       </div>
 
       {showVideo && trailerKey && (
-          <div className="absolute inset-0 animate-in pointer-events-none">
+          <div className="absolute inset-0 animate-in pointer-events-none bg-black">
              <iframe 
-                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`}
-                className="w-full h-full scale-[1.3]" 
+                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}&vq=hd1080`}
+                className="w-full h-full scale-[1.35] origin-center" 
                 allow="autoplay; encrypted-media"
                 frameBorder="0"
                 title="Hero Trailer"
@@ -1070,31 +641,31 @@ const Hero = ({ isPrimeOnly }) => {
           </div>
       )}
 
-      <div className="absolute inset-0 bg-gradient-to-r from-[#00050D] via-[#00050D]/40 to-transparent" />
-      <div className="absolute inset-0 bg-gradient-to-t from-[#00050D] via-transparent to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-r from-black via-black/40 to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent" />
 
       <div className="absolute top-[25%] left-[4%] max-w-[600px] z-30 animate-row-enter">
-        <h1 className="text-5xl md:text-7xl font-extrabold text-white mb-4 drop-shadow-[0_4px_10px_rgba(0,0,0,0.8)] tracking-tight leading-tight">
+        <h1 className="text-5xl md:text-7xl font-extrabold text-white mb-4 drop-shadow-2xl tracking-tight leading-tight antialiased">
             {movie.title || movie.name}
         </h1>
         
         <div className="flex items-center gap-3 text-[#a9b7c1] font-bold text-sm mb-6">
            {isPrimeOnly && <span className={`${theme.color} tracking-wide`}>Included with Prime</span>}
-           <span className="bg-[#33373d]/80 text-white px-1.5 py-0.5 rounded text-xs border border-gray-600 backdrop-blur-md">UHD</span>
-           <span className="bg-[#33373d]/80 text-white px-1.5 py-0.5 rounded text-xs border border-gray-600 backdrop-blur-md">16+</span>
+           <span className="bg-white/10 text-white px-1.5 py-0.5 rounded text-xs border border-white/20 backdrop-blur-md">UHD</span>
+           <span className="bg-white/10 text-white px-1.5 py-0.5 rounded text-xs border border-white/20 backdrop-blur-md">16+</span>
         </div>
         
-        <p className="text-lg text-white font-medium line-clamp-3 mb-8 opacity-90 drop-shadow-md text-shadow-sm">{movie.overview}</p>
+        <p className="text-lg text-white font-medium line-clamp-3 mb-8 opacity-90 drop-shadow-lg text-shadow-sm antialiased">{movie.overview}</p>
         
         <div className="flex items-center gap-4">
             <button onClick={() => navigate(`/watch/${movie.media_type || 'movie'}/${movie.id}`)} className={`${theme.bg} ${theme.hoverBg} text-white h-14 pl-8 pr-8 rounded-md font-bold text-lg flex items-center gap-3 transition transform hover:scale-105 ${theme.shadow}`}>
                 <Play fill="white" size={24} /> 
                 {isPrimeOnly ? "Play" : "Rent or Play"}
             </button>
-            <button className="w-14 h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm group">
+            <button className="w-14 h-14 rounded-full bg-white/10 border border-white/30 flex items-center justify-center hover:bg-white/20 hover:border-white transition backdrop-blur-sm group">
                 <Plus size={28} className="text-gray-200 group-hover:text-white" />
             </button>
-            <button onClick={() => navigate(`/detail/${movie.media_type || 'movie'}/${movie.id}`)} className="w-14 h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm group">
+            <button onClick={() => navigate(`/detail/${movie.media_type || 'movie'}/${movie.id}`)} className="w-14 h-14 rounded-full bg-white/10 border border-white/30 flex items-center justify-center hover:bg-white/20 hover:border-white transition backdrop-blur-sm group">
                 <Info size={28} className="text-gray-200 group-hover:text-white" />
             </button>
         </div>
@@ -1103,7 +674,7 @@ const Hero = ({ isPrimeOnly }) => {
       <div className="absolute top-32 right-[4%] z-40">
           <button 
             onClick={() => setIsMuted(!isMuted)} 
-            className="w-12 h-12 rounded-full border-2 border-white/20 bg-black/20 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/10 hover:border-white transition"
+            className="w-12 h-12 rounded-full border-2 border-white/20 bg-black/40 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/20 hover:border-white transition"
           >
               {isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}
           </button>
@@ -1124,6 +695,9 @@ const Hero = ({ isPrimeOnly }) => {
     </div>
   );
 };
+
+// ... (Rest of components: MovieCard, Row, SearchResults, MovieDetail, Player, etc. remain the same) 
+// Copying remaining components to ensure full file integrity
 
 // --- MOVIE CARD COMPONENT ---
 const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank, isPrimeOnly, isFirst, isLast }) => {
@@ -1168,7 +742,7 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
         <div 
             className={`
                 absolute inset-0 flex flex-col justify-end px-4 py-5 text-white
-                bg-gradient-to-t from-[#0f171e] via-[#0f171e]/95 to-transparent
+                bg-gradient-to-t from-black via-black/95 to-transparent
                 transition-all duration-300 ease-out z-30
                 ${isHovered ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}
             `}
@@ -1241,7 +815,6 @@ const Row = ({ title, fetchUrl, variant = 'standard', itemType = 'movie', isPrim
       if (rowRef.current) rowRef.current.scrollBy({ left: 800, behavior: 'smooth' });
   };
 
-  // Limit 'ranked' movies to top 10
   const displayMovies = variant === 'ranked' ? movies.slice(0, 10) : movies;
 
   return (
@@ -1331,7 +904,7 @@ const SearchResults = ({ isPrimeOnly }) => {
   }, [query, isPrimeOnly]); 
 
   return (
-    <div className="pt-28 px-8 min-h-screen">
+    <div className="pt-28 px-8 min-h-screen bg-black">
         <h2 className="text-white text-2xl mb-6 flex items-center gap-2">
             Results for "{query}" 
             {loading && <Loader className="animate-spin ml-2" size={20} />}
@@ -1384,7 +957,6 @@ const MovieDetail = () => {
     fetch(`${BASE_URL}/${type}/${id}/recommendations?api_key=${TMDB_API_KEY}&language=en-US`).then(res => res.json()).then(data => setRelatedMovies(data.results?.slice(0, 10) || []));
   }, [type, id]);
 
-  // --- NEW DOWNLOAD HANDLER (111477 Source) ---
   const handleDownload = async () => {
     setLoadingDownloads(true);
     try {
@@ -1407,7 +979,7 @@ const MovieDetail = () => {
     }
   };
 
-  if (!movie) return <div className="min-h-screen w-full bg-[#0f171e]" />;
+  if (!movie) return <div className="min-h-screen w-full bg-black" />;
   const director = credits?.crew?.find(c => c.job === 'Director')?.name || "Unknown Director";
   const cast = credits?.cast?.slice(0, 5).map(c => c.name).join(", ") || "N/A";
   const studio = movie.production_companies?.[0]?.name || "Prime Studios";
@@ -1417,7 +989,7 @@ const MovieDetail = () => {
   const rating = movie.vote_average ? movie.vote_average.toFixed(1) : "N/A";
 
   return (
-    <div className="min-h-screen bg-[#0f171e] text-white font-sans selection:bg-[#00A8E1] selection:text-white pb-20">
+    <div className="min-h-screen bg-black text-white font-sans selection:bg-[#00A8E1] selection:text-white pb-20">
       <div className="relative w-full h-[85vh] overflow-hidden">
           <div className="absolute inset-0 w-full h-full">
                 <div className={`absolute inset-0 transition-opacity duration-1000 ${showVideo ? 'opacity-0' : 'opacity-100'}`}>
@@ -1436,8 +1008,8 @@ const MovieDetail = () => {
                 )}
           </div>
 
-          <div className="absolute inset-0 bg-gradient-to-r from-[#0f171e] via-[#0f171e]/90 to-transparent w-[90%] md:w-[65%] z-10" />
-          <div className="absolute inset-0 bg-gradient-to-t from-[#0f171e] via-transparent to-transparent z-10" />
+          <div className="absolute inset-0 bg-gradient-to-r from-black via-black/90 to-transparent w-[90%] md:w-[65%] z-10" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent z-10" />
 
           <div className="absolute inset-0 z-20 flex flex-col justify-center px-6 md:px-16 lg:px-24 max-w-3xl pt-20">
               <div className="mb-4 opacity-0 animate-fade-in-up" style={{ animationDelay: '0ms' }}>
@@ -1446,7 +1018,7 @@ const MovieDetail = () => {
                   </span>
               </div>
 
-              <h1 className="text-4xl md:text-6xl lg:text-7xl font-extrabold mb-4 leading-[0.95] tracking-tight drop-shadow-2xl opacity-0 animate-fade-in-up" style={{ animationDelay: '100ms' }}>
+              <h1 className="text-4xl md:text-6xl lg:text-7xl font-extrabold mb-4 leading-[0.95] tracking-tight drop-shadow-2xl opacity-0 animate-fade-in-up antialiased" style={{ animationDelay: '100ms' }}>
                   {movie.title || movie.name}
               </h1>
 
@@ -1778,7 +1350,7 @@ function App() {
     <BrowserRouter>
       <GlobalStyles />
       <ScrollToTop />
-      <div className="bg-[#00050D] min-h-screen text-white font-sans selection:bg-[#00A8E1] selection:text-white">
+      <div className="bg-[#000000] min-h-screen text-white font-sans selection:bg-[#00A8E1] selection:text-white">
         <Routes>
           <Route path="/" element={<><Navbar isPrimeOnly={true} /><Home isPrimeOnly={true} /></>} />
           <Route path="/movies" element={<><Navbar isPrimeOnly={true} /><MoviesPage isPrimeOnly={true} /></>} />
