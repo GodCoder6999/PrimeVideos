@@ -343,52 +343,17 @@ const Navbar = ({ isPrimeOnly }) => {
   const dropdownRef = useRef(null);
   const theme = getTheme(isPrimeOnly);
 
-  // --- 2. UPDATED EVENT LISTENER (100% ACCURATE) ---
+  // --- BROKEN CODE REMOVED FROM HERE ---
+
   useEffect(() => {
-    const handleVidFastEvent = ({ origin, data }) => {
-        // Security Check
-        if (!VIDFAST_ORIGINS.includes(origin) || !data) return;
-
-        // A. Handle "MEDIA_DATA" (The most accurate full snapshot)
-        if (data.type === 'MEDIA_DATA') {
-            const currentHistory = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
-            
-            // Merge the new data with existing history to prevent data loss
-            // We use spread syntax to ensure we keep old movies while updating the current one
-            const updatedHistory = {
-                ...currentHistory,
-                ...data.data // This contains the accurate progress object for the current media
-            };
-            
-            localStorage.setItem('vidFastProgress', JSON.stringify(updatedHistory));
-        }
-
-        // B. Handle "PLAYER_EVENT" (Real-time fallback for UI updates)
-        if (data.type === 'PLAYER_EVENT') {
-            const { event, currentTime, duration, mediaType, tmdbId } = data.data;
-            
-            // Only update on time ticks or pause to keep it efficient
-            if (event === 'timeupdate' || event === 'pause') {
-                const storageKey = `${mediaType === 'tv' ? 't' : 'm'}${tmdbId}`;
-                const allProgress = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
-                
-                // Get current item or initialize
-                const item = allProgress[storageKey] || { id: tmdbId, type: mediaType, progress: {} };
-                
-                // FORCE UPDATE TIMESTAMP
-                item.last_updated = Date.now(); // Critical for sorting
-                item.progress = { watched: currentTime, duration: duration };
-
-                // Save back
-                allProgress[storageKey] = item;
-                localStorage.setItem('vidFastProgress', JSON.stringify(allProgress));
-            }
-        }
-    };
-
-    window.addEventListener('message', handleVidFastEvent);
-    return () => window.removeEventListener('message', handleVidFastEvent);
+      const handleClickOutside = (event) => { 
+          if (dropdownRef.current && !dropdownRef.current.contains(event.target)) setMenuOpen(false); 
+          if (searchRef.current && !searchRef.current.contains(event.target)) setShowSuggestions(false);
+      };
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
   useEffect(() => {
       const fetchSuggestions = async () => {
           if (query.trim().length < 2) {
@@ -1039,6 +1004,7 @@ const MovieDetail = () => {
 };
 
 // --- PLAYER COMPONENT (UPDATED FOR RESUME) ---
+// --- PLAYER COMPONENT (UPDATED FOR RESUME) ---
 const Player = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
@@ -1060,16 +1026,16 @@ const Player = () => {
   useEffect(() => { if (type === 'tv') { fetch(`${BASE_URL}/tv/${id}?api_key=${TMDB_API_KEY}`).then(res => res.json()).then(data => { if(data.number_of_seasons) setTotalSeasons(data.number_of_seasons); }); } }, [type, id]);
   useEffect(() => { if (type === 'tv') { fetch(`${BASE_URL}/tv/${id}/season/${season}?api_key=${TMDB_API_KEY}`).then(res => res.json()).then(data => setSeasonData(data)); } }, [type, id, season]);
 
-  // EVENT LISTENER FOR VIDFAST
+  // EVENT LISTENER FOR VIDFAST (100% ACCURATE MEDIA_DATA)
   useEffect(() => {
-    // PRE-FETCH METADATA to ensure Home screen has image/title immediately upon playing
+    // PRE-FETCH METADATA
     const prefetchMeta = async () => {
         try {
             const res = await fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}`);
             const data = await res.json();
             const storageKey = `${type === 'tv' ? 't' : 'm'}${id}`;
             const allProgress = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
-            // Only update if it doesn't exist to avoid overwriting progress
+            // Initialize if not exists
             if (!allProgress[storageKey]) {
                 allProgress[storageKey] = {
                     id: parseInt(id),
@@ -1079,7 +1045,7 @@ const Player = () => {
                     backdrop_path: data.backdrop_path,
                     vote_average: data.vote_average,
                     progress: { watched: 0, duration: 0 },
-                    last_updated: Date.now() // Initialize so it appears at top
+                    last_updated: Date.now() 
                 };
                 localStorage.setItem('vidFastProgress', JSON.stringify(allProgress));
             }
@@ -1089,6 +1055,18 @@ const Player = () => {
 
     const handleVidFastEvent = ({ origin, data }) => {
         if (!VIDFAST_ORIGINS.includes(origin) || !data) return;
+
+        // A. Handle "MEDIA_DATA" (The most accurate full snapshot)
+        if (data.type === 'MEDIA_DATA') {
+            const currentHistory = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
+            const updatedHistory = {
+                ...currentHistory,
+                ...data.data 
+            };
+            localStorage.setItem('vidFastProgress', JSON.stringify(updatedHistory));
+        }
+
+        // B. Handle "PLAYER_EVENT" (Real-time updates)
         if (data.type === 'PLAYER_EVENT') {
             const { event, currentTime, duration, mediaType, tmdbId, season: evtSeason, episode: evtEpisode } = data.data;
             if (event === 'timeupdate' || event === 'pause') {
@@ -1137,7 +1115,7 @@ const Player = () => {
             }
         }
         
-        // Resume only if watched > 5 seconds and strictly strictly use Math.floor
+        // Resume only if watched > 5 seconds
         if (startTime > 5) {
              startParams = `&startAt=${Math.floor(startTime)}`;
         }
