@@ -59,21 +59,25 @@ const GlobalStyles = () => (
         position: relative;
     }
 
+    // ... inside GlobalStyles string ...
+
     /* --- NEW GLOWING NUMBERS CSS --- */
     .rank-number { 
         position: absolute; 
-        left: -20px; /* Adjusted to fit better next to the card */
-        bottom: 0; 
-        font-size: 110px; 
+        left: -75px;  /* Changed from -20px to -75px to push it out */
+        bottom: -15px; /* Slight adjustment to align with bottom */
+        font-size: 240px; /* Changed from 110px to 240px (Massive size) */
         font-weight: 900; 
         color: #19222b; 
-        -webkit-text-stroke: 2px #5a6069; 
+        -webkit-text-stroke: 4px #5a6069; /* Thicker stroke (2px -> 4px) */
         z-index: 0; 
         font-family: sans-serif; 
-        letter-spacing: -5px; 
-        line-height: 0.8;
-        text-shadow: 0 0 15px rgba(0, 168, 225, 0.3); /* Initial subtle glow */
+        letter-spacing: -10px; /* Tighter letter spacing */
+        line-height: 0.7;
+        text-shadow: 0 0 15px rgba(0, 168, 225, 0.3); 
     }
+
+// ...
 
     @keyframes neon-pulse {
       0%, 100% { 
@@ -1117,7 +1121,7 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
   
   const baseWidth = 'w-[160px] md:w-[200px]';
   const aspectRatio = 'aspect-[360/440]'; 
-  const cardMargin = variant === 'ranked' ? 'ml-[70px]' : ''; 
+  const cardMargin = variant === 'ranked' ? 'ml-[110px]' : ''; 
   const originClass = isFirst ? 'origin-left' : isLast ? 'origin-right' : 'origin-center';
 
   const rating = movie.vote_average ? Math.round(movie.vote_average * 10) + "%" : "98%";
