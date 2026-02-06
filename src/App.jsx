@@ -16,8 +16,7 @@ const useConnectionOptimizer = () => {
       "https://image.tmdb.org",
       "https://iptv-org.github.io",
       "https://a.111477.xyz",
-      "https://corsproxy.io",
-      "https://www.youtube.com" // Pre-connect for faster trailers
+      "https://corsproxy.io"
     ];
     
     domains.forEach(domain => {
@@ -43,14 +42,6 @@ const useConnectionOptimizer = () => {
 // --- CSS STYLES ---
 const GlobalStyles = () => (
   <style>{`
-    /* --- 4K VISUAL UPGRADES --- */
-    body {
-        -webkit-font-smoothing: antialiased;
-        -moz-osx-font-smoothing: grayscale;
-        text-rendering: optimizeLegibility;
-        image-rendering: -webkit-optimize-contrast; /* Sharper images on Webkit */
-    }
-
     .scrollbar-hide::-webkit-scrollbar { display: none; }
     .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
     .nav-gradient { background: linear-gradient(180deg, rgba(0,5,13,0.7) 10%, transparent); }
@@ -68,16 +59,16 @@ const GlobalStyles = () => (
         position: relative;
     }
 
-    /* --- HUGE GLOWING NUMBERS --- */
+    /* --- UPDATED: HUGE GLOWING NUMBERS --- */
     .rank-number { 
         position: absolute; 
-        left: -140px; 
+        left: -140px; /* Moved far left so it isn't hidden */
         bottom: -25px; 
-        font-size: 220px; 
+        font-size: 220px; /* Huge size */
         font-weight: 900; 
-        color: #0f171e; 
-        -webkit-text-stroke: 4px #5a6069; 
-        z-index: 0; 
+        color: #0f171e; /* Dark fill to blend with bg */
+        -webkit-text-stroke: 4px #5a6069; /* Thicker stroke */
+        z-index: 0; /* Behind the card */
         font-family: 'Impact', sans-serif; 
         letter-spacing: -10px; 
         line-height: 0.8;
@@ -107,7 +98,7 @@ const GlobalStyles = () => (
     .animate-glow { animation: pulse-glow 2s infinite; }
 
     /* Cinematic Border Glow for Cards */
-    .glow-card { position: relative; z-index: 10; }
+    .glow-card { position: relative; z-index: 10; } /* Ensure card is above number */
     .glow-card::before {
         content: ""; position: absolute; inset: -2px; border-radius: 14px; padding: 2px;
         background: linear-gradient(45deg, transparent, rgba(0,168,225,0.3), transparent);
@@ -138,9 +129,7 @@ const GlobalStyles = () => (
 // --- CONFIGURATION ---
 const TMDB_API_KEY = "09ca3ca71692ba80b848d268502d24ed";
 const BASE_URL = "https://api.themoviedb.org/3";
-
-// UPGRADE: Changed w500 to w780 for sharper cards on 4K screens
-const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w780"; 
+const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
 const IMAGE_ORIGINAL_URL = "https://image.tmdb.org/t/p/original";
 const VIDFAST_BASE = "https://vidfast.pro";
 
@@ -159,6 +148,9 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
   const year = (mediaItem.release_date || mediaItem.first_air_date || '').slice(0, 4);
   const title = mediaItem.title || mediaItem.name;
 
+  // 1. Clean the title for better matching
+  // "Pluribus" -> "pluribus"
+  // "Spider-Man: No Way Home" -> "spider man no way home"
   const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
   const searchKey = normalize(title);
 
@@ -168,6 +160,7 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
     const baseDir = mediaType === 'tv' ? 'tvs' : 'movies';
     const baseUrl = `https://a.111477.xyz/${baseDir}/`;
     
+    // 2. Fetch the main directory list via Proxy
     const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(baseUrl)}`;
     const response = await fetch(proxyUrl);
     
@@ -175,50 +168,63 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
     
     const html = await response.text();
 
+    // 3. Regex to find links
     const linkRegex = /<a href="([^"]+)">([^<]+)<\/a>/g;
     let match;
     let bestLink = null;
 
     // SCANNINIG LOGIC
     while ((match = linkRegex.exec(html)) !== null) {
-        const href = match[1]; 
-        const text = decodeURIComponent(match[2]); 
+        const href = match[1]; // e.g. "Pluribus/"
+        const text = decodeURIComponent(match[2]); // Decoded text
         
         if (text === '../' || text === 'Name' || text === 'Size') continue;
 
         const normText = normalize(text);
         
         if (mediaType === 'tv') {
+            // TV LOGIC: Prioritize Exact Title Match (No Year)
+            // Example: "Pluribus/" matches "Pluribus"
             if (normText === searchKey) {
                 bestLink = href;
-                break; 
+                break; // Found exact title match, stop.
             }
+            // Fallback: Check if it contains the title (e.g. "The Flash (2014)")
             if (!bestLink && normText.includes(searchKey)) {
                 bestLink = href;
             }
         } else {
+            // MOVIE LOGIC: Prioritize Title + Year
             if (normText.includes(searchKey) && year && normText.includes(year)) {
                 bestLink = href;
                 break;
             }
+            // Fallback
             if (!bestLink && normText.includes(searchKey)) {
                 bestLink = href;
             }
         }
     }
 
+    // 4. Construct the Final URL
     let finalUrl;
     if (bestLink) {
+        // Fix relative paths
         finalUrl = bestLink.startsWith('http') ? bestLink : `${baseUrl}${bestLink}`;
     } else {
+        // FALLBACK GUESSING LOGIC
         console.warn("[111477] Scan incomplete. Guessing URL.");
         if (mediaType === 'tv') {
+             // TV Guess: usually just Title
+             // e.g. https://a.111477.xyz/tvs/Pluribus/
              finalUrl = `${baseUrl}${encodeURIComponent(title)}/`;
         } else {
+             // Movie Guess: Title (Year)
              finalUrl = `${baseUrl}${encodeURIComponent(title)}%20(${year})/`;
         }
     }
 
+    // Ensure directory trailing slash
     if (!finalUrl.endsWith('/')) finalUrl += '/';
 
     return [{
@@ -231,6 +237,7 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
   } catch (error) {
     console.error("[111477] Error:", error);
     
+    // ERROR FALLBACK (Guess based on type)
     const baseDir = mediaType === 'tv' ? 'tvs' : 'movies';
     let guessUrl;
     if (mediaType === 'tv') {
@@ -258,7 +265,7 @@ async function getDownloadLinks(params) {
 const CATEGORY_DECK = [
     { type: 'movie', label: "Action-Packed Thrillers", genre: 28, variant: 'standard' },
     { type: 'tv', label: "Binge-Worthy TV Dramas", genre: 18, variant: 'standard' },
-    { type: 'movie', label: "Top 10 in India", variant: 'ranked' }, 
+    { type: 'movie', label: "Top 10 in India", variant: 'ranked' }, // This variant triggers the Top 10 look
     { type: 'movie', label: "Laugh Out Loud", genre: 35, variant: 'vertical' },
     { type: 'movie', label: "Sci-Fi Masterpieces", genre: 878, variant: 'standard' },
     { type: 'movie', label: "Horror Nights", genre: 27, variant: 'vertical' },
@@ -1054,7 +1061,7 @@ const Hero = ({ isPrimeOnly }) => {
       {showVideo && trailerKey && (
           <div className="absolute inset-0 animate-in pointer-events-none">
              <iframe 
-                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}&vq=hd1080`}
+                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`}
                 className="w-full h-full scale-[1.3]" 
                 allow="autoplay; encrypted-media"
                 frameBorder="0"
@@ -1419,7 +1426,7 @@ const MovieDetail = () => {
                 {showVideo && trailerKey && (
                   <div className="absolute inset-0 animate-in fade-in duration-1000 pointer-events-none">
                       <iframe 
-                        src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}&vq=hd1080`}
+                        src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`}
                         className="w-full h-full scale-[1.5] origin-center" 
                         allow="autoplay; encrypted-media"
                         frameBorder="0"
