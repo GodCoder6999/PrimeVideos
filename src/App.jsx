@@ -5,6 +5,31 @@ import { Search, Play, Info, Plus, ChevronRight, ChevronLeft, Download, Share2, 
 // --- GLOBAL HLS REFERENCE ---
 const Hls = window.Hls;
 
+// --- CONFIGURATION ---
+const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5";
+const BASE_URL = "https://api.themoviedb.org/3";
+const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
+const IMAGE_ORIGINAL_URL = "https://image.tmdb.org/t/p/original";
+const VIDFAST_BASE = "https://vidfast.pro";
+
+// STRICT PRIME FILTERS
+const PRIME_PROVIDER_IDS = "9|119"; 
+const PRIME_REGION = "IN";        
+
+const VIDFAST_ORIGINS = [
+    'https://vidfast.pro', 'https://vidfast.in', 'https://vidfast.io',
+    'https://vidfast.me', 'https://vidfast.net', 'https://vidfast.pm', 'https://vidfast.xyz'
+];
+
+// --- HELPER: GET PROGRESS ---
+const getMediaProgress = (type, id) => {
+    try {
+        const allProgress = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
+        const key = `${type === 'tv' ? 't' : 'm'}${id}`;
+        return allProgress[key];
+    } catch (e) { return null; }
+};
+
 // --- OPTIMIZATION HOOK: PRE-WARM CONNECTIONS ---
 const useConnectionOptimizer = () => {
   useEffect(() => {
@@ -20,7 +45,6 @@ const useConnectionOptimizer = () => {
     ];
     
     domains.forEach(domain => {
-      // 1. Preconnect (DNS + TCP + TLS handshake)
       if (!document.querySelector(`link[rel="preconnect"][href="${domain}"]`)) {
         const link = document.createElement('link');
         link.rel = 'preconnect';
@@ -28,7 +52,6 @@ const useConnectionOptimizer = () => {
         link.crossOrigin = "anonymous";
         document.head.appendChild(link);
       }
-      // 2. DNS Prefetch (Fallback)
       if (!document.querySelector(`link[rel="dns-prefetch"][href="${domain}"]`)) {
         const link = document.createElement('link');
         link.rel = 'dns-prefetch';
@@ -62,16 +85,17 @@ const GlobalStyles = () => (
     /* --- UPDATED: HUGE GLOWING NUMBERS --- */
     .rank-number { 
         position: absolute; 
-        left: -140px; /* Moved far left so it isn't hidden */
-        bottom: -25px; 
-        font-size: 220px; /* Huge size */
+        left: -75px; 
+        bottom: -15px; 
+        font-size: 240px; 
         font-weight: 900; 
-        color: #0f171e; /* Dark fill to blend with bg */
-        -webkit-text-stroke: 4px #5a6069; /* Thicker stroke */
-        z-index: 0; /* Behind the card */
-        font-family: 'Impact', sans-serif; 
+        color: #19222b; 
+        -webkit-text-stroke: 4px #5a6069; 
+        z-index: 0; 
+        font-family: sans-serif; 
         letter-spacing: -10px; 
-        line-height: 0.8;
+        line-height: 0.7;
+        text-shadow: 0 0 15px rgba(0, 168, 225, 0.3); 
     }
 
     @keyframes neon-pulse {
@@ -98,7 +122,7 @@ const GlobalStyles = () => (
     .animate-glow { animation: pulse-glow 2s infinite; }
 
     /* Cinematic Border Glow for Cards */
-    .glow-card { position: relative; z-index: 10; } /* Ensure card is above number */
+    .glow-card { position: relative; z-index: 10; } 
     .glow-card::before {
         content: ""; position: absolute; inset: -2px; border-radius: 14px; padding: 2px;
         background: linear-gradient(45deg, transparent, rgba(0,168,225,0.3), transparent);
@@ -126,17 +150,6 @@ const GlobalStyles = () => (
   `}</style>
 );
 
-// --- CONFIGURATION ---
-const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5";
-const BASE_URL = "https://api.themoviedb.org/3";
-const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
-const IMAGE_ORIGINAL_URL = "https://image.tmdb.org/t/p/original";
-const VIDFAST_BASE = "https://vidfast.pro";
-
-// STRICT PRIME FILTERS
-const PRIME_PROVIDER_IDS = "9|119"; 
-const PRIME_REGION = "IN";        
-
 const ScrollToTop = () => {
   const { pathname } = useLocation();
   useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
@@ -147,10 +160,6 @@ const ScrollToTop = () => {
 async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
   const year = (mediaItem.release_date || mediaItem.first_air_date || '').slice(0, 4);
   const title = mediaItem.title || mediaItem.name;
-
-  // 1. Clean the title for better matching
-  // "Pluribus" -> "pluribus"
-  // "Spider-Man: No Way Home" -> "spider man no way home"
   const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
   const searchKey = normalize(title);
 
@@ -159,72 +168,41 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
   try {
     const baseDir = mediaType === 'tv' ? 'tvs' : 'movies';
     const baseUrl = `https://a.111477.xyz/${baseDir}/`;
-    
-    // 2. Fetch the main directory list via Proxy
     const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(baseUrl)}`;
     const response = await fetch(proxyUrl);
     
     if (!response.ok) throw new Error("Directory fetch failed");
     
     const html = await response.text();
-
-    // 3. Regex to find links
     const linkRegex = /<a href="([^"]+)">([^<]+)<\/a>/g;
     let match;
     let bestLink = null;
 
-    // SCANNINIG LOGIC
     while ((match = linkRegex.exec(html)) !== null) {
-        const href = match[1]; // e.g. "Pluribus/"
-        const text = decodeURIComponent(match[2]); // Decoded text
+        const href = match[1]; 
+        const text = decodeURIComponent(match[2]); 
         
         if (text === '../' || text === 'Name' || text === 'Size') continue;
-
         const normText = normalize(text);
         
         if (mediaType === 'tv') {
-            // TV LOGIC: Prioritize Exact Title Match (No Year)
-            // Example: "Pluribus/" matches "Pluribus"
-            if (normText === searchKey) {
-                bestLink = href;
-                break; // Found exact title match, stop.
-            }
-            // Fallback: Check if it contains the title (e.g. "The Flash (2014)")
-            if (!bestLink && normText.includes(searchKey)) {
-                bestLink = href;
-            }
+            if (normText === searchKey) { bestLink = href; break; }
+            if (!bestLink && normText.includes(searchKey)) { bestLink = href; }
         } else {
-            // MOVIE LOGIC: Prioritize Title + Year
-            if (normText.includes(searchKey) && year && normText.includes(year)) {
-                bestLink = href;
-                break;
-            }
-            // Fallback
-            if (!bestLink && normText.includes(searchKey)) {
-                bestLink = href;
-            }
+            if (normText.includes(searchKey) && year && normText.includes(year)) { bestLink = href; break; }
+            if (!bestLink && normText.includes(searchKey)) { bestLink = href; }
         }
     }
 
-    // 4. Construct the Final URL
     let finalUrl;
     if (bestLink) {
-        // Fix relative paths
         finalUrl = bestLink.startsWith('http') ? bestLink : `${baseUrl}${bestLink}`;
     } else {
-        // FALLBACK GUESSING LOGIC
         console.warn("[111477] Scan incomplete. Guessing URL.");
-        if (mediaType === 'tv') {
-             // TV Guess: usually just Title
-             // e.g. https://a.111477.xyz/tvs/Pluribus/
-             finalUrl = `${baseUrl}${encodeURIComponent(title)}/`;
-        } else {
-             // Movie Guess: Title (Year)
-             finalUrl = `${baseUrl}${encodeURIComponent(title)}%20(${year})/`;
-        }
+        if (mediaType === 'tv') finalUrl = `${baseUrl}${encodeURIComponent(title)}/`;
+        else finalUrl = `${baseUrl}${encodeURIComponent(title)}%20(${year})/`;
     }
 
-    // Ensure directory trailing slash
     if (!finalUrl.endsWith('/')) finalUrl += '/';
 
     return [{
@@ -236,36 +214,17 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
 
   } catch (error) {
     console.error("[111477] Error:", error);
-    
-    // ERROR FALLBACK (Guess based on type)
     const baseDir = mediaType === 'tv' ? 'tvs' : 'movies';
-    let guessUrl;
-    if (mediaType === 'tv') {
-        guessUrl = `https://a.111477.xyz/${baseDir}/${encodeURIComponent(title)}/`;
-    } else {
-        guessUrl = `https://a.111477.xyz/${baseDir}/${encodeURIComponent(title)}%20(${year})/`;
-    }
-    
-    return [{
-        source: '111477 (Guess)',
-        label: 'Open Index Folder',
-        url: guessUrl,
-        type: 'external'
-    }];
+    let guessUrl = mediaType === 'tv' ? `https://a.111477.xyz/${baseDir}/${encodeURIComponent(title)}/` : `https://a.111477.xyz/${baseDir}/${encodeURIComponent(title)}%20(${year})/`;
+    return [{ source: '111477 (Guess)', label: 'Open Index Folder', url: guessUrl, type: 'external' }];
   }
 }
-
-// --- MAIN DOWNLOAD AGGREGATOR ---
-async function getDownloadLinks(params) {
-    return await get111477Downloads(params);
-}
-
 
 // --- CATEGORY DECK ---
 const CATEGORY_DECK = [
     { type: 'movie', label: "Action-Packed Thrillers", genre: 28, variant: 'standard' },
     { type: 'tv', label: "Binge-Worthy TV Dramas", genre: 18, variant: 'standard' },
-    { type: 'movie', label: "Top 10 in India", variant: 'ranked' }, // This variant triggers the Top 10 look
+    { type: 'movie', label: "Top 10 in India", variant: 'ranked' }, 
     { type: 'movie', label: "Laugh Out Loud", genre: 35, variant: 'vertical' },
     { type: 'movie', label: "Sci-Fi Masterpieces", genre: 878, variant: 'standard' },
     { type: 'movie', label: "Horror Nights", genre: 27, variant: 'vertical' },
@@ -422,7 +381,8 @@ const InfiniteScrollTrigger = ({ onIntersect }) => {
   return <div ref={triggerRef} className="h-20 w-full flex items-center justify-center p-4"><div className="w-8 h-8 border-4 border-gray-600 border-t-transparent rounded-full animate-spin"></div></div>;
 };
 
-// --- UPDATED NAVBAR ---
+// --- COMPONENTS ---
+
 const Navbar = ({ isPrimeOnly }) => {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState({ text: [], visual: [] });
@@ -524,8 +484,8 @@ const Navbar = ({ isPrimeOnly }) => {
         <Link to={isPrimeOnly ? "/tv" : "/everything/tv"} className={getNavLinkClass(isPrimeOnly ? "/tv" : "/everything/tv")}>TV Shows</Link>
         
         <Link to="/sports" className={`${getNavLinkClass("/sports")} flex items-center gap-2`}>
-           <Trophy size={16} className={location.pathname === "/sports" ? "text-[#00A8E1]" : "opacity-80"} />
-           Live TV
+            <Trophy size={16} className={location.pathname === "/sports" ? "text-[#00A8E1]" : "opacity-80"} />
+            Live TV
         </Link>
       </div>
 
@@ -571,7 +531,6 @@ const Navbar = ({ isPrimeOnly }) => {
 };
 
 // --- SPORTS / LIVE TV COMPONENTS ---
-
 const SportsPage = () => {
     const [channels, setChannels] = useState([]);
     const [displayedChannels, setDisplayedChannels] = useState([]);
@@ -978,7 +937,6 @@ const SportsPlayer = () => {
     );
 };
 
-// --- HERO SECTION ---
 const Hero = ({ isPrimeOnly }) => {
   const [movies, setMovies] = useState([]);
   const [currentSlide, setCurrentSlide] = useState(0);
@@ -1125,14 +1083,22 @@ const Hero = ({ isPrimeOnly }) => {
   );
 };
 
-// --- MOVIE CARD COMPONENT ---
+// --- UPDATED MOVIE CARD (WITH PROGRESS BAR) ---
 const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank, isPrimeOnly, isFirst, isLast }) => {
   const navigate = useNavigate();
+  const type = movie.media_type || itemType || 'movie';
+  const id = movie.id;
+
+  // PROGRESS LOGIC
+  const progressData = getMediaProgress(type, id);
+  const percent = progressData?.progress?.watched && progressData?.progress?.duration 
+      ? (progressData.progress.watched / progressData.progress.duration) * 100 
+      : 0;
+
   const imageUrl = movie.poster_path || movie.backdrop_path;
-  
   const baseWidth = 'w-[160px] md:w-[200px]';
   const aspectRatio = 'aspect-[360/440]'; 
-  const cardMargin = variant === 'ranked' ? 'ml-[150px]' : ''; 
+  const cardMargin = variant === 'ranked' ? 'ml-[110px]' : ''; 
   const originClass = isFirst ? 'origin-left' : isLast ? 'origin-right' : 'origin-center';
 
   const rating = movie.vote_average ? Math.round(movie.vote_average * 10) + "%" : "98%";
@@ -1144,7 +1110,7 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
       className={`relative flex-shrink-0 ${baseWidth} ${aspectRatio} ${cardMargin} group transition-all duration-300`}
       onMouseEnter={() => onHover(movie.id)}
       onMouseLeave={onLeave}
-      onClick={() => navigate(`/detail/${movie.media_type || itemType || 'movie'}/${movie.id}`)}
+      onClick={() => navigate(`/detail/${type}/${id}`)}
       style={{ zIndex: isHovered ? 100 : 10 }} 
     >
       {variant === 'ranked' && <span className="rank-number animate-neon-pulse">{rank}</span>}
@@ -1163,6 +1129,13 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
       >
         <div className={`w-full h-full relative bg-black transition-transform duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1) ${isHovered ? 'scale-[1.02]' : 'scale-100'}`}>
             <img src={`${IMAGE_BASE_URL}${imageUrl}`} alt={movie.title} className="w-full h-full object-cover" loading="lazy" />
+            
+            {/* PROGRESS BAR */}
+            {percent > 0 && percent < 95 && (
+                <div className="absolute bottom-0 left-0 w-full h-1 bg-gray-700 z-20">
+                    <div className="h-full bg-[#00A8E1]" style={{ width: `${percent}%` }} />
+                </div>
+            )}
         </div>
 
         <div 
@@ -1180,6 +1153,13 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
             <h3 className="font-extrabold text-[10px] leading-[1.2] text-white drop-shadow-md line-clamp-2 mb-2 w-[90%]">
                 {movie.title || movie.name}
             </h3>
+            
+            {/* RESUME TEXT */}
+            {percent > 0 && percent < 95 && (
+                <div className="text-[6px] text-[#00A8E1] font-bold mb-1">
+                   Resume {type === 'tv' && progressData.last_season_watched ? `S${progressData.last_season_watched} E${progressData.last_episode_watched}` : ''}
+                </div>
+            )}
 
             <div className="flex items-center gap-2 mb-3">
                 <button className="bg-white hover:bg-[#d6d6d6] text-black text-[6px] font-bold h-6 px-3 rounded-[3px] transition-colors flex items-center justify-center gap-1 uppercase tracking-wider">
@@ -1214,7 +1194,7 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
   );
 };
 
-// Update the props to include 'data'
+// --- ROW COMPONENT ---
 const Row = ({ title, fetchUrl, data = null, variant = 'standard', itemType = 'movie', isPrimeOnly }) => {
   const [movies, setMovies] = useState([]);
   const [hoveredId, setHoveredId] = useState(null);
@@ -1223,13 +1203,10 @@ const Row = ({ title, fetchUrl, data = null, variant = 'standard', itemType = 'm
   const theme = getTheme(isPrimeOnly);
 
   useEffect(() => { 
-      // 1. Check if 'data' prop exists. If so, use it directly.
       if (data) {
           setMovies(data);
           return;
       }
-
-      // 2. Otherwise, fetch from URL (Existing Logic)
       fetch(`${BASE_URL}${fetchUrl}`)
         .then(res => res.json())
         .then(data => {
@@ -1237,20 +1214,14 @@ const Row = ({ title, fetchUrl, data = null, variant = 'standard', itemType = 'm
             setMovies(validResults);
         })
         .catch(err => console.error(err)); 
-  }, [fetchUrl, data]); // Add data to dependency array
+  }, [fetchUrl, data]);
 
-  // ... rest of the component (handleHover, slideLeft, return statement, etc.) stays the same ...
   const handleHover = (id) => { if (timeoutRef.current) clearTimeout(timeoutRef.current); timeoutRef.current = setTimeout(() => setHoveredId(id), 400); };
   const handleLeave = () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); setHoveredId(null); };
 
-  const slideLeft = () => {
-      if (rowRef.current) rowRef.current.scrollBy({ left: -800, behavior: 'smooth' });
-  };
-  const slideRight = () => {
-      if (rowRef.current) rowRef.current.scrollBy({ left: 800, behavior: 'smooth' });
-  };
+  const slideLeft = () => { if (rowRef.current) rowRef.current.scrollBy({ left: -800, behavior: 'smooth' }); };
+  const slideRight = () => { if (rowRef.current) rowRef.current.scrollBy({ left: 800, behavior: 'smooth' }); };
 
-  // Limit 'ranked' movies to top 10
   const displayMovies = variant === 'ranked' ? movies.slice(0, 10) : movies;
 
   return (
@@ -1261,10 +1232,7 @@ const Row = ({ title, fetchUrl, data = null, variant = 'standard', itemType = 'm
           <ChevronRight size={18} className="text-[#8197a4] opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer"/>
       </h3>
       <div className="relative">
-          <button 
-            onClick={slideLeft}
-            className="absolute left-0 top-[40%] -translate-y-1/2 z-[60] w-12 h-full bg-gradient-to-r from-black/80 to-transparent opacity-0 group-hover/row:opacity-100 transition-opacity duration-300 flex items-center justify-start pl-3 hover:w-16 cursor-pointer"
-          >
+          <button onClick={slideLeft} className="absolute left-0 top-[40%] -translate-y-1/2 z-[60] w-12 h-full bg-gradient-to-r from-black/80 to-transparent opacity-0 group-hover/row:opacity-100 transition-opacity duration-300 flex items-center justify-start pl-3 hover:w-16 cursor-pointer">
              <ChevronLeft size={40} className="text-white hover:scale-125 transition-transform" />
           </button>
           <div ref={rowRef} className={`row-container ${variant === 'vertical' ? 'vertical' : ''} scrollbar-hide`}>
@@ -1284,10 +1252,7 @@ const Row = ({ title, fetchUrl, data = null, variant = 'standard', itemType = 'm
                /> 
             ))}
           </div>
-          <button 
-            onClick={slideRight}
-            className="absolute right-0 top-[40%] -translate-y-1/2 z-[60] w-12 h-full bg-gradient-to-l from-black/80 to-transparent opacity-0 group-hover/row:opacity-100 transition-opacity duration-300 flex items-center justify-end pr-3 hover:w-16 cursor-pointer"
-          >
+          <button onClick={slideRight} className="absolute right-0 top-[40%] -translate-y-1/2 z-[60] w-12 h-full bg-gradient-to-l from-black/80 to-transparent opacity-0 group-hover/row:opacity-100 transition-opacity duration-300 flex items-center justify-end pr-3 hover:w-16 cursor-pointer">
              <ChevronRight size={40} className="text-white hover:scale-125 transition-transform" />
           </button>
       </div>
@@ -1306,29 +1271,23 @@ const SearchResults = ({ isPrimeOnly }) => {
       if (query) {
           setLoading(true);
           setMovies([]); 
-
           fetch(`${BASE_URL}/search/multi?api_key=${TMDB_API_KEY}&query=${query}`)
             .then(res => res.json())
             .then(async (data) => {
                 let results = data.results || [];
-
                 if (isPrimeOnly) {
                     const filteredResults = [];
                     for (const item of results) {
                         const mediaType = item.media_type || 'movie'; 
                         if (mediaType !== 'movie' && mediaType !== 'tv') continue;
-
                         try {
                             const providerRes = await fetch(`${BASE_URL}/${mediaType}/${item.id}/watch/providers?api_key=${TMDB_API_KEY}`);
                             const providerData = await providerRes.json();
                             const inProviders = providerData.results?.[PRIME_REGION]?.flatrate || [];
-                            
                             const isOnPrime = inProviders.some(p => p.provider_id.toString() === "9" || p.provider_id.toString() === "119");
-                            if (isOnPrime) {
-                                filteredResults.push(item);
-                            }
+                            if (isOnPrime) { filteredResults.push(item); }
                             await new Promise(r => setTimeout(r, 50)); 
-                        } catch (e) { console.error("Error checking provider", e); }
+                        } catch (e) {}
                     }
                     setMovies(filteredResults);
                 } else {
@@ -1344,13 +1303,7 @@ const SearchResults = ({ isPrimeOnly }) => {
         <h2 className="text-white text-2xl mb-6 flex items-center gap-2">
             Results for "{query}" 
             {loading && <Loader className="animate-spin ml-2" size={20} />}
-            {!loading && isPrimeOnly && <span className={`${theme.color} text-sm font-bold border border-[#00A8E1] px-2 py-0.5 rounded`}>Prime Video Only</span>}
         </h2>
-        
-        {!loading && movies.length === 0 && (
-            <div className="text-gray-500 mt-10">No results found {isPrimeOnly ? "on Prime Video." : "."}</div>
-        )}
-
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
             {movies.map(m => (m.poster_path && (
                 <div key={m.id} className="cursor-pointer" onClick={() => navigate(`/detail/${m.media_type || 'movie'}/${m.id}`)}>
@@ -1374,8 +1327,6 @@ const MovieDetail = () => {
   const [showVideo, setShowVideo] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
-
-  // --- DOWNLOAD STATES ---
   const [loadingDownloads, setLoadingDownloads] = useState(false);
   const [downloadLinks, setDownloadLinks] = useState([]);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
@@ -1393,37 +1344,37 @@ const MovieDetail = () => {
     fetch(`${BASE_URL}/${type}/${id}/recommendations?api_key=${TMDB_API_KEY}&language=en-US`).then(res => res.json()).then(data => setRelatedMovies(data.results?.slice(0, 10) || []));
   }, [type, id]);
 
-  // --- NEW DOWNLOAD HANDLER (111477 Source) ---
   const handleDownload = async () => {
     setLoadingDownloads(true);
     try {
-        const links = await get111477Downloads({
-            mediaItem: movie,
-            mediaType: type
-        });
-
-        if (links.length > 0) {
-            setDownloadLinks(links);
-            setShowDownloadModal(true);
-        } else {
-            alert("No download links found for this title.");
-        }
-    } catch (e) {
-        console.error("Download Error", e);
-        alert("An error occurred while fetching links.");
-    } finally {
-        setLoadingDownloads(false);
-    }
+        const links = await get111477Downloads({ mediaItem: movie, mediaType: type });
+        if (links.length > 0) { setDownloadLinks(links); setShowDownloadModal(true); } 
+        else { alert("No download links found for this title."); }
+    } catch (e) { console.error("Download Error", e); alert("An error occurred while fetching links."); } 
+    finally { setLoadingDownloads(false); }
   };
 
   if (!movie) return <div className="min-h-screen w-full bg-[#0f171e]" />;
+  
+  // RESUME LOGIC
+  const savedProgress = getMediaProgress(type, id);
+  const isResumable = savedProgress && savedProgress.progress?.watched > 0;
+  let playLabel = type === 'tv' ? 'Play S1 E1' : 'Play Movie';
+  
+  if (isResumable) {
+      if (type === 'tv') {
+          playLabel = `Resume S${savedProgress.last_season_watched || 1} E${savedProgress.last_episode_watched || 1}`;
+      } else {
+          const remaining = Math.round((savedProgress.progress.duration - savedProgress.progress.watched) / 60);
+          playLabel = `Resume (${remaining}m left)`;
+      }
+  }
+
   const director = credits?.crew?.find(c => c.job === 'Director')?.name || "Unknown Director";
   const cast = credits?.cast?.slice(0, 5).map(c => c.name).join(", ") || "N/A";
-  const studio = movie.production_companies?.[0]?.name || "Prime Studios";
-  const year = movie.release_date?.split('-')[0] || movie.first_air_date?.split('-')[0] || "2024";
   const runtime = movie.runtime ? `${Math.floor(movie.runtime/60)}h ${movie.runtime%60}min` : `${movie.number_of_seasons} Seasons`;
-  const genres = movie.genres?.slice(0, 3).map(g => g.name).join(" • ");
   const rating = movie.vote_average ? movie.vote_average.toFixed(1) : "N/A";
+  const year = movie.release_date?.split('-')[0] || movie.first_air_date?.split('-')[0] || "2024";
 
   return (
     <div className="min-h-screen bg-[#0f171e] text-white font-sans selection:bg-[#00A8E1] selection:text-white pb-20">
@@ -1444,177 +1395,85 @@ const MovieDetail = () => {
                   </div>
                 )}
           </div>
-
           <div className="absolute inset-0 bg-gradient-to-r from-[#0f171e] via-[#0f171e]/90 to-transparent w-[90%] md:w-[65%] z-10" />
           <div className="absolute inset-0 bg-gradient-to-t from-[#0f171e] via-transparent to-transparent z-10" />
 
           <div className="absolute inset-0 z-20 flex flex-col justify-center px-6 md:px-16 lg:px-24 max-w-3xl pt-20">
               <div className="mb-4 opacity-0 animate-fade-in-up" style={{ animationDelay: '0ms' }}>
-                  <span className="text-[11px] font-black tracking-[0.2em] text-[#00A8E1] uppercase bg-[#00A8E1]/10 px-2 py-1 rounded">
-                      INCLUDED WITH PRIME
-                  </span>
+                  <span className="text-[11px] font-black tracking-[0.2em] text-[#00A8E1] uppercase bg-[#00A8E1]/10 px-2 py-1 rounded">INCLUDED WITH PRIME</span>
               </div>
-
               <h1 className="text-4xl md:text-6xl lg:text-7xl font-extrabold mb-4 leading-[0.95] tracking-tight drop-shadow-2xl opacity-0 animate-fade-in-up" style={{ animationDelay: '100ms' }}>
                   {movie.title || movie.name}
               </h1>
-
               <div className="flex items-center flex-wrap gap-3 text-sm font-medium text-gray-300 mb-8 opacity-0 animate-fade-in-up" style={{ animationDelay: '200ms' }}>
                   <span className="text-[#00A8E1] font-bold">IMDb {rating}</span>
-                  <span>•</span>
-                  <span>{runtime}</span>
-                  <span>•</span>
-                  <span>{year}</span>
-                  <span>•</span>
-                  <span className="border border-gray-500 px-1 rounded text-xs">X-Ray</span>
-                  <span className="border border-gray-500 px-1 rounded text-xs">UHD</span>
-                  <span className="border border-gray-500 px-1 rounded text-xs bg-gray-800">16+</span>
+                  <span>•</span><span>{runtime}</span><span>•</span><span>{year}</span>
               </div>
-
               <div className="flex items-center gap-4 mb-8 opacity-0 animate-fade-in-up" style={{ animationDelay: '300ms' }}>
                   <button onClick={() => navigate(`/watch/${type}/${id}`)} className="h-14 px-8 rounded bg-white text-black font-bold text-lg hover:bg-gray-200 transition-transform transform hover:scale-105 flex items-center gap-3 shadow-[0_0_40px_rgba(255,255,255,0.2)]">
                       <Play fill="black" size={24} /> 
-                      Play {type === 'tv' ? 'S1 E1' : 'Movie'}
+                      {playLabel}
                   </button>
-
-                  <button 
-                    onClick={handleDownload} 
-                    disabled={loadingDownloads}
-                    className="h-14 px-6 rounded bg-[#2a333d]/60 border-2 border-[#4a5561] hover:border-white hover:bg-[#2a333d] flex items-center justify-center gap-2 transition text-gray-200 hover:text-white"
-                  >
+                  <button onClick={handleDownload} disabled={loadingDownloads} className="h-14 px-6 rounded bg-[#2a333d]/60 border-2 border-[#4a5561] hover:border-white hover:bg-[#2a333d] flex items-center justify-center gap-2 transition text-gray-200 hover:text-white">
                       {loadingDownloads ? <Loader className="animate-spin" size={24} /> : <Download size={24} />}
                       <span className="font-bold">Download</span>
                   </button>
-
                   <div className="flex gap-3">
                       <button className="w-12 h-12 rounded-full bg-[#2a333d]/60 border-2 border-[#4a5561] hover:border-white hover:bg-[#2a333d] flex items-center justify-center transition text-gray-200 hover:text-white"><Plus size={22} /></button>
                       <button onClick={() => setIsMuted(!isMuted)} className="w-12 h-12 rounded-full bg-[#2a333d]/60 border-2 border-[#4a5561] hover:border-white hover:bg-[#2a333d] flex items-center justify-center transition text-gray-200 hover:text-white">{isMuted ? <VolumeX size={22}/> : <Volume2 size={22}/>}</button>
                   </div>
               </div>
-
               <div className="text-gray-300 text-lg leading-relaxed line-clamp-3 max-w-2xl opacity-0 animate-fade-in-up" style={{ animationDelay: '400ms' }}>
                   {movie.overview}
               </div>
           </div>
       </div>
-
+      
+      {/* RELATED MOVIES & DETAILS SECTIONS KEPT COMPACT */}
       <div className="relative z-30 -mt-24 px-6 md:px-16 mb-16">
           <h3 className="text-xl font-bold text-white mb-4 drop-shadow-md">Customers also watched</h3>
-          
           {relatedMovies.length > 0 ? (
               <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-4">
                   {relatedMovies.map((m) => (
-                      <div 
-                        key={m.id} 
-                        onClick={() => { 
-                            const targetType = m.media_type || type;
-                            navigate(`/detail/${targetType}/${m.id}`); 
-                        }}
-                        className="flex-shrink-0 w-[200px] aspect-video bg-gray-800 rounded-lg overflow-hidden relative group cursor-pointer border border-transparent hover:border-white/50 transition-all shadow-lg"
-                      >
-                          {m.backdrop_path || m.poster_path ? (
-                              <img src={`${IMAGE_BASE_URL}${m.backdrop_path || m.poster_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" />
-                          ) : (
-                              <div className="w-full h-full flex items-center justify-center bg-[#232d38] text-gray-500 font-bold text-xs p-2 text-center">{m.title || m.name}</div>
-                          )}
-                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
-                              <div className="bg-white rounded-full p-2"><Play fill="black" size={16} /></div>
-                          </div>
-                          <div className="absolute bottom-0 left-0 w-full p-2 bg-gradient-to-t from-black to-transparent">
-                              <p className="text-xs font-bold truncate text-gray-200 group-hover:text-white">{m.title || m.name}</p>
-                          </div>
+                      <div key={m.id} onClick={() => navigate(`/detail/${m.media_type || type}/${m.id}`)} className="flex-shrink-0 w-[200px] aspect-video bg-gray-800 rounded-lg overflow-hidden relative group cursor-pointer border border-transparent hover:border-white/50 transition-all shadow-lg">
+                          <img src={`${IMAGE_BASE_URL}${m.backdrop_path || m.poster_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" />
                       </div>
                   ))}
               </div>
-          ) : (
-              <div className="text-gray-500 italic text-sm py-4">No related titles found.</div>
-          )}
+          ) : <div className="text-gray-500 italic text-sm py-4">No related titles found.</div>}
       </div>
 
       <div className="px-6 md:px-16 grid grid-cols-1 lg:grid-cols-3 gap-10">
           <div className="lg:col-span-2 space-y-8">
               <div className="bg-[#19222b] p-6 rounded-lg border border-white/5">
                   <h4 className="text-lg font-bold text-white mb-3">Synopsis</h4>
-                  <p className={`text-gray-300 leading-relaxed ${isDescriptionExpanded ? '' : 'line-clamp-3'}`}>
-                      {movie.overview || "No synopsis available."}
-                  </p>
-                  <button onClick={() => setIsDescriptionExpanded(!isDescriptionExpanded)} className="mt-3 text-[#00A8E1] font-bold text-sm hover:underline">
-                      {isDescriptionExpanded ? "Show Less" : "More..."}
-                  </button>
-              </div>
-
-              <div className="bg-[#19222b] p-6 rounded-lg border border-white/5">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div><span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Director</span><span className="text-[#00A8E1] hover:underline cursor-pointer">{director}</span></div>
-                      <div>
-                          <span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Starring</span>
-                          <div className="flex flex-wrap gap-2 text-[#00A8E1]">
-                              {cast.split(", ").map((actor, i) => (<span key={i} className="hover:underline cursor-pointer">{actor}{i < 4 ? ',' : ''}</span>))}
-                          </div>
-                      </div>
-                      <div><span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Genres</span><span className="text-gray-300">{genres}</span></div>
-                      <div><span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Studio</span><span className="text-gray-300">{studio}</span></div>
-                  </div>
+                  <p className={`text-gray-300 leading-relaxed ${isDescriptionExpanded ? '' : 'line-clamp-3'}`}>{movie.overview}</p>
+                  <button onClick={() => setIsDescriptionExpanded(!isDescriptionExpanded)} className="mt-3 text-[#00A8E1] font-bold text-sm hover:underline">{isDescriptionExpanded ? "Show Less" : "More..."}</button>
               </div>
           </div>
           <div className="space-y-6">
               <div className="bg-[#19222b] p-6 rounded-lg border border-white/5">
-                  <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">Content Advisory</h4>
-                  <div className="flex items-center gap-3 mb-4"><span className="text-2xl font-bold border border-white/20 px-2 py-1 rounded bg-[#0f171e]">16+</span><span className="text-gray-400 text-sm">Teens</span></div>
-                  <ul className="space-y-2 text-sm text-gray-300">
-                      <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-gray-500"></span>Violence</li>
-                      <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-gray-500"></span>Foul Language</li>
-                      <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-gray-500"></span>Substance Use</li>
-                  </ul>
-                  <div className="mt-4 pt-4 border-t border-white/10"><a href="#" className="text-[#00A8E1] text-xs hover:underline">Rating Policy</a></div>
-              </div>
-              <div className="bg-[#19222b] p-6 rounded-lg border border-white/5">
-                  <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">Audio Languages</h4>
-                  <p className="text-sm text-gray-300 leading-relaxed">English [Audio Description], English, Hindi, Tamil, Telugu, Spanish, French, German</p>
-                  <div className="mt-3 flex gap-2"><span className="text-[10px] border border-gray-600 px-1.5 rounded text-gray-400">AAC</span><span className="text-[10px] border border-gray-600 px-1.5 rounded text-gray-400">Dolby Digital</span></div>
+                   <div className="grid grid-cols-1 gap-4">
+                      <div><span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Director</span><span className="text-[#00A8E1]">{director}</span></div>
+                      <div><span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Starring</span><span className="text-[#00A8E1]">{cast}</span></div>
+                   </div>
               </div>
           </div>
       </div>
 
-      <div className="mt-20 px-6 md:px-16 pt-8 border-t border-white/10 text-center md:text-left">
-          <p className="text-xs text-gray-500 mb-4">By clicking play, you agree to our <a href="#" className="text-[#00A8E1] hover:underline">Terms of Use</a>.</p>
-          <div className="flex flex-wrap justify-center md:justify-start gap-6 text-sm text-gray-400">
-              <a href="#" className="hover:text-white hover:underline">Terms and Privacy Notice</a>
-              <a href="#" className="hover:text-white hover:underline">Send us feedback</a>
-              <a href="#" className="hover:text-white hover:underline">Help</a>
-              <span className="text-gray-600">© 1996-2024, PrimeShows.com, Inc. or its affiliates</span>
-          </div>
-      </div>
-
-      {/* --- DOWNLOAD MODAL --- */}
       {showDownloadModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
           <div className="bg-[#19222b] border border-white/10 rounded-2xl w-full max-w-md p-6 shadow-2xl relative animate-modal-pop">
              <button onClick={() => setShowDownloadModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white"><X size={24} /></button>
-             
-             <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
-                <Download className="text-[#00A8E1]" /> Download Options
-             </h3>
-             <p className="text-sm text-gray-400 mb-6">Found 111477 Index for <strong>{movie.title || movie.name}</strong>.</p>
-             
+             <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2"><Download className="text-[#00A8E1]" /> Download Options</h3>
              <div className="space-y-3 max-h-[60vh] overflow-y-auto scrollbar-hide">
                 {downloadLinks.map((link, idx) => (
-                   <a 
-                     key={idx} 
-                     href={link.url} 
-                     target="_blank" 
-                     rel="noopener noreferrer"
-                     className="block bg-[#232d38] hover:bg-[#00A8E1] border border-white/5 hover:border-transparent text-gray-200 hover:text-white p-4 rounded-xl transition-all group flex items-center justify-between"
-                   >
-                      <div className="flex flex-col">
-                          <span className="font-bold">{link.label}</span>
-                          <span className="text-[10px] opacity-70 uppercase tracking-wider">{link.source}</span>
-                      </div>
+                   <a key={idx} href={link.url} target="_blank" rel="noopener noreferrer" className="block bg-[#232d38] hover:bg-[#00A8E1] border border-white/5 hover:border-transparent text-gray-200 hover:text-white p-4 rounded-xl transition-all group flex items-center justify-between">
+                      <div className="flex flex-col"><span className="font-bold">{link.label}</span><span className="text-[10px] opacity-70 uppercase tracking-wider">{link.source}</span></div>
                       <Download size={20} className="opacity-50 group-hover:opacity-100" />
                    </a>
                 ))}
              </div>
-             <div className="mt-4 text-center text-xs text-gray-500">Links open in a new tab. Select your file from the directory.</div>
           </div>
         </div>
       )}
@@ -1622,39 +1481,26 @@ const MovieDetail = () => {
   );
 };
 
+// --- PLAYER COMPONENT (UPDATED FOR RESUME) ---
 const Player = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const queryParams = new URLSearchParams(location.search);
 
-  // --- 1. HISTORY INITIALIZATION (Smart Resume) ---
-  // Check if we have history for this item to set initial Season/Episode
-  const getSavedProgress = () => {
-      try {
-          const history = JSON.parse(localStorage.getItem('watch_history')) || [];
-          const item = history.find(h => h.id.toString() === id.toString());
-          return item || {};
-      } catch (e) { return {}; }
-  };
-  
-  const savedState = getSavedProgress();
+  // 1. Initial State from Saved Progress
+  const savedState = getMediaProgress(type, id) || {};
+  const initialSeason = Number(queryParams.get('season')) || savedState.last_season_watched || 1;
+  const initialEpisode = Number(queryParams.get('episode')) || savedState.last_episode_watched || 1;
 
-  // --- STATE ---
   const [activeServer, setActiveServer] = useState('vidfast');
-  // Priority: URL Param -> Saved History -> Default to 1
-  const [season, setSeason] = useState(Number(queryParams.get('season')) || savedState.last_season || 1);
-  const [episode, setEpisode] = useState(Number(queryParams.get('episode')) || savedState.last_episode || 1);
+  const [season, setSeason] = useState(initialSeason);
+  const [episode, setEpisode] = useState(initialEpisode);
   const [showEpisodes, setShowEpisodes] = useState(false);
   const [seasonData, setSeasonData] = useState(null);
   const [totalSeasons, setTotalSeasons] = useState(1);
-  
-  // Track current time to save it
-  const currentTimeRef = useRef(0);
-  // Track if we have loaded the initial "resume" time
-  const hasResumedRef = useRef(false);
 
-  // --- FETCH TV DETAILS ---
+  // --- FETCH TV DATA ---
   useEffect(() => {
     if (type === 'tv') {
         fetch(`${BASE_URL}/tv/${id}?api_key=${TMDB_API_KEY}`)
@@ -1671,88 +1517,84 @@ const Player = () => {
     }
   }, [type, id, season]);
 
-  // --- 2. PROGRESS TRACKER (PostMessage Listener) ---
+
+  // --- 2. EVENT LISTENER FOR VIDFAST ---
   useEffect(() => {
-      const handleMessage = (event) => {
-          // Filter messages to ensure they are from VidFast (or relevant source)
-          // VidFast often sends data like: { type: "timeupdate", time: 123.45 }
-          if (!event.data) return;
+    const handleVidFastEvent = ({ origin, data }) => {
+        // Security Check
+        if (!VIDFAST_ORIGINS.includes(origin) || !data) return;
 
-          // Try to detect time data from various player formats
-          let time = null;
-          if (event.data.time) time = event.data.time;
-          if (event.data.currentTime) time = event.data.currentTime;
-          
-          // Debugging: Uncomment this to see what the player sends in Console
-          // console.log("Player Event:", event.data);
+        // Handle PLAYER_EVENT (Time Updates)
+        if (data.type === 'PLAYER_EVENT') {
+            const { event, currentTime, duration, mediaType, tmdbId, season: evtSeason, episode: evtEpisode } = data.data;
+            
+            if (event === 'timeupdate' || event === 'pause') {
+                // Construct the Storage Object
+                const storageKey = `${mediaType === 'tv' ? 't' : 'm'}${tmdbId}`;
+                const allProgress = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
+                
+                const currentEntry = allProgress[storageKey] || {
+                    id: tmdbId,
+                    type: mediaType,
+                    // We might not have title here if the player doesn't send it, 
+                    // but we can update it from our API fetch if needed.
+                    progress: {},
+                    last_updated: Date.now()
+                };
 
-          if (time && typeof time === 'number') {
-              currentTimeRef.current = time;
-          }
-      };
+                // Update basic progress
+                currentEntry.progress = { watched: currentTime, duration: duration };
+                currentEntry.last_updated = Date.now();
 
-      window.addEventListener("message", handleMessage);
-      return () => window.removeEventListener("message", handleMessage);
-  }, []);
+                // Update TV specific logic
+                if (mediaType === 'tv') {
+                    currentEntry.last_season_watched = evtSeason || season;
+                    currentEntry.last_episode_watched = evtEpisode || episode;
+                    
+                    if (!currentEntry.show_progress) currentEntry.show_progress = {};
+                    const epKey = `s${evtSeason || season}e${evtEpisode || episode}`;
+                    currentEntry.show_progress[epKey] = {
+                        season: evtSeason || season,
+                        episode: evtEpisode || episode,
+                        progress: { watched: currentTime, duration: duration },
+                        last_updated: Date.now()
+                    };
+                }
 
-  // --- 3. SAVE HISTORY LOGIC (Throttled + Unmount) ---
-  const saveProgress = useCallback(async () => {
-      if (!id) return;
-      try {
-          // Fetch details only if we don't have title/images (optimization)
-          // For now, we fetch to be safe, or you could pass this via state
-          const res = await fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}`);
-          const data = await res.json();
+                // Save to LocalStorage
+                allProgress[storageKey] = currentEntry;
+                localStorage.setItem('vidFastProgress', JSON.stringify(allProgress));
+            }
+        }
+    };
 
-          const historyItem = {
-              id: data.id,
-              media_type: type, 
-              title: data.title || data.name,
-              poster_path: data.poster_path,
-              backdrop_path: data.backdrop_path,
-              vote_average: data.vote_average,
-              release_date: data.release_date || data.first_air_date,
-              last_season: season,
-              last_episode: episode,
-              // SAVE TIMESTAMP (Default to 0 if undefined)
-              watched_at: currentTimeRef.current || 0,
-              updated_at: Date.now()
-          };
+    window.addEventListener('message', handleVidFastEvent);
+    return () => window.removeEventListener('message', handleVidFastEvent);
+  }, [season, episode]); // Re-bind if season/episode state changes locally
 
-          let history = JSON.parse(localStorage.getItem('watch_history')) || [];
-          // Remove old entry for this ID
-          history = history.filter(h => h.id.toString() !== data.id.toString());
-          // Add new entry to top
-          history.unshift(historyItem);
-          // Limit to 20 items
-          localStorage.setItem('watch_history', JSON.stringify(history.slice(0, 20)));
-          
-      } catch (error) {
-          console.error("Failed to save history", error);
-      }
-  }, [id, type, season, episode]);
 
-  // Save every 10 seconds while watching
-  useEffect(() => {
-      const interval = setInterval(saveProgress, 10000);
-      return () => {
-          clearInterval(interval);
-          saveProgress(); // Also save immediately on unmount/close
-      };
-  }, [saveProgress]);
-
-  // --- 4. SOURCE GENERATOR (With Resume) ---
+  // --- 3. URL GENERATOR (With startAt) ---
   const getSourceUrl = () => {
-    // Only use resume time if we are on the same episode/season that was saved
-    const isSameEpisode = savedState.last_season === season && savedState.last_episode === episode;
-    // Or if it's a movie (no season/episode to check)
-    const isMovie = type === 'movie';
+    const isVidFast = activeServer === 'vidfast';
     
-    // Calculate start time (VidFast uses 'startAt' or 't' usually)
+    // Calculate Start Time
     let startParams = "";
-    if ((isSameEpisode || isMovie) && savedState.watched_at > 10) {
-        // Resume if watched more than 10 seconds
-        startParams = `&startAt=${Math.floor(savedState.watched_at)}`;
+    if (isVidFast) {
+        // Check if we have progress for this SPECIFIC episode/movie
+        let startTime = 0;
+        if (type === 'movie' && savedState.progress?.watched) {
+            startTime = savedState.progress.watched;
+        } else if (type === 'tv' && savedState.show_progress) {
+            const epKey = `s${season}e${episode}`;
+            if (savedState.show_progress[epKey]?.progress?.watched) {
+                startTime = savedState.show_progress[epKey].progress.watched;
+            }
+        }
+        
+        // Only resume if > 5 seconds and not finished
+        if (startTime > 5) {
+             startParams = `&startAt=${Math.floor(startTime)}`;
+        }
     }
 
     if (activeServer === 'vidfast') {
@@ -1763,7 +1605,6 @@ const Player = () => {
           return `${VIDFAST_BASE}/movie/${id}?autoPlay=true&${themeParam}${startParams}`;
         }
     } else {
-        // Zxcstream usually doesn't support startAt via URL in the same way, but we keep the fallback
         if (type === 'tv') {
           return `https://www.zxcstream.xyz/player/tv/${id}/${season}/${episode}?autoplay=false&back=true&server=0`;
         } else {
@@ -1832,7 +1673,7 @@ const Player = () => {
         ></iframe>
       </div>
 
-      {/* 3. EPISODE SIDEBAR (VidFast Only) */}
+      {/* 3. EPISODE SIDEBAR */}
       {activeServer === 'vidfast' && type === 'tv' && (
         <div className={`fixed right-0 top-0 h-full bg-[#00050D]/95 backdrop-blur-xl border-l border-white/10 transition-all duration-500 ease-in-out z-[110] flex flex-col ${showEpisodes ? 'w-[350px] translate-x-0 shadow-2xl' : 'w-[350px] translate-x-full shadow-none'}`}>
             <div className="pt-24 px-6 pb-4 border-b border-white/10 flex items-center justify-between bg-[#1a242f]/50">
@@ -1846,7 +1687,7 @@ const Player = () => {
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-hide">
                 {seasonData?.episodes ? (seasonData.episodes.map(ep => (
-                        <div key={ep.id} onClick={() => { setEpisode(ep.episode_number); currentTimeRef.current = 0; }} className={`flex gap-3 p-2 rounded-lg cursor-pointer transition-all group ${episode === ep.episode_number ? 'bg-[#333c46] border border-[#00A8E1]' : 'hover:bg-[#333c46] border border-transparent'}`}>
+                        <div key={ep.id} onClick={() => setEpisode(ep.episode_number)} className={`flex gap-3 p-2 rounded-lg cursor-pointer transition-all group ${episode === ep.episode_number ? 'bg-[#333c46] border border-[#00A8E1]' : 'hover:bg-[#333c46] border border-transparent'}`}>
                             <div className="relative w-28 h-16 flex-shrink-0 bg-black rounded overflow-hidden">
                                 {ep.still_path ? (<img src={`${IMAGE_BASE_URL}${ep.still_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" />) : (<div className="w-full h-full flex items-center justify-center text-gray-600 text-xs">No Img</div>)}
                                 {episode === ep.episode_number && (<div className="absolute inset-0 bg-black/40 flex items-center justify-center"><Play size={16} fill="white" className="text-white" /></div>)}
@@ -1863,40 +1704,61 @@ const Player = () => {
     </div>
   );
 };
-// --- MAIN WRAPPERS ---
-// --- MAIN WRAPPERS ---
 
+// --- MAIN WRAPPERS ---
 const Home = ({ isPrimeOnly }) => { 
-  // 1. Existing Infinite Scroll Hook
   const { rows, loadMore } = useInfiniteRows('all', isPrimeOnly);
-  
-  // 2. NEW: History State
   const [history, setHistory] = useState([]);
 
-  // 3. NEW: Load History from Local Storage on Mount
   useEffect(() => {
-      const saved = JSON.parse(localStorage.getItem('watch_history')) || [];
-      setHistory(saved);
+      // READ FROM NEW 'vidFastProgress' KEY
+      const rawProgress = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
+      
+      // Convert Dictionary to Array & Sort by last_updated
+      const historyArray = Object.values(rawProgress)
+          .sort((a, b) => b.last_updated - a.last_updated)
+          .map(item => ({
+              ...item,
+              poster_path: item.poster_path, // Ensure these fields exist if saved
+              backdrop_path: item.backdrop_path,
+              media_type: item.type,
+              vote_average: item.vote_average
+          }));
+      
+      // OPTIONAL: Fetch missing details if they weren't saved by the player
+      // (This loop enhances the display if local data is sparse)
+      const enrichHistory = async () => {
+         const enriched = await Promise.all(historyArray.map(async (h) => {
+             if(!h.poster_path) {
+                 try {
+                     const res = await fetch(`${BASE_URL}/${h.type}/${h.id}?api_key=${TMDB_API_KEY}`);
+                     const data = await res.json();
+                     return { ...h, ...data, media_type: h.type };
+                 } catch(e) { return h; }
+             }
+             return h;
+         }));
+         setHistory(enriched);
+      };
+      
+      if(historyArray.length > 0) enrichHistory();
+
   }, []);
 
   return (
     <>
       <Hero isPrimeOnly={isPrimeOnly} />
       <div className="-mt-10 relative z-20 pb-20">
-        
-        {/* 4. NEW: Render "Continue Watching" Row if history exists */}
         {history.length > 0 && (
             <Row 
                 key="continue_watching" 
                 title="Continue Watching" 
-                data={history}       // Passing the history data directly
+                data={history} 
                 variant="standard" 
                 itemType="history" 
                 isPrimeOnly={isPrimeOnly} 
             />
         )}
-
-        {/* 5. Existing Rows (Trending, Top 10, etc.) */}
         {rows.map(row => (
             <Row 
                 key={row.id} 
@@ -1907,20 +1769,18 @@ const Home = ({ isPrimeOnly }) => {
                 isPrimeOnly={isPrimeOnly} 
             />
         ))}
-        
         <InfiniteScrollTrigger onIntersect={loadMore} />
       </div>
     </>
   ); 
 };
 
-// --- These components remain unchanged, but are included here for context ---
 const MoviesPage = ({ isPrimeOnly }) => { const { rows, loadMore } = useInfiniteRows('movie', isPrimeOnly); return <><Hero isPrimeOnly={isPrimeOnly} /><div className="-mt-10 relative z-20 pb-20">{rows.map(row => <Row key={row.id} title={row.title} fetchUrl={row.fetchUrl} variant={row.variant} itemType={row.itemType} isPrimeOnly={isPrimeOnly} />)}<InfiniteScrollTrigger onIntersect={loadMore} /></div></>; };
 const TVPage = ({ isPrimeOnly }) => { const { rows, loadMore } = useInfiniteRows('tv', isPrimeOnly); return <><Hero isPrimeOnly={isPrimeOnly} /><div className="-mt-10 relative z-20 pb-20">{rows.map(row => <Row key={row.id} title={row.title} fetchUrl={row.fetchUrl} variant={row.variant} itemType={row.itemType} isPrimeOnly={isPrimeOnly} />)}<InfiniteScrollTrigger onIntersect={loadMore} /></div></>; };
 const StorePage = () => <div className="pt-32 px-12 text-white">Store</div>;
 
 function App() {
-  useConnectionOptimizer(); // Activate connection pre-warming
+  useConnectionOptimizer(); 
 
   return (
     <BrowserRouter>
