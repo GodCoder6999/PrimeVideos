@@ -114,16 +114,18 @@ const ScrollToTop = () => {
   return null;
 };
 
-// --- 111477 DIRECTORY OPENER ---
+// --- 111477 DIRECTORY OPENER (SMART TV/MOVIE LOGIC) ---
 async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
   const year = (mediaItem.release_date || mediaItem.first_air_date || '').slice(0, 4);
   const title = mediaItem.title || mediaItem.name;
 
-  // 1. Clean the title for better matching (remove colons, extra spaces)
-  const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+  // 1. Clean the title for better matching
+  // "Pluribus" -> "pluribus"
+  // "Spider-Man: No Way Home" -> "spider man no way home"
+  const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
   const searchKey = normalize(title);
 
-  console.log(`[111477] Searching for index: "${title}" (${year})`);
+  console.log(`[111477] Searching for index: "${title}" (Type: ${mediaType}, Year: ${year})`);
 
   try {
     const baseDir = mediaType === 'tv' ? 'tvs' : 'movies';
@@ -137,30 +139,41 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
     
     const html = await response.text();
 
-    // 3. Regex to find links that resemble the movie title
-    // Look for <a href="Folder Name/">
+    // 3. Regex to find links
     const linkRegex = /<a href="([^"]+)">([^<]+)<\/a>/g;
     let match;
     let bestLink = null;
 
+    // SCANNINIG LOGIC
     while ((match = linkRegex.exec(html)) !== null) {
-        const href = match[1]; // e.g. "Avatar (2009)/"
+        const href = match[1]; // e.g. "Pluribus/"
         const text = decodeURIComponent(match[2]); // Decoded text
         
-        // Skip parent directory links
         if (text === '../' || text === 'Name' || text === 'Size') continue;
 
         const normText = normalize(text);
         
-        // CHECK 1: Does title match?
-        if (normText.includes(searchKey)) {
-            // CHECK 2: Does year match? (If strict matching)
-            if (year && normText.includes(year)) {
+        if (mediaType === 'tv') {
+            // TV LOGIC: Prioritize Exact Title Match (No Year)
+            // Example: "Pluribus/" matches "Pluribus"
+            if (normText === searchKey) {
                 bestLink = href;
-                break; // Found perfect match (Title + Year)
+                break; // Found exact title match, stop.
             }
-            // Save as backup if year doesn't match
-            if (!bestLink) bestLink = href; 
+            // Fallback: Check if it contains the title (e.g. "The Flash (2014)")
+            if (!bestLink && normText.includes(searchKey)) {
+                bestLink = href;
+            }
+        } else {
+            // MOVIE LOGIC: Prioritize Title + Year
+            if (normText.includes(searchKey) && year && normText.includes(year)) {
+                bestLink = href;
+                break;
+            }
+            // Fallback
+            if (!bestLink && normText.includes(searchKey)) {
+                bestLink = href;
+            }
         }
     }
 
@@ -170,27 +183,39 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
         // Fix relative paths
         finalUrl = bestLink.startsWith('http') ? bestLink : `${baseUrl}${bestLink}`;
     } else {
-        // FALLBACK: If scanning failed, GUESS the standard format: "Title (Year)"
+        // FALLBACK GUESSING LOGIC
         console.warn("[111477] Scan incomplete. Guessing URL.");
-        finalUrl = `${baseUrl}${encodeURIComponent(title)}%20(${year})/`;
+        if (mediaType === 'tv') {
+             // TV Guess: usually just Title
+             // e.g. https://a.111477.xyz/tvs/Pluribus/
+             finalUrl = `${baseUrl}${encodeURIComponent(title)}/`;
+        } else {
+             // Movie Guess: Title (Year)
+             finalUrl = `${baseUrl}${encodeURIComponent(title)}%20(${year})/`;
+        }
     }
 
-    // Ensure it ends with a slash for a directory
+    // Ensure directory trailing slash
     if (!finalUrl.endsWith('/')) finalUrl += '/';
 
     return [{
         source: '111477 Index',
         label: `Open ${mediaType === 'tv' ? 'Series' : 'Movie'} Index`,
         url: finalUrl,
-        type: 'external' // Opens in new tab
+        type: 'external' 
     }];
 
   } catch (error) {
     console.error("[111477] Error:", error);
     
-    // ERROR FALLBACK: Even if the code crashes, return the Guessed URL
+    // ERROR FALLBACK (Guess based on type)
     const baseDir = mediaType === 'tv' ? 'tvs' : 'movies';
-    const guessUrl = `https://a.111477.xyz/${baseDir}/${encodeURIComponent(title)}%20(${year})/`;
+    let guessUrl;
+    if (mediaType === 'tv') {
+        guessUrl = `https://a.111477.xyz/${baseDir}/${encodeURIComponent(title)}/`;
+    } else {
+        guessUrl = `https://a.111477.xyz/${baseDir}/${encodeURIComponent(title)}%20(${year})/`;
+    }
     
     return [{
         source: '111477 (Guess)',
@@ -1331,7 +1356,7 @@ const MovieDetail = () => {
   const handleDownload = async () => {
     setLoadingDownloads(true);
     try {
-        const links = await getDownloadLinks({
+        const links = await get111477Downloads({
             mediaItem: movie,
             mediaType: type
         });
