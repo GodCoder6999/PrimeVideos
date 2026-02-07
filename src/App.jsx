@@ -818,11 +818,60 @@ const SportsPlayer = () => {
     useEffect(() => {
         if (!streamUrl) return;
         let hls;
+
         if (Hls && Hls.isSupported()) {
-            hls = new Hls(); hls.loadSource(streamUrl); hls.attachMedia(videoRef.current);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => { videoRef.current.play().catch(e => console.log("Auto-play prevented", e)); });
+            // --- CUSTOM LOADER TO FORCE PROXY ON CHUNKS ---
+            class ProxyHlsLoader extends Hls.DefaultConfig.loader {
+                constructor(config) {
+                    super(config);
+                    const load = this.load.bind(this);
+                    this.load = function (context, config, callbacks) {
+                        // Check if URL is pointing to Hotstar AND is NOT proxied yet
+                        if (context.url.includes('hotstar.com') && !context.url.includes('corsproxy.io')) {
+                            context.url = "https://corsproxy.io/?" + encodeURIComponent(context.url);
+                        }
+                        load(context, config, callbacks);
+                    };
+                }
+            }
+
+            hls = new Hls({
+                loader: ProxyHlsLoader,
+                enableWorker: true,
+                lowLatencyMode: true,
+            });
+
+            hls.loadSource(streamUrl);
+            hls.attachMedia(videoRef.current);
+            
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                videoRef.current.play().catch(e => console.log("Auto-play prevented", e));
+            });
+            
+            // Error handling
+            hls.on(Hls.Events.ERROR, (event, data) => {
+                if (data.fatal) {
+                    switch (data.type) {
+                        case Hls.ErrorTypes.NETWORK_ERROR:
+                            console.log("Network error, trying to recover...");
+                            hls.startLoad();
+                            break;
+                        case Hls.ErrorTypes.MEDIA_ERROR:
+                            console.log("Media error, recovering...");
+                            hls.recoverMediaError();
+                            break;
+                        default:
+                            hls.destroy();
+                            break;
+                    }
+                }
+            });
+
         } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-            videoRef.current.src = streamUrl; videoRef.current.addEventListener('loadedmetadata', () => { videoRef.current.play(); });
+            videoRef.current.src = streamUrl;
+            videoRef.current.addEventListener('loadedmetadata', () => {
+                videoRef.current.play();
+            });
         }
         return () => { if (hls) hls.destroy(); };
     }, [streamUrl]);
