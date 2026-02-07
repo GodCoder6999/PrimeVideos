@@ -463,6 +463,15 @@ const Navbar = ({ isPrimeOnly }) => {
   );
 };
 
+// --- MANUAL STREAM CONFIGURATION (FIXED WITH PROXY) ---
+const SPECIAL_STREAM = {
+    name: "ICC T20 WC Live (Bengali)",
+    logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR-sN5te7jsC9YTazKRH6RgQCxTAqs60oWZMw&s",
+    group: "Cricket",
+    parentGroup: "Sports",
+    // We wrap the URL in corsproxy.io to bypass the browser's CORS block
+    url: "https://corsproxy.io/?" + encodeURIComponent("https://live15p.hotstar.com/hls/live/2116748/inallow-icct20wc-2026/ben/1540062322/15mindvrm0118ba48ab59034e4b9dbc9285e29e083507february2026/master_apmf_360_1.m3u8")
+};
 // --- SPORTS / LIVE TV COMPONENTS ---
 // --- SPORTS / LIVE TV COMPONENTS ---
 const SportsPage = () => {
@@ -475,7 +484,8 @@ const SportsPage = () => {
         logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR-sN5te7jsC9YTazKRH6RgQCxTAqs60oWZMw&s",
         group: "Cricket",
         parentGroup: "Sports",
-        url: "https://live15p.hotstar.com/hls/live/2116748/inallow-icct20wc-2026/ben/1540062322/15mindvrm0118ba48ab59034e4b9dbc9285e29e083507february2026/master_apmf_360_1.m3u8"
+        // ADDED PROXY HERE
+        url: "https://corsproxy.io/?" + encodeURIComponent("https://live15p.hotstar.com/hls/live/2116748/inallow-icct20wc-2026/ben/1540062322/15mindvrm0118ba48ab59034e4b9dbc9285e29e083507february2026/master_apmf_360_1.m3u8")
     };
 
     const CATEGORIES_TREE = {
@@ -717,7 +727,13 @@ const SportsPage = () => {
                     <Loader className="animate-spin" size={48} />
                     <div className="text-gray-400 text-sm font-medium animate-pulse">Fetching global channels feed...</div>
                 </div>
-            ) : displayedChannels.length === 0 && !error ? (
+            ) : error ? (
+                <div className="h-60 flex flex-col items-center justify-center text-red-500 gap-2 border border-dashed border-white/10 rounded-xl">
+                    <Ban size={48} />
+                    <p>{error}</p>
+                    <button onClick={() => window.location.reload()} className="text-white underline mt-2">Retry Connection</button>
+                </div>
+            ) : displayedChannels.length === 0 ? (
                 <div className="h-60 flex flex-col items-center justify-center text-gray-500 gap-3 border border-dashed border-white/10 rounded-xl">
                     <Monitor size={48} className="opacity-20" />
                     <p>No channels found for this search.</p>
