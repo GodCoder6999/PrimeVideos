@@ -463,17 +463,6 @@ const Navbar = ({ isPrimeOnly }) => {
   );
 };
 
-// --- MANUAL STREAM CONFIGURATION (FIXED WITH PROXY) ---
-const SPECIAL_STREAM = {
-    name: "ICC T20 WC Live (Bengali)",
-    logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR-sN5te7jsC9YTazKRH6RgQCxTAqs60oWZMw&s",
-    group: "Cricket",
-    parentGroup: "Sports",
-    // We wrap the URL in corsproxy.io to bypass the browser's CORS block
-    url: "https://corsproxy.io/?" + encodeURIComponent("https://live15p.hotstar.com/hls/live/2116748/inallow-icct20wc-2026/ben/1540062322/15mindvrm0118ba48ab59034e4b9dbc9285e29e083507february2026/master_apmf_360_1.m3u8")
-};
-// --- SPORTS / LIVE TV COMPONENTS ---
-// --- SPORTS / LIVE TV COMPONENTS ---
 const SportsPage = () => {
     const [channels, setChannels] = useState([]);
     const [displayedChannels, setDisplayedChannels] = useState([]);
@@ -484,8 +473,8 @@ const SportsPage = () => {
         logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR-sN5te7jsC9YTazKRH6RgQCxTAqs60oWZMw&s",
         group: "Cricket",
         parentGroup: "Sports",
-        // ADDED PROXY HERE
-        url: "https://corsproxy.io/?" + encodeURIComponent("https://live15p.hotstar.com/hls/live/2116748/inallow-icct20wc-2026/ben/1540062322/15mindvrm0118ba48ab59034e4b9dbc9285e29e083507february2026/master_apmf_360_1.m3u8")
+        // HLS PROXY: Best for Hotstar streams to bypass CORS/Header blocks
+        url: "https://m3u8-proxy-cors-worker.cool-proxy.workers.dev/?url=" + encodeURIComponent("https://live15p.hotstar.com/hls/live/2116748/inallow-icct20wc-2026/ben/1540062322/15mindvrm0118ba48ab59034e4b9dbc9285e29e083507february2026/master_apmf_360_1.m3u8")
     };
 
     const CATEGORIES_TREE = {
@@ -591,7 +580,7 @@ const SportsPage = () => {
             })
             .catch(e => {
                 console.error("Playlist Error:", e);
-                // Even if playlist fails, show your manual stream
+                // Even if playlist fails, show your manual stream as fallback
                 setChannels([SPECIAL_STREAM]);
                 setLoading(false);
             });
@@ -817,47 +806,6 @@ const SportsPage = () => {
         </div>
     );
 };
-const SportsPlayer = () => {
-    const navigate = useNavigate();
-    const location = useLocation();
-    const videoRef = useRef(null);
-    const { streamUrl, title, logo, group } = location.state || {};
-    const [isMuted, setIsMuted] = useState(false);
-
-    useEffect(() => {
-        if (!streamUrl) return;
-        let hls;
-        if (Hls && Hls.isSupported()) {
-            hls = new Hls(); hls.loadSource(streamUrl); hls.attachMedia(videoRef.current);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => { videoRef.current.play().catch(e => console.log("Auto-play prevented", e)); });
-        } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-            videoRef.current.src = streamUrl; videoRef.current.addEventListener('loadedmetadata', () => { videoRef.current.play(); });
-        }
-        return () => { if (hls) hls.destroy(); };
-    }, [streamUrl]);
-
-    if (!streamUrl) return <div className="text-white pt-20 text-center">No stream selected. <button onClick={() => navigate(-1)} className="text-[#00A8E1] ml-2 hover:underline">Go Back</button></div>;
-
-    return (
-        <div className="fixed inset-0 bg-[#0f171e] z-[200] flex flex-col">
-            <div className="absolute top-0 left-0 w-full h-24 bg-gradient-to-b from-black/80 to-transparent z-50 flex items-center px-6 justify-between pointer-events-none">
-                <div className="flex items-center gap-4 pointer-events-auto">
-                    <button onClick={() => navigate(-1)} className="w-12 h-12 rounded-full bg-black/40 hover:bg-[#00A8E1] backdrop-blur-md flex items-center justify-center text-white transition border border-white/10 group"><ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" /></button>
-                    <div>
-                        <div className="flex items-center gap-3">{logo && <img src={logo} className="h-8 w-auto object-contain bg-white/10 rounded px-1" alt="" onError={(e) => e.target.style.display='none'} />}<h1 className="text-white font-bold text-xl leading-tight drop-shadow-md">{title || "Live Stream"}</h1></div>
-                        <div className="flex items-center gap-2 mt-1"><span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_red]"></span><span className="text-[#00A8E1] text-xs font-bold tracking-widest uppercase">{group || "LIVE BROADCAST"}</span></div>
-                    </div>
-                </div>
-                <div className="pointer-events-auto"><button onClick={() => { setIsMuted(!isMuted); videoRef.current.muted = !isMuted; }} className="w-12 h-12 rounded-full bg-black/40 hover:bg-white/20 backdrop-blur-md flex items-center justify-center text-white transition border border-white/10 hover:shadow-[0_0_15px_rgba(255,255,255,0.2)]">{isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}</button></div>
-            </div>
-            <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden group">
-                <video ref={videoRef} className="w-full h-full object-contain" controls autoPlay playsInline preload="auto"></video>
-                <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-black/90 to-transparent pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end px-8 pb-8"><div className="text-white/80 text-sm font-medium">Streaming via secure HLS protocol • {new Date().toLocaleTimeString()}</div></div>
-            </div>
-        </div>
-    );
-};
-
 const Hero = ({ isPrimeOnly }) => {
   const [movies, setMovies] = useState([]);
   const [currentSlide, setCurrentSlide] = useState(0);
