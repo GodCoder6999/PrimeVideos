@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, useNavigate, useLocation, useParams, Link
 import { Search, Play, Info, Plus, ChevronRight, ChevronLeft, Download, Share2, CheckCircle2, ThumbsUp, ChevronDown, Grip, Loader, List, ArrowLeft, X, Volume2, VolumeX, Trophy, Signal, Clock, Ban, Eye, Bookmark, TrendingUp, Monitor } from 'lucide-react';
 
 // --- GLOBAL HLS REFERENCE ---
+// Note: Ensure <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script> is in your index.html
 const Hls = window.Hls;
 
 // --- CONFIGURATION ---
@@ -463,15 +464,6 @@ const Navbar = ({ isPrimeOnly }) => {
   );
 };
 
-const SPECIAL_STREAM = {
-        name: "ICC T20 WC Live (Bengali)",
-        logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR-sN5te7jsC9YTazKRH6RgQCxTAqs60oWZMw&s",
-        group: "Cricket",
-        parentGroup: "Sports",
-        // HLS PROXY: This wraps the m3u8 to strip CORS and fake headers
-        url: "https://m3u8-proxy-cors-worker.cool-proxy.workers.dev/?url=" + encodeURIComponent("https://live15p.hotstar.com/hls/live/2116748/inallow-icct20wc-2026/ben/1540062322/15mindvrm0118ba48ab59034e4b9dbc9285e29e083507february2026/master_apmf_360_1.m3u8")
-    };
-// --- SPORTS / LIVE TV COMPONENTS ---
 // --- SPORTS / LIVE TV COMPONENTS ---
 const SportsPage = () => {
     const [channels, setChannels] = useState([]);
@@ -1138,7 +1130,7 @@ const MovieDetail = () => {
           </div>
           <div className="space-y-6">
               <div className="bg-[#19222b] p-6 rounded-lg border border-white/5">
-                   <div className="grid grid-cols-1 gap-4"><div><span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Director</span><span className="text-[#00A8E1]">{director}</span></div><div><span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Starring</span><span className="text-[#00A8E1]">{cast}</span></div></div>
+                    <div className="grid grid-cols-1 gap-4"><div><span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Director</span><span className="text-[#00A8E1]">{director}</span></div><div><span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Starring</span><span className="text-[#00A8E1]">{cast}</span></div></div>
               </div>
           </div>
       </div>
@@ -1162,205 +1154,6 @@ const MovieDetail = () => {
   );
 };
 
-// --- ROW COMPONENT ---
-const Row = ({ title, fetchUrl, data = null, variant = 'standard', itemType = 'movie', isPrimeOnly }) => {
-  const [movies, setMovies] = useState([]);
-  const [hoveredId, setHoveredId] = useState(null);
-  const rowRef = useRef(null); 
-  const timeoutRef = useRef(null);
-  const theme = getTheme(isPrimeOnly);
-
-  useEffect(() => { 
-      if (data) { setMovies(data); return; }
-      fetch(`${BASE_URL}${fetchUrl}`).then(res => res.json()).then(data => { const validResults = (data.results || []).filter(m => m.backdrop_path || m.poster_path); setMovies(validResults); }).catch(err => console.error(err)); 
-  }, [fetchUrl, data]);
-
-  const handleHover = (id) => { if (timeoutRef.current) clearTimeout(timeoutRef.current); timeoutRef.current = setTimeout(() => setHoveredId(id), 400); };
-  const handleLeave = () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); setHoveredId(null); };
-  const slideLeft = () => { if (rowRef.current) rowRef.current.scrollBy({ left: -800, behavior: 'smooth' }); };
-  const slideRight = () => { if (rowRef.current) rowRef.current.scrollBy({ left: 800, behavior: 'smooth' }); };
-  const displayMovies = variant === 'ranked' ? movies.slice(0, 10) : movies;
-
-  return (
-    <div className="mb-6 pl-4 md:pl-12 relative z-20 group/row animate-row-enter hover:z-30 transition-all duration-300">
-      <h3 className="text-[19px] font-bold text-white mb-2 flex items-center gap-2">{variant === 'ranked' ? <span className={theme.color}>Top 10</span> : <span className={theme.color}>{theme.name}</span>} {title}<ChevronRight size={18} className="text-[#8197a4] opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer"/></h3>
-      <div className="relative">
-          <button onClick={slideLeft} className="absolute left-0 top-[40%] -translate-y-1/2 z-[60] w-12 h-full bg-gradient-to-r from-black/80 to-transparent opacity-0 group-hover/row:opacity-100 transition-opacity duration-300 flex items-center justify-start pl-3 hover:w-16 cursor-pointer"><ChevronLeft size={40} className="text-white hover:scale-125 transition-transform" /></button>
-          <div ref={rowRef} className={`row-container ${variant === 'vertical' ? 'vertical' : ''} scrollbar-hide`}>
-            {displayMovies.map((movie, index) => ( <MovieCard key={movie.id} movie={movie} variant={variant} itemType={itemType} rank={index + 1} isHovered={hoveredId === movie.id} onHover={handleHover} onLeave={handleLeave} isPrimeOnly={isPrimeOnly} isFirst={index === 0} isLast={index === displayMovies.length - 1} /> ))}
-          </div>
-          <button onClick={slideRight} className="absolute right-0 top-[40%] -translate-y-1/2 z-[60] w-12 h-full bg-gradient-to-l from-black/80 to-transparent opacity-0 group-hover/row:opacity-100 transition-opacity duration-300 flex items-center justify-end pr-3 hover:w-16 cursor-pointer"><ChevronRight size={40} className="text-white hover:scale-125 transition-transform" /></button>
-      </div>
-    </div>
-  );
-};
-
-const SearchResults = ({ isPrimeOnly }) => { 
-  const [movies, setMovies] = useState([]); 
-  const [loading, setLoading] = useState(false);
-  const query = new URLSearchParams(useLocation().search).get('q'); 
-  const theme = getTheme(isPrimeOnly);
-  const navigate = useNavigate();
-    
-  useEffect(() => { 
-      if (query) {
-          setLoading(true); setMovies([]); 
-          fetch(`${BASE_URL}/search/multi?api_key=${TMDB_API_KEY}&query=${query}`).then(res => res.json()).then(async (data) => {
-                let results = data.results || [];
-                if (isPrimeOnly) {
-                    const filteredResults = [];
-                    for (const item of results) {
-                        const mediaType = item.media_type || 'movie'; if (mediaType !== 'movie' && mediaType !== 'tv') continue;
-                        try {
-                            const providerRes = await fetch(`${BASE_URL}/${mediaType}/${item.id}/watch/providers?api_key=${TMDB_API_KEY}`);
-                            const providerData = await providerRes.json();
-                            const inProviders = providerData.results?.[PRIME_REGION]?.flatrate || [];
-                            if (inProviders.some(p => p.provider_id.toString() === "9" || p.provider_id.toString() === "119")) { filteredResults.push(item); }
-                            await new Promise(r => setTimeout(r, 50)); 
-                        } catch (e) {}
-                    }
-                    setMovies(filteredResults);
-                } else { setMovies(results); }
-                setLoading(false);
-            });
-      } 
-  }, [query, isPrimeOnly]); 
-
-  return (
-    <div className="pt-28 px-8 min-h-screen">
-        <h2 className="text-white text-2xl mb-6 flex items-center gap-2">Results for "{query}" {loading && <Loader className="animate-spin ml-2" size={20} />}</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            {movies.map(m => (m.poster_path && (<div key={m.id} className="cursor-pointer" onClick={() => navigate(`/detail/${m.media_type || 'movie'}/${m.id}`)}><img src={`${IMAGE_BASE_URL}${m.poster_path}`} className={`rounded-md hover:scale-105 transition-transform border-2 border-transparent hover:${theme.border}`} alt={m.title} /></div>)))}
-        </div>
-    </div>
-  ); 
-};
-
-// --- MOVIE DETAIL COMPONENT ---
-const MovieDetail = () => {
-  const { type, id } = useParams();
-  const navigate = useNavigate();
-  const [movie, setMovie] = useState(null);
-  const [relatedMovies, setRelatedMovies] = useState([]);
-  const [credits, setCredits] = useState(null);
-  const [trailerKey, setTrailerKey] = useState(null);
-  const [showVideo, setShowVideo] = useState(false);
-  const [isMuted, setIsMuted] = useState(true);
-  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
-  const [loadingDownloads, setLoadingDownloads] = useState(false);
-  const [downloadLinks, setDownloadLinks] = useState([]);
-  const [showDownloadModal, setShowDownloadModal] = useState(false);
-
-  useEffect(() => {
-    setShowVideo(false); setTrailerKey(null); setIsMuted(true); setMovie(null); setRelatedMovies([]); setDownloadLinks([]); setShowDownloadModal(false);
-    window.scrollTo(0, 0);
-    fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}&language=en-US`).then(res => res.json()).then(data => setMovie(data)).catch(err => console.error(err));
-    fetch(`${BASE_URL}/${type}/${id}/credits?api_key=${TMDB_API_KEY}`).then(res => res.json()).then(data => setCredits(data));
-    fetch(`${BASE_URL}/${type}/${id}/videos?api_key=${TMDB_API_KEY}`).then(res => res.json()).then(data => {
-        const trailer = data.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube');
-        if (trailer) { setTrailerKey(trailer.key); setTimeout(() => setShowVideo(true), 3000); }
-    });
-    fetch(`${BASE_URL}/${type}/${id}/recommendations?api_key=${TMDB_API_KEY}&language=en-US`).then(res => res.json()).then(data => setRelatedMovies(data.results?.slice(0, 10) || []));
-  }, [type, id]);
-
-  const handleDownload = async () => {
-    setLoadingDownloads(true);
-    try {
-        const links = await get111477Downloads({ mediaItem: movie, mediaType: type });
-        if (links.length > 0) { setDownloadLinks(links); setShowDownloadModal(true); } else { alert("No download links found for this title."); }
-    } catch (e) { console.error("Download Error", e); alert("An error occurred while fetching links."); } finally { setLoadingDownloads(false); }
-  };
-
-  if (!movie) return <div className="min-h-screen w-full bg-[#0f171e]" />;
-  
-  // RESUME LOGIC
-  const savedProgress = getMediaProgress(type, id);
-  const isResumable = savedProgress && savedProgress.progress?.watched > 0;
-  let playLabel = type === 'tv' ? 'Play S1 E1' : 'Play Movie';
-  
-  if (isResumable) {
-      if (type === 'tv') {
-          playLabel = `Resume S${savedProgress.last_season_watched || 1} E${savedProgress.last_episode_watched || 1}`;
-      } else {
-          const remaining = Math.round((savedProgress.progress.duration - savedProgress.progress.watched) / 60);
-          playLabel = `Resume (${remaining}m left)`;
-      }
-  }
-
-  const director = credits?.crew?.find(c => c.job === 'Director')?.name || "Unknown Director";
-  const cast = credits?.cast?.slice(0, 5).map(c => c.name).join(", ") || "N/A";
-  const runtime = movie.runtime ? `${Math.floor(movie.runtime/60)}h ${movie.runtime%60}min` : `${movie.number_of_seasons} Seasons`;
-  const rating = movie.vote_average ? movie.vote_average.toFixed(1) : "N/A";
-  const year = movie.release_date?.split('-')[0] || movie.first_air_date?.split('-')[0] || "2024";
-
-  return (
-    <div className="min-h-screen bg-[#0f171e] text-white font-sans selection:bg-[#00A8E1] selection:text-white pb-20">
-      <div className="relative w-full h-[85vh] overflow-hidden">
-          <div className="absolute inset-0 w-full h-full">
-                <div className={`absolute inset-0 transition-opacity duration-1000 ${showVideo ? 'opacity-0' : 'opacity-100'}`}><img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover object-top md:object-right-top" alt="" /></div>
-                {showVideo && trailerKey && (<div className="absolute inset-0 animate-in fade-in duration-1000 pointer-events-none"><iframe src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} className="w-full h-full scale-[1.5] origin-center" allow="autoplay; encrypted-media" frameBorder="0" title="Hero Background" /></div>)}
-          </div>
-          <div className="absolute inset-0 bg-gradient-to-r from-[#0f171e] via-[#0f171e]/90 to-transparent w-[90%] md:w-[65%] z-10" />
-          <div className="absolute inset-0 bg-gradient-to-t from-[#0f171e] via-transparent to-transparent z-10" />
-          <div className="absolute inset-0 z-20 flex flex-col justify-center px-6 md:px-16 lg:px-24 max-w-3xl pt-20">
-              <div className="mb-4 opacity-0 animate-fade-in-up" style={{ animationDelay: '0ms' }}><span className="text-[11px] font-black tracking-[0.2em] text-[#00A8E1] uppercase bg-[#00A8E1]/10 px-2 py-1 rounded">INCLUDED WITH PRIME</span></div>
-              <h1 className="text-4xl md:text-6xl lg:text-7xl font-extrabold mb-4 leading-[0.95] tracking-tight drop-shadow-2xl opacity-0 animate-fade-in-up" style={{ animationDelay: '100ms' }}>{movie.title || movie.name}</h1>
-              <div className="flex items-center flex-wrap gap-3 text-sm font-medium text-gray-300 mb-8 opacity-0 animate-fade-in-up" style={{ animationDelay: '200ms' }}><span className="text-[#00A8E1] font-bold">IMDb {rating}</span><span>•</span><span>{runtime}</span><span>•</span><span>{year}</span></div>
-              <div className="flex items-center gap-4 mb-8 opacity-0 animate-fade-in-up" style={{ animationDelay: '300ms' }}>
-                  <button onClick={() => navigate(`/watch/${type}/${id}`)} className="h-14 px-8 rounded bg-white text-black font-bold text-lg hover:bg-gray-200 transition-transform transform hover:scale-105 flex items-center gap-3 shadow-[0_0_40px_rgba(255,255,255,0.2)]"><Play fill="black" size={24} /> {playLabel}</button>
-                  <button onClick={handleDownload} disabled={loadingDownloads} className="h-14 px-6 rounded bg-[#2a333d]/60 border-2 border-[#4a5561] hover:border-white hover:bg-[#2a333d] flex items-center justify-center gap-2 transition text-gray-200 hover:text-white">{loadingDownloads ? <Loader className="animate-spin" size={24} /> : <Download size={24} />}<span className="font-bold">Download</span></button>
-                  <div className="flex gap-3"><button className="w-12 h-12 rounded-full bg-[#2a333d]/60 border-2 border-[#4a5561] hover:border-white hover:bg-[#2a333d] flex items-center justify-center transition text-gray-200 hover:text-white"><Plus size={22} /></button><button onClick={() => setIsMuted(!isMuted)} className="w-12 h-12 rounded-full bg-[#2a333d]/60 border-2 border-[#4a5561] hover:border-white hover:bg-[#2a333d] flex items-center justify-center transition text-gray-200 hover:text-white">{isMuted ? <VolumeX size={22}/> : <Volume2 size={22}/>}</button></div>
-              </div>
-              <div className="text-gray-300 text-lg leading-relaxed line-clamp-3 max-w-2xl opacity-0 animate-fade-in-up" style={{ animationDelay: '400ms' }}>{movie.overview}</div>
-          </div>
-      </div>
-      <div className="relative z-30 -mt-24 px-6 md:px-16 mb-16">
-          <h3 className="text-xl font-bold text-white mb-4 drop-shadow-md">Customers also watched</h3>
-          {relatedMovies.length > 0 ? (
-              <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-4">
-                  {relatedMovies.map((m) => (
-                      <div key={m.id} onClick={() => navigate(`/detail/${m.media_type || type}/${m.id}`)} className="flex-shrink-0 w-[200px] aspect-video bg-gray-800 rounded-lg overflow-hidden relative group cursor-pointer border border-transparent hover:border-white/50 transition-all shadow-lg">
-                          <img src={`${IMAGE_BASE_URL}${m.backdrop_path || m.poster_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" />
-                      </div>
-                  ))}
-              </div>
-          ) : <div className="text-gray-500 italic text-sm py-4">No related titles found.</div>}
-      </div>
-      <div className="px-6 md:px-16 grid grid-cols-1 lg:grid-cols-3 gap-10">
-          <div className="lg:col-span-2 space-y-8">
-              <div className="bg-[#19222b] p-6 rounded-lg border border-white/5">
-                  <h4 className="text-lg font-bold text-white mb-3">Synopsis</h4>
-                  <p className={`text-gray-300 leading-relaxed ${isDescriptionExpanded ? '' : 'line-clamp-3'}`}>{movie.overview}</p>
-                  <button onClick={() => setIsDescriptionExpanded(!isDescriptionExpanded)} className="mt-3 text-[#00A8E1] font-bold text-sm hover:underline">{isDescriptionExpanded ? "Show Less" : "More..."}</button>
-              </div>
-          </div>
-          <div className="space-y-6">
-              <div className="bg-[#19222b] p-6 rounded-lg border border-white/5">
-                   <div className="grid grid-cols-1 gap-4"><div><span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Director</span><span className="text-[#00A8E1]">{director}</span></div><div><span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Starring</span><span className="text-[#00A8E1]">{cast}</span></div></div>
-              </div>
-          </div>
-      </div>
-      {showDownloadModal && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-[#19222b] border border-white/10 rounded-2xl w-full max-w-md p-6 shadow-2xl relative animate-modal-pop">
-             <button onClick={() => setShowDownloadModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white"><X size={24} /></button>
-             <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2"><Download className="text-[#00A8E1]" /> Download Options</h3>
-             <div className="space-y-3 max-h-[60vh] overflow-y-auto scrollbar-hide">
-                {downloadLinks.map((link, idx) => (
-                   <a key={idx} href={link.url} target="_blank" rel="noopener noreferrer" className="block bg-[#232d38] hover:bg-[#00A8E1] border border-white/5 hover:border-transparent text-gray-200 hover:text-white p-4 rounded-xl transition-all group flex items-center justify-between">
-                      <div className="flex flex-col"><span className="font-bold">{link.label}</span><span className="text-[10px] opacity-70 uppercase tracking-wider">{link.source}</span></div>
-                      <Download size={20} className="opacity-50 group-hover:opacity-100" />
-                   </a>
-                ))}
-             </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// --- PLAYER COMPONENT (UPDATED FOR RESUME) ---
 // --- PLAYER COMPONENT (UPDATED FOR RESUME) ---
 const Player = () => {
   const { type, id } = useParams();
