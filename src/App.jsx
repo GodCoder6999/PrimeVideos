@@ -1160,126 +1160,84 @@ const Player = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+
+  // --- STATE ---
+  const [activeServer, setActiveServer] = useState('vidfast'); // Default, will change if Bengali
+  const [isBengali, setIsBengali] = useState(false); // Track if content is Bengali
+  
+  // Episode & Season State
   const queryParams = new URLSearchParams(location.search);
-
-  const savedState = getMediaProgress(type, id) || {};
-  const initialSeason = Number(queryParams.get('season')) || savedState.last_season_watched || 1;
-  const initialEpisode = Number(queryParams.get('episode')) || savedState.last_episode_watched || 1;
-
-  const [activeServer, setActiveServer] = useState('vidfast');
-  const [season, setSeason] = useState(initialSeason);
-  const [episode, setEpisode] = useState(initialEpisode);
+  const [season, setSeason] = useState(Number(queryParams.get('season')) || 1);
+  const [episode, setEpisode] = useState(Number(queryParams.get('episode')) || 1);
   const [showEpisodes, setShowEpisodes] = useState(false);
   const [seasonData, setSeasonData] = useState(null);
   const [totalSeasons, setTotalSeasons] = useState(1);
+  const [imdbId, setImdbId] = useState(null); // VidRock sometimes prefers IMDB ID
 
-  // FETCH TV DATA
-  useEffect(() => { if (type === 'tv') { fetch(`${BASE_URL}/tv/${id}?api_key=${TMDB_API_KEY}`).then(res => res.json()).then(data => { if(data.number_of_seasons) setTotalSeasons(data.number_of_seasons); }); } }, [type, id]);
-  useEffect(() => { if (type === 'tv') { fetch(`${BASE_URL}/tv/${id}/season/${season}?api_key=${TMDB_API_KEY}`).then(res => res.json()).then(data => setSeasonData(data)); } }, [type, id, season]);
-
-  // EVENT LISTENER FOR VIDFAST (100% ACCURATE MEDIA_DATA)
+  // --- 1. FETCH METADATA & LANGUAGE DETECTION ---
   useEffect(() => {
-    // PRE-FETCH METADATA
-    const prefetchMeta = async () => {
+    const fetchDetails = async () => {
         try {
             const res = await fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}`);
             const data = await res.json();
-            const storageKey = `${type === 'tv' ? 't' : 'm'}${id}`;
-            const allProgress = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
-            // Initialize if not exists
-            if (!allProgress[storageKey]) {
-                allProgress[storageKey] = {
-                    id: parseInt(id),
-                    type: type,
-                    title: data.title || data.name,
-                    poster_path: data.poster_path,
-                    backdrop_path: data.backdrop_path,
-                    vote_average: data.vote_average,
-                    progress: { watched: 0, duration: 0 },
-                    last_updated: Date.now() 
-                };
-                localStorage.setItem('vidFastProgress', JSON.stringify(allProgress));
+            
+            // CHECK LANGUAGE
+            if (data.original_language === 'bn') {
+                setIsBengali(true);
+                setActiveServer('vidrock'); // Auto-switch to VidRock for Bengali
+            } else {
+                setIsBengali(false);
+                setActiveServer('vidfast');
             }
-        } catch(e) {}
-    };
-    prefetchMeta();
 
-    const handleVidFastEvent = ({ origin, data }) => {
-        if (!VIDFAST_ORIGINS.includes(origin) || !data) return;
-
-        // A. Handle "MEDIA_DATA" (The most accurate full snapshot)
-        if (data.type === 'MEDIA_DATA') {
-            const currentHistory = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
-            const updatedHistory = {
-                ...currentHistory,
-                ...data.data 
-            };
-            localStorage.setItem('vidFastProgress', JSON.stringify(updatedHistory));
-        }
-
-        // B. Handle "PLAYER_EVENT" (Real-time updates)
-        if (data.type === 'PLAYER_EVENT') {
-            const { event, currentTime, duration, mediaType, tmdbId, season: evtSeason, episode: evtEpisode } = data.data;
-            if (event === 'timeupdate' || event === 'pause') {
-                const storageKey = `${mediaType === 'tv' ? 't' : 'm'}${tmdbId}`;
-                const allProgress = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
-                const currentEntry = allProgress[storageKey] || { id: tmdbId, type: mediaType, progress: {}, last_updated: Date.now() };
-                
-                // CRITICAL: Always update last_updated so sorting works
-                currentEntry.last_updated = Date.now();
-                currentEntry.progress = { watched: currentTime, duration: duration };
-
-                if (mediaType === 'tv') {
-                    currentEntry.last_season_watched = evtSeason || season;
-                    currentEntry.last_episode_watched = evtEpisode || episode;
-                    if (!currentEntry.show_progress) currentEntry.show_progress = {};
-                    const epKey = `s${evtSeason || season}e${evtEpisode || episode}`;
-                    currentEntry.show_progress[epKey] = { season: evtSeason || season, episode: evtEpisode || episode, progress: { watched: currentTime, duration: duration }, last_updated: Date.now() };
-                }
-                allProgress[storageKey] = currentEntry;
-                localStorage.setItem('vidFastProgress', JSON.stringify(allProgress));
+            // Store IMDB ID for VidRock fallback
+            if (data.imdb_id) setImdbId(data.imdb_id);
+            
+            // Set Total Seasons for TV
+            if (type === 'tv' && data.number_of_seasons) {
+                setTotalSeasons(data.number_of_seasons);
             }
+        } catch (e) {
+            console.error("Error fetching details:", e);
         }
     };
-    window.addEventListener('message', handleVidFastEvent);
-    return () => window.removeEventListener('message', handleVidFastEvent);
-  }, [season, episode, type, id]); 
+    fetchDetails();
+  }, [type, id]);
 
-  // URL GENERATOR (With startAt & Rewind)
+  // --- 2. FETCH SEASONS (TV ONLY) ---
+  useEffect(() => {
+    if (type === 'tv') {
+        fetch(`${BASE_URL}/tv/${id}/season/${season}?api_key=${TMDB_API_KEY}`)
+          .then(res => res.json())
+          .then(data => setSeasonData(data));
+    }
+  }, [type, id, season]);
+
+  // --- 3. SOURCE GENERATOR ---
   const getSourceUrl = () => {
-    const isVidFast = activeServer === 'vidfast';
-    
-    // Calculate Start Time (Precision Resume)
-    let startParams = "";
-    if (isVidFast) {
-        // Read fresh data directly from storage
-        const currentProgress = getMediaProgress(type, id);
-        let startTime = 0;
-
-        if (type === 'movie' && currentProgress?.progress?.watched) {
-            startTime = currentProgress.progress.watched;
-        } else if (type === 'tv' && currentProgress?.show_progress) {
-            const epKey = `s${season}e${episode}`;
-            // Check if specific episode progress exists
-            if (currentProgress.show_progress[epKey]?.progress?.watched) {
-                startTime = currentProgress.show_progress[epKey].progress.watched;
-            }
-        }
-        
-        // Resume only if watched > 5 seconds
-        if (startTime > 5) {
-             startParams = `&startAt=${Math.floor(startTime)}`;
+    // A. VidRock (Bengali Only)
+    if (activeServer === 'vidrock') {
+        // Use IMDB ID if available, otherwise TMDB ID
+        const identifier = imdbId || id;
+        if (type === 'tv') {
+            return `https://vidrock.net/tv/${identifier}/${season}/${episode}`;
+        } else {
+            return `https://vidrock.net/movie/${identifier}`;
         }
     }
-
+    
+    // B. VidFast (Standard)
     if (activeServer === 'vidfast') {
         const themeParam = "theme=00A8E1";
         if (type === 'tv') {
-          return `${VIDFAST_BASE}/tv/${id}/${season}/${episode}?autoPlay=true&${themeParam}&nextButton=true&autoNext=true${startParams}`;
+          return `${VIDFAST_BASE}/tv/${id}/${season}/${episode}?autoPlay=true&${themeParam}&nextButton=true&autoNext=true`;
         } else {
-          return `${VIDFAST_BASE}/movie/${id}?autoPlay=true&${themeParam}${startParams}`;
+          return `${VIDFAST_BASE}/movie/${id}?autoPlay=true&${themeParam}`;
         }
-    } else {
+    } 
+    
+    // C. Zxcstream (Multi-Audio)
+    else {
         if (type === 'tv') {
           return `https://www.zxcstream.xyz/player/tv/${id}/${season}/${episode}?autoplay=false&back=true&server=0`;
         } else {
@@ -1287,27 +1245,102 @@ const Player = () => {
         }
     }
   };
+
   return (
     <div className="fixed inset-0 bg-black z-[100] overflow-hidden flex flex-col" style={{ transform: 'translateZ(0)' }}>
+      
+      {/* TOP CONTROLS LAYER */}
       <div className="absolute top-0 left-0 w-full h-20 pointer-events-none z-[120] flex items-center justify-between px-6">
-          <button onClick={() => navigate(-1)} className="pointer-events-auto bg-black/50 hover:bg-[#00A8E1] text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all shadow-lg group"><ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" /></button>
+          
+          <button 
+            onClick={() => navigate(-1)} 
+            className="pointer-events-auto bg-black/50 hover:bg-[#00A8E1] text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all shadow-lg group"
+          >
+            <ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" />
+          </button>
+
+          {/* SERVER SWITCHER */}
           <div className="pointer-events-auto flex flex-col items-center gap-1 bg-black/60 backdrop-blur-md border border-white/10 p-1.5 rounded-xl shadow-2xl transform translate-y-2">
-               <div className="flex bg-[#19222b] rounded-lg p-1"><button onClick={() => setActiveServer('vidfast')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'vidfast' ? 'bg-[#00A8E1] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}>VidFast (Resumes)</button><button onClick={() => setActiveServer('zxcstream')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'zxcstream' ? 'bg-[#00A8E1] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}>Multi-Audio</button></div>
-               {activeServer === 'zxcstream' && (<div className="text-[10px] text-[#00A8E1] font-bold animate-pulse">Resume not supported on this server</div>)}
+               <div className="flex bg-[#19222b] rounded-lg p-1 gap-1">
+                   {/* SHOW VIDROCK ONLY IF BENGALI */}
+                   {isBengali && (
+                       <button 
+                         onClick={() => setActiveServer('vidrock')}
+                         className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'vidrock' ? 'bg-[#E50914] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
+                       >
+                           VidRock (Bengali)
+                       </button>
+                   )}
+
+                   <button 
+                     onClick={() => setActiveServer('vidfast')}
+                     className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'vidfast' ? 'bg-[#00A8E1] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
+                   >
+                       VidFast
+                   </button>
+                   <button 
+                     onClick={() => setActiveServer('zxcstream')}
+                     className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'zxcstream' ? 'bg-[#00A8E1] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
+                   >
+                       Multi-Audio
+                   </button>
+               </div>
+               {activeServer === 'zxcstream' && (
+                   <div className="text-[10px] text-[#00A8E1] font-bold animate-pulse">Select Audio Language in Player Settings</div>
+               )}
           </div>
-          {activeServer === 'vidfast' && type === 'tv' ? (<button onClick={() => setShowEpisodes(!showEpisodes)} className={`pointer-events-auto p-3 rounded-full backdrop-blur-md border border-white/10 transition-all ${showEpisodes ? 'bg-[#00A8E1] text-white' : 'bg-black/50 hover:bg-[#333c46] text-gray-200'}`}><List size={24} /></button>) : (<div className="w-12"></div>)}
+
+          {/* EPISODE LIST TOGGLE (For TV) */}
+          {type === 'tv' ? (
+              <button 
+                onClick={() => setShowEpisodes(!showEpisodes)} 
+                className={`pointer-events-auto p-3 rounded-full backdrop-blur-md border border-white/10 transition-all ${showEpisodes ? 'bg-[#00A8E1] text-white' : 'bg-black/50 hover:bg-[#333c46] text-gray-200'}`}
+              >
+                  <List size={24} />
+              </button>
+          ) : (
+              <div className="w-12"></div> 
+          )}
       </div>
+
+      {/* PLAYER FRAME */}
       <div className="flex-1 relative w-full h-full bg-black">
-        <iframe key={activeServer + season + episode} src={getSourceUrl()} className="w-full h-full border-none" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen" loading="eager" fetchPriority="high" referrerPolicy="origin" allowFullScreen title="Player"></iframe>
+        <iframe
+          key={activeServer + season + episode} 
+          src={getSourceUrl()}
+          className="w-full h-full border-none"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+          loading="eager" 
+          fetchPriority="high"
+          referrerPolicy="origin"
+          allowFullScreen
+          title="Player"
+        ></iframe>
       </div>
-      {activeServer === 'vidfast' && type === 'tv' && (
+
+      {/* EPISODE SIDEBAR (TV Only) */}
+      {type === 'tv' && (
         <div className={`fixed right-0 top-0 h-full bg-[#00050D]/95 backdrop-blur-xl border-l border-white/10 transition-all duration-500 ease-in-out z-[110] flex flex-col ${showEpisodes ? 'w-[350px] translate-x-0 shadow-2xl' : 'w-[350px] translate-x-full shadow-none'}`}>
-            <div className="pt-24 px-6 pb-4 border-b border-white/10 flex items-center justify-between bg-[#1a242f]/50"><h2 className="font-bold text-white text-lg">Episodes</h2><div className="relative"><select value={season} onChange={(e) => setSeason(Number(e.target.value))} className="appearance-none bg-[#00A8E1] text-white font-bold py-1.5 pl-3 pr-8 rounded cursor-pointer text-sm outline-none hover:bg-[#008ebf] transition">{Array.from({length: totalSeasons}, (_, i) => i + 1).map(s => (<option key={s} value={s} className="bg-[#1a242f]">Season {s}</option>))}</select><ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-white pointer-events-none" /></div></div>
+            <div className="pt-24 px-6 pb-4 border-b border-white/10 flex items-center justify-between bg-[#1a242f]/50">
+                <h2 className="font-bold text-white text-lg">Episodes</h2>
+                <div className="relative">
+                    <select value={season} onChange={(e) => setSeason(Number(e.target.value))} className="appearance-none bg-[#00A8E1] text-white font-bold py-1.5 pl-3 pr-8 rounded cursor-pointer text-sm outline-none hover:bg-[#008ebf] transition">
+                        {Array.from({length: totalSeasons}, (_, i) => i + 1).map(s => (<option key={s} value={s} className="bg-[#1a242f]">Season {s}</option>))}
+                    </select>
+                    <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-white pointer-events-none" />
+                </div>
+            </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-hide">
                 {seasonData?.episodes ? (seasonData.episodes.map(ep => (
                         <div key={ep.id} onClick={() => setEpisode(ep.episode_number)} className={`flex gap-3 p-2 rounded-lg cursor-pointer transition-all group ${episode === ep.episode_number ? 'bg-[#333c46] border border-[#00A8E1]' : 'hover:bg-[#333c46] border border-transparent'}`}>
-                            <div className="relative w-28 h-16 flex-shrink-0 bg-black rounded overflow-hidden">{ep.still_path ? (<img src={`${IMAGE_BASE_URL}${ep.still_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" />) : (<div className="w-full h-full flex items-center justify-center text-gray-600 text-xs">No Img</div>)}{episode === ep.episode_number && (<div className="absolute inset-0 bg-black/40 flex items-center justify-center"><Play size={16} fill="white" className="text-white" /></div>)}</div>
-                            <div className="flex flex-col justify-center min-w-0"><span className={`text-xs font-bold mb-0.5 ${episode === ep.episode_number ? 'text-[#00A8E1]' : 'text-gray-400'}`}>Episode {ep.episode_number}</span><h4 className={`text-sm font-medium truncate leading-tight ${episode === ep.episode_number ? 'text-white' : 'text-gray-300 group-hover:text-white'}`}>{ep.name}</h4></div>
+                            <div className="relative w-28 h-16 flex-shrink-0 bg-black rounded overflow-hidden">
+                                {ep.still_path ? (<img src={`${IMAGE_BASE_URL}${ep.still_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" />) : (<div className="w-full h-full flex items-center justify-center text-gray-600 text-xs">No Img</div>)}
+                                {episode === ep.episode_number && (<div className="absolute inset-0 bg-black/40 flex items-center justify-center"><Play size={16} fill="white" className="text-white" /></div>)}
+                            </div>
+                            <div className="flex flex-col justify-center min-w-0">
+                                <span className={`text-xs font-bold mb-0.5 ${episode === ep.episode_number ? 'text-[#00A8E1]' : 'text-gray-400'}`}>Episode {ep.episode_number}</span>
+                                <h4 className={`text-sm font-medium truncate leading-tight ${episode === ep.episode_number ? 'text-white' : 'text-gray-300 group-hover:text-white'}`}>{ep.name}</h4>
+                            </div>
                         </div>
                 ))) : (<div className="text-center text-gray-500 mt-10 flex flex-col items-center"><Loader className="animate-spin mb-2" /><span>Loading Season {season}...</span></div>)}
             </div>
@@ -1316,7 +1349,6 @@ const Player = () => {
     </div>
   );
 };
-
 // --- MAIN WRAPPERS ---
 const Home = ({ isPrimeOnly }) => { 
   const { rows, loadMore } = useInfiniteRows('all', isPrimeOnly);
