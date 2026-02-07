@@ -468,6 +468,16 @@ const Navbar = ({ isPrimeOnly }) => {
 const SportsPage = () => {
     const [channels, setChannels] = useState([]);
     const [displayedChannels, setDisplayedChannels] = useState([]);
+    
+    // --- MANUAL STREAM CONFIGURATION ---
+    const SPECIAL_STREAM = {
+        name: "ICC T20 WC Live (Bengali)",
+        logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR-sN5te7jsC9YTazKRH6RgQCxTAqs60oWZMw&s",
+        group: "Cricket",
+        parentGroup: "Sports",
+        url: "https://live15p.hotstar.com/hls/live/2116748/inallow-icct20wc-2026/ben/1540062322/15mindvrm0118ba48ab59034e4b9dbc9285e29e083507february2026/master_apmf_360_1.m3u8"
+    };
+
     const CATEGORIES_TREE = {
         'All': [],
         'General Entertainment': ['Entertainment', 'GEC (General Entertainment Channels)', 'Lifestyle', 'Music', 'Comedy'],
@@ -536,6 +546,9 @@ const SportsPage = () => {
                 const parsed = [];
                 let current = {};
 
+                // --- 1. INJECT YOUR MANUAL STREAM FIRST ---
+                parsed.push(SPECIAL_STREAM);
+
                 for (let i = 0; i < lines.length; i++) {
                     let line = lines[i].trim();
                     
@@ -568,12 +581,12 @@ const SportsPage = () => {
             })
             .catch(e => {
                 console.error("Playlist Error:", e);
-                setError("Unable to load live channels. The feed might be down.");
+                // Even if playlist fails, show your manual stream
+                setChannels([SPECIAL_STREAM]);
                 setLoading(false);
             });
     }, []);
 
-    // Filter Logic
     useEffect(() => {
         let filtered = channels;
 
@@ -596,13 +609,22 @@ const SportsPage = () => {
         setDisplayedChannels(filtered.slice(startIndex, endIndex));
     }, [activeMainCategory, activeSubCategory, searchQuery, channels, currentPage]);
 
-    // Reset Page on Filter Change
     useEffect(() => {
         setCurrentPage(1);
     }, [activeMainCategory, activeSubCategory, searchQuery]);
 
-    // --- 1. CALCULATE TOTAL PAGES (MOVED UP) ---
-    // We calculate this here so the keyboard listener knows the limit
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key === 'ArrowRight') {
+                setCurrentPage(p => p + 1);
+            } else if (e.key === 'ArrowLeft') {
+                setCurrentPage(p => Math.max(1, p - 1));
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, []);
+
     const totalPages = Math.ceil(
         (activeMainCategory === 'All' && activeSubCategory === 'All' && !searchQuery 
             ? channels.length 
@@ -614,23 +636,6 @@ const SportsPage = () => {
               }).length
         ) / itemsPerPage
     );
-
-    // --- 2. KEYBOARD NAVIGATION (FIXED) ---
-    useEffect(() => {
-        const handleKeyDown = (e) => {
-            // Prevent page change if typing in search box
-            if (document.activeElement.tagName === 'INPUT') return;
-
-            if (e.key === 'ArrowRight') {
-                // Fix: Ensure we don't go past the last page
-                setCurrentPage(p => Math.min(p + 1, totalPages));
-            } else if (e.key === 'ArrowLeft') {
-                setCurrentPage(p => Math.max(1, p - 1));
-            }
-        };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [totalPages]); // Fix: Re-run effect when totalPages changes
 
     return (
         <div className="pt-24 px-4 md:px-12 min-h-screen pb-20">
@@ -712,13 +717,7 @@ const SportsPage = () => {
                     <Loader className="animate-spin" size={48} />
                     <div className="text-gray-400 text-sm font-medium animate-pulse">Fetching global channels feed...</div>
                 </div>
-            ) : error ? (
-                <div className="h-60 flex flex-col items-center justify-center text-red-500 gap-2 border border-dashed border-white/10 rounded-xl">
-                    <Ban size={48} />
-                    <p>{error}</p>
-                    <button onClick={() => window.location.reload()} className="text-white underline mt-2">Retry Connection</button>
-                </div>
-            ) : displayedChannels.length === 0 ? (
+            ) : displayedChannels.length === 0 && !error ? (
                 <div className="h-60 flex flex-col items-center justify-center text-gray-500 gap-3 border border-dashed border-white/10 rounded-xl">
                     <Monitor size={48} className="opacity-20" />
                     <p>No channels found for this search.</p>
@@ -764,18 +763,13 @@ const SportsPage = () => {
                             <ChevronLeft size={24} />
                         </button>
                         
-                        {/* --- PAGINATION FIX APPLIED HERE --- */}
                         <div className="flex gap-2 overflow-x-auto max-w-[300px] scrollbar-hide px-2 items-center">
-                            {(() => {
-                                const maxVisible = 5;
-                                let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
-                                let end = Math.min(totalPages, start + maxVisible - 1);
-
-                                if (end - start + 1 < maxVisible) {
-                                    start = Math.max(1, end - maxVisible + 1);
-                                }
-
-                                return Array.from({ length: end - start + 1 }, (_, i) => start + i).map(pageNum => (
+                            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                                let pageNum = currentPage - 2 + i;
+                                if (pageNum <= 0) pageNum = i + 1;
+                                if (pageNum > totalPages) return null;
+                                
+                                return (
                                     <button 
                                         key={pageNum}
                                         onClick={() => setCurrentPage(pageNum)}
@@ -787,8 +781,8 @@ const SportsPage = () => {
                                     >
                                         {pageNum}
                                     </button>
-                                ));
-                            })()}
+                                );
+                            })}
                         </div>
 
                         <button 
@@ -807,7 +801,6 @@ const SportsPage = () => {
         </div>
     );
 };
-
 const SportsPlayer = () => {
     const navigate = useNavigate();
     const location = useLocation();
