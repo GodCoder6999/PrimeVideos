@@ -466,18 +466,29 @@ const Navbar = ({ isPrimeOnly }) => {
 
 // --- SPORTS / LIVE TV COMPONENTS ---
 const SportsPage = () => {
-    const [channels, setChannels] = useState([]);
-    const [displayedChannels, setDisplayedChannels] = useState([]);
+    // DO NOT ADD CORSPROXY HERE. The Player component now does it automatically.
+    const MATCH_STREAMS = [
+        {
+            name: "Server 1 (Star Sports)",
+            // ORIGINAL RAW URL ONLY
+            url: "https://prod-sports-eng-cf.jiocinema.com/hls/live/2109255/hd_akamai_star_sports_1_hindi_voot_cp_in/master.m3u8",
+        },
+        {
+            name: "Server 2 (Willow)",
+            // ORIGINAL RAW URL ONLY
+            url: "https://linear-willow-playback.willow.tv/channel/willowhd_chunks.m3u8",
+        },
+        {
+             // Provided Hotstar URL (Example)
+             name: "Server 3 (Hotstar Feed)",
+             url: "https://live13p.hotstar.com/hls/live/2123081/inallow-icct20wc-2026/ben/1540062183/15mindvrm01048bd0ea443441bcae3e1072992a3b3508february2026/master_ap_1080_5.m3u8"
+        }
+    ];
     
-    // --- MANUAL STREAM CONFIGURATION ---
-    const SPECIAL_STREAM = {
-        name: "ICC T20 WC Live (Bengali)",
-        logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR-sN5te7jsC9YTazKRH6RgQCxTAqs60oWZMw&s",
-        group: "Cricket",
-        parentGroup: "Sports",
-        // ADDED PROXY HERE
-        url: "https://corsproxy.io/?" + encodeURIComponent("https://live13p.hotstar.com/hls/live/2123081/inallow-icct20wc-2026/ben/1540062183/15mindvrm01048bd0ea443441bcae3e1072992a3b3508february2026/master_ap_1080_5.m3u8")
-    };
+    // ... rest of your SportsPage code (render logic remains the same)
+    
+    // Pass strictly the RAW url:
+    // navigate('/watch/sport/iptv', { state: { streamUrl: s.url ... } })
 
     const CATEGORIES_TREE = {
         'All': [],
@@ -808,59 +819,86 @@ const SportsPage = () => {
         </div>
     );
 };
+// --- COPIED DIRECTLY FROM EXTENSION LOGIC ---
 const SportsPlayer = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const videoRef = useRef(null);
     const { streamUrl, title, logo, group } = location.state || {};
     const [isMuted, setIsMuted] = useState(false);
+    const hlsRef = useRef(null);
 
     useEffect(() => {
         if (!streamUrl) return;
-        let hls;
 
-        if (Hls && Hls.isSupported()) {
-            // --- CUSTOM LOADER TO FORCE PROXY ON CHUNKS ---
-            class ProxyHlsLoader extends Hls.DefaultConfig.loader {
+        // DESTROY PREVIOUS INSTANCE
+        if (hlsRef.current) {
+            hlsRef.current.destroy();
+        }
+
+        if (Hls.isSupported()) {
+            // --- THE "FORMULA": CUSTOM INTERCEPTOR LOADER ---
+            // This class overrides the default network loader of HLS.js
+            // It mimics the extension by forcing the proxy on EVERYTHING.
+            class NetworkInterceptor extends Hls.DefaultConfig.loader {
                 constructor(config) {
                     super(config);
                     const load = this.load.bind(this);
                     this.load = function (context, config, callbacks) {
-                        // Check if URL is pointing to Hotstar AND is NOT proxied yet
-                        if (context.url.includes('hotstar.com') && !context.url.includes('corsproxy.io')) {
-                            context.url = "https://corsproxy.io/?" + encodeURIComponent(context.url);
+                        // 1. CAPTURE THE TARGET URL
+                        let targetUrl = context.url;
+
+                        // 2. CHECK IF IT IS ALREADY PROXIED
+                        // If it doesn't contain the proxy prefix, we MUST add it.
+                        if (!targetUrl.includes('corsproxy.io')) {
+                            // 3. APPLY THE PROXY WRAPPER
+                            // This ensures the Origin header is stripped/replaced by the proxy
+                            context.url = "https://corsproxy.io/?" + encodeURIComponent(targetUrl);
                         }
+
+                        // 4. PROCEED WITH THE MODIFIED REQUEST
                         load(context, config, callbacks);
                     };
                 }
             }
 
-            hls = new Hls({
-                loader: ProxyHlsLoader,
+            const hls = new Hls({
+                loader: NetworkInterceptor, // INJECT THE INTERCEPTOR
                 enableWorker: true,
                 lowLatencyMode: true,
+                backBufferLength: 90,
+                // Tweak these to handle live stream buffering better
+                liveSyncDurationCount: 3,
+                liveMaxLatencyDurationCount: 10,
+                maxBufferLength: 30,
             });
 
-            hls.loadSource(streamUrl);
+            hlsRef.current = hls;
+
+            // LOAD THE MANIFEST (Wrapped in Proxy)
+            // We strip the proxy from the initial URL if it's already there to let the loader handle it uniformly
+            const cleanUrl = streamUrl.replace("https://corsproxy.io/?", "");
+            hls.loadSource("https://corsproxy.io/?" + encodeURIComponent(cleanUrl));
+            
             hls.attachMedia(videoRef.current);
             
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                videoRef.current.play().catch(e => console.log("Auto-play prevented", e));
+                videoRef.current.play().catch(e => console.log("Autoplay blocked:", e));
             });
-            
-            // Error handling
+
             hls.on(Hls.Events.ERROR, (event, data) => {
                 if (data.fatal) {
                     switch (data.type) {
                         case Hls.ErrorTypes.NETWORK_ERROR:
-                            console.log("Network error, trying to recover...");
+                            console.warn("Network hiccup, trying to recover...");
                             hls.startLoad();
                             break;
                         case Hls.ErrorTypes.MEDIA_ERROR:
-                            console.log("Media error, recovering...");
+                            console.warn("Media decoding error, recovering...");
                             hls.recoverMediaError();
                             break;
                         default:
+                            console.error("Fatal Error, stopping.");
                             hls.destroy();
                             break;
                     }
@@ -868,19 +906,24 @@ const SportsPlayer = () => {
             });
 
         } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
+            // SAFARI FALLBACK (Native HLS)
             videoRef.current.src = streamUrl;
             videoRef.current.addEventListener('loadedmetadata', () => {
                 videoRef.current.play();
             });
         }
-        return () => { if (hls) hls.destroy(); };
+
+        return () => {
+            if (hlsRef.current) hlsRef.current.destroy();
+        };
     }, [streamUrl]);
 
     if (!streamUrl) return <div className="text-white pt-20 text-center">No stream selected. <button onClick={() => navigate(-1)} className="text-[#00A8E1] ml-2 hover:underline">Go Back</button></div>;
 
     return (
         <div className="fixed inset-0 bg-[#0f171e] z-[200] flex flex-col">
-            <div className="absolute top-0 left-0 w-full h-24 bg-gradient-to-b from-black/80 to-transparent z-50 flex items-center px-6 justify-between pointer-events-none">
+            {/* HEADER */}
+            <div className="absolute top-0 left-0 w-full h-24 bg-gradient-to-b from-black/90 to-transparent z-50 flex items-center px-6 justify-between pointer-events-none">
                 <div className="flex items-center gap-4 pointer-events-auto">
                     <button onClick={() => navigate(-1)} className="w-12 h-12 rounded-full bg-black/40 hover:bg-[#00A8E1] backdrop-blur-md flex items-center justify-center text-white transition border border-white/10 group"><ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" /></button>
                     <div>
@@ -890,14 +933,22 @@ const SportsPlayer = () => {
                 </div>
                 <div className="pointer-events-auto"><button onClick={() => { setIsMuted(!isMuted); videoRef.current.muted = !isMuted; }} className="w-12 h-12 rounded-full bg-black/40 hover:bg-white/20 backdrop-blur-md flex items-center justify-center text-white transition border border-white/10 hover:shadow-[0_0_15px_rgba(255,255,255,0.2)]">{isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}</button></div>
             </div>
+            
+            {/* VIDEO AREA */}
             <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden group">
-                <video ref={videoRef} className="w-full h-full object-contain" controls autoPlay playsInline preload="auto"></video>
-                <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-black/90 to-transparent pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end px-8 pb-8"><div className="text-white/80 text-sm font-medium">Streaming via secure HLS protocol • {new Date().toLocaleTimeString()}</div></div>
+                <video 
+                    ref={videoRef} 
+                    className="w-full h-full object-contain" 
+                    controls 
+                    autoPlay 
+                    playsInline 
+                    preload="auto"
+                ></video>
+                <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-black/90 to-transparent pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end px-8 pb-8"><div className="text-white/80 text-sm font-medium">Streaming via Secured Proxy Interceptor • {new Date().toLocaleTimeString()}</div></div>
             </div>
         </div>
     );
 };
-
 const Hero = ({ isPrimeOnly }) => {
   const [movies, setMovies] = useState([]);
   const [currentSlide, setCurrentSlide] = useState(0);
