@@ -1016,30 +1016,69 @@ const SearchResults = ({ isPrimeOnly }) => {
 };
 
 // --- MOVIE DETAIL COMPONENT ---
+// --- MOVIE DETAIL COMPONENT (UPDATED WITH POPUP CARDS) ---
 const MovieDetail = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
+  
+  // Data State
   const [movie, setMovie] = useState(null);
   const [relatedMovies, setRelatedMovies] = useState([]);
   const [credits, setCredits] = useState(null);
+  
+  // Hero Video State
   const [trailerKey, setTrailerKey] = useState(null);
   const [showVideo, setShowVideo] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
+  
+  // UI State
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
   const [loadingDownloads, setLoadingDownloads] = useState(false);
   const [downloadLinks, setDownloadLinks] = useState([]);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
 
+  // --- NEW: HOVER STATE FOR RELATED CARDS ---
+  const [hoveredRelatedId, setHoveredRelatedId] = useState(null);
+  const relatedTimeoutRef = useRef(null);
+
+  // --- NEW: HOVER HANDLERS ---
+  const handleRelatedHover = (id) => {
+    if (relatedTimeoutRef.current) clearTimeout(relatedTimeoutRef.current);
+    relatedTimeoutRef.current = setTimeout(() => setHoveredRelatedId(id), 400);
+  };
+
+  const handleRelatedLeave = () => {
+    if (relatedTimeoutRef.current) clearTimeout(relatedTimeoutRef.current);
+    setHoveredRelatedId(null);
+  };
+
   useEffect(() => {
-    setShowVideo(false); setTrailerKey(null); setIsMuted(true); setMovie(null); setRelatedMovies([]); setDownloadLinks([]); setShowDownloadModal(false);
+    // Reset states on navigation
+    setShowVideo(false); 
+    setTrailerKey(null); 
+    setIsMuted(true); 
+    setMovie(null); 
+    setRelatedMovies([]); 
+    setDownloadLinks([]); 
+    setShowDownloadModal(false);
+    setHoveredRelatedId(null); // Reset hover
+    
     window.scrollTo(0, 0);
+    
+    // Fetch Data
     fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}&language=en-US`).then(res => res.json()).then(data => setMovie(data)).catch(err => console.error(err));
     fetch(`${BASE_URL}/${type}/${id}/credits?api_key=${TMDB_API_KEY}`).then(res => res.json()).then(data => setCredits(data));
+    
     fetch(`${BASE_URL}/${type}/${id}/videos?api_key=${TMDB_API_KEY}`).then(res => res.json()).then(data => {
       const trailer = data.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube');
       if (trailer) { setTrailerKey(trailer.key); setTimeout(() => setShowVideo(true), 3000); }
     });
-    fetch(`${BASE_URL}/${type}/${id}/recommendations?api_key=${TMDB_API_KEY}&language=en-US`).then(res => res.json()).then(data => setRelatedMovies(data.results?.slice(0, 10) || []));
+    
+    fetch(`${BASE_URL}/${type}/${id}/recommendations?api_key=${TMDB_API_KEY}&language=en-US`).then(res => res.json()).then(data => {
+        // Ensure we only get items with images to avoid broken cards
+        const validRecs = (data.results || []).filter(m => m.backdrop_path || m.poster_path).slice(0, 10);
+        setRelatedMovies(validRecs);
+    });
   }, [type, id]);
 
   const handleDownload = async () => {
@@ -1051,6 +1090,7 @@ const MovieDetail = () => {
   };
 
   if (!movie) return <div className="min-h-screen w-full bg-[#0f171e]" />;
+  
   // RESUME LOGIC
   const savedProgress = getMediaProgress(type, id);
   const isResumable = savedProgress && savedProgress.progress?.watched > 0;
@@ -1103,18 +1143,34 @@ const MovieDetail = () => {
           <div className="text-gray-300 text-lg leading-relaxed line-clamp-3 max-w-2xl opacity-0 animate-fade-in-up" style={{ animationDelay: '400ms' }}>{movie.overview}</div>
         </div>
       </div>
-      <div className="relative z-30 -mt-24 px-6 md:px-16 mb-16">
-        <h3 className="text-xl font-bold text-white mb-4 drop-shadow-md">Customers also watched</h3>
+
+      {/* --- UPDATED RELATED SECTION --- */}
+      <div className="relative z-30 -mt-24 px-4 md:px-12 mb-16">
+        <h3 className="text-xl font-bold text-white mb-4 drop-shadow-md px-2">Customers also watched</h3>
         {relatedMovies.length > 0 ? (
-          <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-4">
-            {relatedMovies.map((m) => (
-              <div key={m.id} onClick={() => navigate(`/detail/${m.media_type || type}/${m.id}`)} className="flex-shrink-0 w-[200px] aspect-video bg-gray-800 rounded-lg overflow-hidden relative group cursor-pointer border border-transparent hover:border-white/50 transition-all shadow-lg">
-                <img src={`${IMAGE_BASE_URL}${m.backdrop_path || m.poster_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" />
-              </div>
+          <div 
+            className="flex overflow-x-scroll overflow-y-hidden scrollbar-hide py-10 px-2"
+            style={{ margin: '0 -8px' }} // Negative margin to align with heading
+          >
+            {relatedMovies.map((m, index) => (
+               <MovieCard 
+                 key={m.id} 
+                 movie={m} 
+                 variant="standard" 
+                 itemType={m.media_type || type} // Fallback to current type if media_type missing
+                 rank={null} 
+                 isHovered={hoveredRelatedId === m.id} 
+                 onHover={handleRelatedHover} 
+                 onLeave={handleRelatedLeave} 
+                 isPrimeOnly={true} // Detail page assumes Prime styling
+                 isFirst={index === 0}
+                 isLast={index === relatedMovies.length - 1}
+               />
             ))}
           </div>
-        ) : <div className="text-gray-500 italic text-sm py-4">No related titles found.</div>}
+        ) : <div className="text-gray-500 italic text-sm py-4 px-4">No related titles found.</div>}
       </div>
+
       <div className="px-6 md:px-16 grid grid-cols-1 lg:grid-cols-3 gap-10">
         <div className="lg:col-span-2 space-y-8">
           <div className="bg-[#19222b] p-6 rounded-lg border border-white/5">
@@ -1129,6 +1185,7 @@ const MovieDetail = () => {
           </div>
         </div>
       </div>
+
       {showDownloadModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
           <div className="bg-[#19222b] border border-white/10 rounded-2xl w-full max-w-md p-6 shadow-2xl relative animate-modal-pop">
