@@ -866,8 +866,18 @@ const Hero = ({ isPrimeOnly }) => {
   return (
     <div className="relative w-full h-[85vh] overflow-hidden group" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
       <div className={`absolute inset-0 transition-opacity duration-700 ${showVideo ? 'opacity-0' : 'opacity-100'}`}><img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover" alt="" /></div>
+      {/* --- FIXED YOUTUBE EMBED --- */}
       {showVideo && trailerKey && (
-        <div className="absolute inset-0 animate-in pointer-events-none"><iframe src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} className="w-full h-full scale-[1.3]" allow="autoplay; encrypted-media" frameBorder="0" title="Hero Trailer"></iframe></div>
+        <div className="absolute inset-0 animate-in pointer-events-none">
+          <iframe 
+            src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&enablejsapi=1&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} 
+            className="w-full h-full scale-[1.3]" 
+            allow="autoplay; encrypted-media" 
+            frameBorder="0" 
+            referrerPolicy="strict-origin-when-cross-origin"
+            title="Hero Trailer"
+          ></iframe>
+        </div>
       )}
       <div className="absolute inset-0 bg-gradient-to-r from-[#00050D] via-[#00050D]/40 to-transparent" /><div className="absolute inset-0 bg-gradient-to-t from-[#00050D] via-transparent to-transparent" />
       <div className="absolute top-[25%] left-[4%] max-w-[600px] z-30 animate-row-enter">
@@ -1065,7 +1075,19 @@ const MovieDetail = () => {
       <div className="relative w-full h-[85vh] overflow-hidden">
         <div className="absolute inset-0 w-full h-full">
           <div className={`absolute inset-0 transition-opacity duration-1000 ${showVideo ? 'opacity-0' : 'opacity-100'}`}><img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover object-top md:object-right-top" alt="" /></div>
-          {showVideo && trailerKey && (<div className="absolute inset-0 animate-in fade-in duration-1000 pointer-events-none"><iframe src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} className="w-full h-full scale-[1.5] origin-center" allow="autoplay; encrypted-media" frameBorder="0" title="Hero Background" /></div>)}
+          {/* --- FIXED YOUTUBE EMBED --- */}
+          {showVideo && trailerKey && (
+            <div className="absolute inset-0 animate-in fade-in duration-1000 pointer-events-none">
+              <iframe 
+                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&enablejsapi=1&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} 
+                className="w-full h-full scale-[1.5] origin-center" 
+                allow="autoplay; encrypted-media" 
+                frameBorder="0" 
+                referrerPolicy="strict-origin-when-cross-origin"
+                title="Hero Background" 
+              />
+            </div>
+          )}
         </div>
         <div className="absolute inset-0 bg-gradient-to-r from-[#0f171e] via-[#0f171e]/90 to-transparent w-[90%] md:w-[65%] z-10" />
         <div className="absolute inset-0 bg-gradient-to-t from-[#0f171e] via-transparent to-transparent z-10" />
