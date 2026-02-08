@@ -476,7 +476,7 @@ const SportsPage = () => {
         group: "Cricket",
         parentGroup: "Sports",
         // ADDED PROXY HERE
-        url: "https://corsproxy.io/?" + encodeURIComponent("https://live15p.hotstar.com/hls/live/2116748/inallow-icct20wc-2026/ben/1540062322/15mindvrm0118ba48ab59034e4b9dbc9285e29e083507february2026/master_apmf_360_1.m3u8")
+        url: "https://corsproxy.io/?" + encodeURIComponent("https://live13p.hotstar.com/hls/live/2123081/inallow-icct20wc-2026/ben/1540062183/15mindvrm01048bd0ea443441bcae3e1072992a3b3508february2026/master_ap_1080_5.m3u8")
     };
 
     const CATEGORIES_TREE = {
