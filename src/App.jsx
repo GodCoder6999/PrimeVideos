@@ -23,6 +23,8 @@ const VIDFAST_ORIGINS = [
 ];
 
 // --- HELPER: GET PROGRESS ---
+// --- HELPER: GET PROGRESS ---
+// Retrieves the last watched timestamp for a specific movie or episode
 const getMediaProgress = (type, id) => {
   try {
     const allProgress = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
@@ -1578,8 +1580,7 @@ const MovieDetail = () => {
     </div>
   );
 };
-// --- PLAYER COMPONENT (UPDATED FOR RESUME) ---
-// --- PLAYER COMPONENT (WITH BOLLYWOOD/INDIAN SERVER SUPPORT) ---
+// --- PLAYER COMPONENT (WITH UNIVERSAL RESUME) ---
 const Player = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
@@ -1587,8 +1588,9 @@ const Player = () => {
 
   // --- STATE ---
   const [activeServer, setActiveServer] = useState('vidfast'); 
-  const [isIndian, setIsIndian] = useState(false); // Track if content is Indian
-  const [imdbId, setImdbId] = useState(null); // Required for Slime player
+  const [isIndian, setIsIndian] = useState(false);
+  const [imdbId, setImdbId] = useState(null);
+  const [movieData, setMovieData] = useState(null); // Store metadata for history
   
   // Episode & Season State
   const queryParams = new URLSearchParams(location.search);
@@ -1602,40 +1604,84 @@ const Player = () => {
   useEffect(() => {
     const fetchDetails = async () => {
       try {
-        // Append external_ids to get IMDB ID in one go
         const res = await fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`);
         const data = await res.json();
+        setMovieData(data); // Save for Resume Logic
         
-        // 1. Get IMDB ID
-        // For movies, it's often at root level or inside external_ids
-        // For TV, it's usually in external_ids
         const foundImdbId = data.imdb_id || data.external_ids?.imdb_id;
         setImdbId(foundImdbId);
 
-        // 2. Check for Indian Languages
         const indianLanguages = ['hi', 'bn', 'ta', 'te', 'ml', 'kn', 'mr', 'pa', 'gu'];
         const isIndianContent = indianLanguages.includes(data.original_language);
         setIsIndian(isIndianContent);
 
-        // 3. Auto-Switch Server Logic
-        if (isIndianContent) {
-          setActiveServer('slime'); // Switch to new Bollywood server
-        } else {
-          setActiveServer('vidfast'); // Default for others
-        }
+        // Auto-select server
+        if (isIndianContent) setActiveServer('slime');
+        else setActiveServer('vidfast');
 
-        // 4. Set Total Seasons (TV Only)
-        if (type === 'tv' && data.number_of_seasons) {
-          setTotalSeasons(data.number_of_seasons);
-        }
-      } catch (e) {
-        console.error("Error fetching details:", e);
-      }
+        if (type === 'tv' && data.number_of_seasons) setTotalSeasons(data.number_of_seasons);
+      } catch (e) { console.error("Error fetching details:", e); }
     };
     fetchDetails();
   }, [type, id]);
 
-  // --- 2. FETCH SEASONS (TV ONLY) ---
+  // --- 2. PROGRESS SAVING LOGIC (TRACKING) ---
+  useEffect(() => {
+    if (!movieData) return;
+
+    // Function: Save to LocalStorage
+    const saveProgress = (currentTime, duration) => {
+        const key = `${type === 'tv' ? 't' : 'm'}${id}`;
+        const existing = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
+        
+        const entry = {
+            id: Number(id),
+            type: type,
+            title: movieData.title || movieData.name,
+            poster_path: movieData.poster_path,
+            backdrop_path: movieData.backdrop_path,
+            last_season_watched: type === 'tv' ? season : undefined,
+            last_episode_watched: type === 'tv' ? episode : undefined,
+            progress: {
+                watched: currentTime,
+                duration: duration || (movieData.runtime ? movieData.runtime * 60 : 0)
+            },
+            last_updated: Date.now()
+        };
+
+        localStorage.setItem('vidFastProgress', JSON.stringify({
+            ...existing,
+            [key]: entry
+        }));
+    };
+
+    // A. Save immediately on open (so it appears in "Continue Watching")
+    saveProgress(0, 0);
+
+    // B. Global Listener for Player Messages (VidFast/HLS/Standard Embeds)
+    const handleMessage = (e) => {
+        if (!e.data) return;
+        
+        // Check for common time update message formats
+        const isTimeUpdate = 
+            e.data.type === 'timeupdate' || 
+            e.data.event === 'timeupdate' || 
+            e.data.action === 'timeupdate';
+
+        if (isTimeUpdate) {
+             const time = e.data.time || e.data.currentTime || e.data.data?.time;
+             const duration = e.data.duration || e.data.data?.duration;
+             if (time && time > 5) { // Only save if watched more than 5 seconds
+                 saveProgress(time, duration);
+             }
+        }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [movieData, type, id, season, episode]);
+
+  // --- 3. FETCH SEASONS (TV ONLY) ---
   useEffect(() => {
     if (type === 'tv') {
       fetch(`${BASE_URL}/tv/${id}/season/${season}?api_key=${TMDB_API_KEY}`)
@@ -1644,46 +1690,35 @@ const Player = () => {
     }
   }, [type, id, season]);
 
-  // --- 3. SOURCE GENERATOR ---
+  // --- 4. SOURCE GENERATOR (WITH RESUME PARAMS) ---
   const getSourceUrl = () => {
-    // A. Slime (Bollywood/Indian) - Uses IMDb ID
+    // 1. Get saved timestamp
+    const progress = getMediaProgress(type, id);
+    const startTime = progress?.progress?.watched || 0;
+
+    // 2. Slime (Bollywood/Indian)
+    // Uses #t=seconds for standard HTML5 playback resume
     if (activeServer === 'slime') {
-      const targetId = imdbId || id; // Fallback to TMDB ID if IMDb missing (rarely works for this source but safe fallback)
-      if (type === 'tv') {
-         // Assuming standard query param format for TV on this player
-         return `https://slime403heq.com/play/${targetId}?season=${season}&episode=${episode}`;
-      } else {
-         return `https://slime403heq.com/play/${targetId}`;
-      }
+      const targetId = imdbId || id;
+      const hash = startTime > 0 ? `#t=${startTime}` : ''; 
+      if (type === 'tv') return `https://slime403heq.com/play/${targetId}?season=${season}&episode=${episode}${hash}`;
+      return `https://slime403heq.com/play/${targetId}${hash}`;
     }
     
-    // B. VidRock (Bengali Fallback / Older Logic)
-    if (activeServer === 'vidrock') {
-      const identifier = imdbId || id;
-      if (type === 'tv') {
-        return `https://vidrock.net/tv/${identifier}/${season}/${episode}`;
-      } else {
-        return `https://vidrock.net/movie/${identifier}`;
-      }
-    }
-
-    // C. VidFast (Standard Global)
+    // 3. VidFast (Standard)
+    // Uses ?t=seconds query param
     if (activeServer === 'vidfast') {
       const themeParam = "theme=00A8E1";
-      if (type === 'tv') {
-        return `${VIDFAST_BASE}/tv/${id}/${season}/${episode}?autoPlay=true&${themeParam}&nextButton=true&autoNext=true`;
-      } else {
-        return `${VIDFAST_BASE}/movie/${id}?autoPlay=true&${themeParam}`;
-      }
+      if (type === 'tv') return `${VIDFAST_BASE}/tv/${id}/${season}/${episode}?autoPlay=true&t=${startTime}&${themeParam}&nextButton=true&autoNext=true`;
+      return `${VIDFAST_BASE}/movie/${id}?autoPlay=true&t=${startTime}&${themeParam}`;
     }
 
-    // D. Multi-Audio (Zxcstream)
+    // 4. Multi-Audio (Zxcstream)
+    // Often uses ?start=seconds or #t=seconds
     else {
-      if (type === 'tv') {
-        return `https://www.zxcstream.xyz/player/tv/${id}/${season}/${episode}?autoplay=false&back=true&server=0`;
-      } else {
-        return `https://www.zxcstream.xyz/player/movie/${id}?autoplay=false&back=true&server=0`;
-      }
+      const startParam = startTime > 0 ? `&start=${startTime}` : '';
+      if (type === 'tv') return `https://www.zxcstream.xyz/player/tv/${id}/${season}/${episode}?autoplay=false&back=true&server=0${startParam}`;
+      return `https://www.zxcstream.xyz/player/movie/${id}?autoplay=false&back=true&server=0${startParam}`;
     }
   };
 
@@ -1691,81 +1726,31 @@ const Player = () => {
     <div className="fixed inset-0 bg-black z-[100] overflow-hidden flex flex-col" style={{ transform: 'translateZ(0)' }}>
       {/* TOP CONTROLS LAYER */}
       <div className="absolute top-0 left-0 w-full h-20 pointer-events-none z-[120] flex items-center justify-between px-6">
-        <button
-          onClick={() => navigate(-1)}
-          className="pointer-events-auto bg-black/50 hover:bg-[#00A8E1] text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all shadow-lg group"
-        >
-          <ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" />
-        </button>
+        <button onClick={() => navigate(-1)} className="pointer-events-auto bg-black/50 hover:bg-[#00A8E1] text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all shadow-lg group"><ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" /></button>
 
         {/* SERVER SWITCHER */}
         <div className="pointer-events-auto flex flex-col items-center gap-1 bg-black/60 backdrop-blur-md border border-white/10 p-1.5 rounded-xl shadow-2xl transform translate-y-2">
           <div className="flex bg-[#19222b] rounded-lg p-1 gap-1">
-            
-            {/* NEW BOLLYWOOD SERVER BUTTON */}
-            <button
-              onClick={() => setActiveServer('slime')}
-              className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${activeServer === 'slime' ? 'bg-[#E50914] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
-            >
-              {isIndian && <CheckCircle2 size={12} />} Bollywood / Indian
-            </button>
-
-            <button
-              onClick={() => setActiveServer('vidfast')}
-              className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'vidfast' ? 'bg-[#00A8E1] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
-            >
-              VidFast
-            </button>
-            
-            <button
-              onClick={() => setActiveServer('zxcstream')}
-              className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'zxcstream' ? 'bg-[#00A8E1] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
-            >
-              Multi-Audio
-            </button>
+            <button onClick={() => setActiveServer('slime')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${activeServer === 'slime' ? 'bg-[#E50914] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}>{isIndian && <CheckCircle2 size={12} />} Bollywood / Indian</button>
+            <button onClick={() => setActiveServer('vidfast')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'vidfast' ? 'bg-[#00A8E1] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}>VidFast</button>
+            <button onClick={() => setActiveServer('zxcstream')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'zxcstream' ? 'bg-[#00A8E1] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}>Multi-Audio</button>
           </div>
-          {activeServer === 'zxcstream' && (
-            <div className="text-[10px] text-[#00A8E1] font-bold animate-pulse">Select Audio Language in Player Settings</div>
-          )}
+          {activeServer === 'zxcstream' && <div className="text-[10px] text-[#00A8E1] font-bold animate-pulse">Select Audio Language in Player Settings</div>}
         </div>
 
-        {/* EPISODE LIST TOGGLE (For TV) */}
-        {type === 'tv' ? (
-          <button
-            onClick={() => setShowEpisodes(!showEpisodes)}
-            className={`pointer-events-auto p-3 rounded-full backdrop-blur-md border border-white/10 transition-all ${showEpisodes ? 'bg-[#00A8E1] text-white' : 'bg-black/50 hover:bg-[#333c46] text-gray-200'}`}
-          >
-            <List size={24} />
-          </button>
-        ) : (
-          <div className="w-12"></div>
-        )}
+        {type === 'tv' ? <button onClick={() => setShowEpisodes(!showEpisodes)} className={`pointer-events-auto p-3 rounded-full backdrop-blur-md border border-white/10 transition-all ${showEpisodes ? 'bg-[#00A8E1] text-white' : 'bg-black/50 hover:bg-[#333c46] text-gray-200'}`}><List size={24} /></button> : <div className="w-12"></div>}
       </div>
 
-      {/* PLAYER FRAME */}
       <div className="flex-1 relative w-full h-full bg-black">
-        <iframe
-          key={activeServer + season + episode}
-          src={getSourceUrl()}
-          className="w-full h-full border-none"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
-          loading="eager"
-          fetchPriority="high"
-          referrerPolicy="origin"
-          allowFullScreen
-          title="Player"
-        ></iframe>
+        <iframe key={activeServer + season + episode} src={getSourceUrl()} className="w-full h-full border-none" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen" loading="eager" fetchPriority="high" referrerPolicy="origin" allowFullScreen title="Player"></iframe>
       </div>
 
-      {/* EPISODE SIDEBAR (TV Only) */}
       {type === 'tv' && (
         <div className={`fixed right-0 top-0 h-full bg-[#00050D]/95 backdrop-blur-xl border-l border-white/10 transition-all duration-500 ease-in-out z-[110] flex flex-col ${showEpisodes ? 'w-[350px] translate-x-0 shadow-2xl' : 'w-[350px] translate-x-full shadow-none'}`}>
           <div className="pt-24 px-6 pb-4 border-b border-white/10 flex items-center justify-between bg-[#1a242f]/50">
             <h2 className="font-bold text-white text-lg">Episodes</h2>
             <div className="relative">
-              <select value={season} onChange={(e) => setSeason(Number(e.target.value))} className="appearance-none bg-[#00A8E1] text-white font-bold py-1.5 pl-3 pr-8 rounded cursor-pointer text-sm outline-none hover:bg-[#008ebf] transition">
-                {Array.from({length: totalSeasons}, (_, i) => i + 1).map(s => (<option key={s} value={s} className="bg-[#1a242f]">Season {s}</option>))}
-              </select>
+              <select value={season} onChange={(e) => setSeason(Number(e.target.value))} className="appearance-none bg-[#00A8E1] text-white font-bold py-1.5 pl-3 pr-8 rounded cursor-pointer text-sm outline-none hover:bg-[#008ebf] transition">{Array.from({length: totalSeasons}, (_, i) => i + 1).map(s => (<option key={s} value={s} className="bg-[#1a242f]">Season {s}</option>))}</select>
               <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-white pointer-events-none" />
             </div>
           </div>
