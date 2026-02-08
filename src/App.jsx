@@ -327,6 +327,7 @@ const InfiniteScrollTrigger = ({ onIntersect }) => {
 
 // --- NAVBAR COMPONENT (CARVED GLASS EFFECT) ---
 // --- NAVBAR COMPONENT (FLOATING & CURVED ON SCROLL) ---
+// --- NAVBAR COMPONENT (FIXED TOP, CARVED GLASS SCROLL) ---
 const Navbar = ({ isPrimeOnly }) => {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState({ text: [], visual: [] });
@@ -343,7 +344,8 @@ const Navbar = ({ isPrimeOnly }) => {
   // --- SCROLL LISTENER ---
   useEffect(() => {
     const handleScroll = () => {
-      if (window.scrollY > 20) {
+      // Threshold is 10px to trigger the effect
+      if (window.scrollY > 10) {
         setIsScrolled(true);
       } else {
         setIsScrolled(false);
@@ -418,10 +420,11 @@ const Navbar = ({ isPrimeOnly }) => {
   };
 
   // --- DYNAMIC NAV CLASSES ---
-  // Transition between "Full Width Sticky" and "Floating Curved Fixed"
+  // State 1 (Scrolled): Full width, dark glass, inset highlight at bottom edge for "carved" look.
+  // State 0 (Top): Full width, transparent gradient.
   const navClasses = isScrolled
-    ? "fixed top-3 left-1/2 -translate-x-1/2 w-[94%] max-w-[1600px] z-[1000] flex items-center px-6 rounded-2xl transition-all duration-500 ease-[cubic-bezier(0.25,0.8,0.25,1)] backdrop-blur-xl bg-[#0f171e]/85 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.1),0_8px_32px_rgba(0,0,0,0.5)] border border-white/5"
-    : "fixed top-0 left-0 w-full z-[1000] flex items-center px-6 rounded-none transition-all duration-500 ease-[cubic-bezier(0.25,0.8,0.25,1)] bg-transparent bg-gradient-to-b from-black/80 to-transparent border-transparent";
+    ? "fixed top-0 left-0 w-full z-[1000] flex items-center px-[24px] transition-all duration-500 ease-in-out backdrop-blur-xl bg-[#0f171e]/90 shadow-[inset_0_-1px_0_0_rgba(255,255,255,0.05),0_10px_30px_rgba(0,0,0,0.5)]"
+    : "fixed top-0 left-0 w-full z-[1000] flex items-center px-[24px] transition-all duration-500 ease-in-out bg-transparent bg-gradient-to-b from-black/80 to-transparent";
 
   return (
     <nav
