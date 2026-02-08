@@ -1015,8 +1015,7 @@ const SearchResults = ({ isPrimeOnly }) => {
   );
 };
 
-// --- MOVIE DETAIL COMPONENT (FULLY FUNCTIONAL) ---
-// --- MOVIE DETAIL COMPONENT (WITH CAST CIRCLES & SCROLL ARROWS) ---
+// --- MOVIE DETAIL COMPONENT (WITH CAST IMAGES & SCROLL ARROWS) ---
 const MovieDetail = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
@@ -1046,7 +1045,7 @@ const MovieDetail = () => {
 
   // --- REFS ---
   const relatedTimeoutRef = useRef(null);
-  const relatedRowRef = useRef(null); // Ref for scrolling related items
+  const relatedSliderRef = useRef(null); // Ref for scrolling related section
 
   // --- INITIALIZATION ---
   useEffect(() => {
@@ -1058,7 +1057,6 @@ const MovieDetail = () => {
     setRelatedMovies([]); 
     setActiveTab('related');
     
-    // Reset Interaction State
     const savedWatchlist = JSON.parse(localStorage.getItem('watchlist')) || [];
     setIsInWatchlist(savedWatchlist.includes(`${type}-${id}`));
     setIsLiked(false);
@@ -1087,8 +1085,7 @@ const MovieDetail = () => {
         }
 
         const recsData = await recsRes.json();
-        // Filter out items without images
-        const validRecs = (recsData.results || []).filter(m => m.backdrop_path || m.poster_path).slice(0, 15);
+        const validRecs = (recsData.results || []).filter(m => m.backdrop_path || m.poster_path).slice(0, 10);
         setRelatedMovies(validRecs);
       } catch (e) { console.error("Fetch Error:", e); }
     };
@@ -1147,6 +1144,15 @@ const MovieDetail = () => {
     navigate(`/search?q=${encodeURIComponent(name)}`);
   };
 
+  // Scroll Handlers for Related Section
+  const scrollRelated = (direction) => {
+    if (relatedSliderRef.current) {
+      const scrollAmount = direction === 'left' ? -800 : 800;
+      relatedSliderRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    }
+  };
+
+  // Hover logic
   const handleRelatedHover = (id) => {
     if (relatedTimeoutRef.current) clearTimeout(relatedTimeoutRef.current);
     relatedTimeoutRef.current = setTimeout(() => setHoveredRelatedId(id), 400);
@@ -1156,27 +1162,18 @@ const MovieDetail = () => {
     setHoveredRelatedId(null);
   };
 
-  // --- SCROLL HANDLERS FOR RELATED SECTION ---
-  const slideRelatedLeft = () => {
-    if (relatedRowRef.current) relatedRowRef.current.scrollBy({ left: -800, behavior: 'smooth' });
-  };
-  const slideRelatedRight = () => {
-    if (relatedRowRef.current) relatedRowRef.current.scrollBy({ left: 800, behavior: 'smooth' });
-  };
-
   if (!movie) return <div className="min-h-screen w-full bg-[#0f171e]" />;
   
-  // Logic
+  // Logic & Metadata
   const savedProgress = getMediaProgress(type, id);
   const isResumable = savedProgress && savedProgress.progress?.watched > 0;
   let playLabel = isResumable 
     ? (type === 'tv' ? `Resume S${savedProgress.last_season_watched || 1} E${savedProgress.last_episode_watched || 1}` : `Resume`) 
     : (type === 'tv' ? 'Play S1 E1' : 'Play');
 
-  // Metadata
   const director = credits?.crew?.find(c => c.job === 'Director')?.name || "Unknown Director"; 
   const producers = credits?.crew?.filter(c => c.job === 'Producer').slice(0,3).map(c => c.name).join(", ") || "Producers N/A";
-  const castList = credits?.cast?.slice(0, 10) || []; // Get top 10 for visual list
+  const castList = credits?.cast?.slice(0, 15) || []; // Get top 15 cast members
   const runtime = movie.runtime ? `${Math.floor(movie.runtime/60)} h ${movie.runtime%60} min` : `${movie.number_of_seasons} Seasons`;
   const rating = movie.vote_average ? movie.vote_average.toFixed(1) : "N/A";
   const year = movie.release_date?.split('-')[0] || "2024";
@@ -1255,37 +1252,34 @@ const MovieDetail = () => {
          <div onClick={() => setActiveTab('details')} className={`pb-3 cursor-pointer transition border-b-[3px] ${activeTab === 'details' ? 'border-white text-white' : 'border-transparent text-gray-400 hover:text-white'}`}>Details</div>
       </div>
 
-      {/* --- TAB CONTENT: RELATED (WITH SCROLL ARROWS) --- */}
+      {/* --- TAB CONTENT: RELATED --- */}
       {activeTab === 'related' && (
-        <div className="relative z-30 pt-6 pb-6 animate-in fade-in slide-in-from-left-4 group/related"> 
+        <div className="relative z-30 pt-6 pb-6 animate-in fade-in slide-in-from-left-4 group/rel"> 
           <h3 className="text-[18px] font-bold text-white mb-4 px-6 md:px-12">Customers also watched</h3>
           
-          <div className="relative">
-             {/* Left Arrow */}
-             <button onClick={slideRelatedLeft} className="absolute left-0 top-0 h-full w-16 bg-gradient-to-r from-black/80 to-transparent z-[40] flex items-center justify-center opacity-0 group-hover/related:opacity-100 transition-opacity duration-300 cursor-pointer">
-                <ChevronLeft size={40} className="text-white hover:scale-125 transition-transform" />
-             </button>
-
-             {/* Row Container */}
-             <div ref={relatedRowRef} className="row-container scrollbar-hide pl-6 md:pl-12 py-2">
-                {relatedMovies.length > 0 ? (
-                  relatedMovies.map((m, index) => (
-                     <MovieCard key={m.id} movie={m} variant="standard" itemType={m.media_type || type} rank={null} isHovered={hoveredRelatedId === m.id} onHover={handleRelatedHover} onLeave={handleRelatedLeave} isPrimeOnly={true} isFirst={index === 0} isLast={index === relatedMovies.length - 1} />
-                  ))
-                ) : (
-                  <div className="text-gray-500 italic text-sm py-4 px-12">No related titles found.</div>
-                )}
-             </div>
-
-             {/* Right Arrow */}
-             <button onClick={slideRelatedRight} className="absolute right-0 top-0 h-full w-16 bg-gradient-to-l from-black/80 to-transparent z-[40] flex items-center justify-center opacity-0 group-hover/related:opacity-100 transition-opacity duration-300 cursor-pointer">
-                <ChevronRight size={40} className="text-white hover:scale-125 transition-transform" />
-             </button>
+          {/* Scroll Left Button */}
+          <button onClick={() => scrollRelated('left')} className="absolute left-0 top-[60%] -translate-y-1/2 z-[40] w-12 h-32 bg-gradient-to-r from-black/80 to-transparent opacity-0 group-hover/rel:opacity-100 transition-opacity flex items-center justify-center hover:bg-black/40 cursor-pointer">
+            <ChevronLeft size={40} className="text-white hover:scale-125 transition-transform" />
+          </button>
+          
+          <div ref={relatedSliderRef} className="row-container scrollbar-hide pl-6 md:pl-12 py-2 scroll-smooth">
+            {relatedMovies.length > 0 ? (
+              relatedMovies.map((m, index) => (
+                 <MovieCard key={m.id} movie={m} variant="standard" itemType={m.media_type || type} rank={null} isHovered={hoveredRelatedId === m.id} onHover={handleRelatedHover} onLeave={handleRelatedLeave} isPrimeOnly={true} isFirst={index === 0} isLast={index === relatedMovies.length - 1} />
+              ))
+            ) : (
+              <div className="text-gray-500 italic text-sm py-4 px-12">No related titles found.</div>
+            )}
           </div>
+
+          {/* Scroll Right Button */}
+          <button onClick={() => scrollRelated('right')} className="absolute right-0 top-[60%] -translate-y-1/2 z-[40] w-12 h-32 bg-gradient-to-l from-black/80 to-transparent opacity-0 group-hover/rel:opacity-100 transition-opacity flex items-center justify-center hover:bg-black/40 cursor-pointer">
+             <ChevronRight size={40} className="text-white hover:scale-125 transition-transform" />
+          </button>
         </div>
       )}
 
-      {/* --- TAB CONTENT: DETAILS (WITH CAST CIRCLES) --- */}
+      {/* --- TAB CONTENT: DETAILS --- */}
       {activeTab === 'details' && (
         <div className="px-6 md:px-12 py-8 grid grid-cols-1 lg:grid-cols-3 gap-12 border-t border-white/10 bg-[#0f171e] animate-in fade-in slide-in-from-right-4">
           <div className="lg:col-span-2">
@@ -1296,27 +1290,25 @@ const MovieDetail = () => {
                 <span>{year}</span><span className="text-gray-500">•</span>
                 <span>{runtime}</span>
              </div>
-             <p className="text-base leading-7 text-gray-300 mb-8">{movie.overview}</p>
+             <p className="text-base leading-7 text-gray-300 mb-6">{movie.overview}</p>
 
-             {/* --- CAST SECTION (VISUAL) --- */}
+             {/* --- NEW CAST SECTION --- */}
              <div className="mb-8">
-               <h4 className="text-white font-bold mb-4">Cast & Crew</h4>
-               <div className="flex gap-6 overflow-x-auto scrollbar-hide pb-4">
-                  {castList.map(person => (
-                    <div key={person.id} onClick={() => handleSearchPerson(person.name)} className="flex flex-col items-center gap-2 cursor-pointer group min-w-[100px]">
-                       <div className="w-24 h-24 rounded-full overflow-hidden border-2 border-transparent group-hover:border-white transition-all bg-[#33373d]">
-                          {person.profile_path ? (
-                             <img src={`${IMAGE_BASE_URL}${person.profile_path}`} className="w-full h-full object-cover" alt={person.name} />
-                          ) : (
-                             <div className="w-full h-full flex items-center justify-center text-gray-500 text-xs">No Image</div>
-                          )}
-                       </div>
-                       <div className="text-center">
-                          <div className="text-sm text-gray-200 font-medium group-hover:text-[#00A8E1] transition-colors leading-tight">{person.name}</div>
-                          <div className="text-xs text-gray-500 mt-1 leading-tight">{person.character}</div>
-                       </div>
-                    </div>
-                  ))}
+               <h3 className="text-lg font-bold text-white mb-4">Cast & Crew</h3>
+               <div className="flex gap-6 overflow-x-auto scrollbar-hide pb-2">
+                 {castList.length > 0 ? castList.map((person) => (
+                   <div key={person.id} onClick={() => handleSearchPerson(person.name)} className="flex flex-col items-center min-w-[90px] cursor-pointer group">
+                     <div className="w-24 h-24 rounded-full overflow-hidden border-2 border-[#323e4d] mb-2 group-hover:border-[#00A8E1] transition-colors relative bg-gray-800">
+                       {person.profile_path ? (
+                         <img src={`https://image.tmdb.org/t/p/w185${person.profile_path}`} className="w-full h-full object-cover group-hover:scale-110 transition-transform" alt={person.name} />
+                       ) : (
+                         <div className="w-full h-full flex items-center justify-center text-gray-500 text-xs font-bold uppercase">{person.name.charAt(0)}</div>
+                       )}
+                     </div>
+                     <div className="text-sm font-bold text-white text-center leading-tight group-hover:text-[#00A8E1] transition-colors line-clamp-2">{person.name}</div>
+                     <div className="text-xs text-gray-400 text-center leading-tight mt-0.5 line-clamp-1">{person.character}</div>
+                   </div>
+                 )) : <div className="text-gray-500 text-sm">Cast information unavailable.</div>}
                </div>
              </div>
 
