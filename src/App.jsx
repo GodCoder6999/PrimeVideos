@@ -325,7 +325,7 @@ const InfiniteScrollTrigger = ({ onIntersect }) => {
 
 // --- COMPONENTS ---
 
-// --- NAVBAR COMPONENT (32PX PADDING) ---
+// --- NAVBAR COMPONENT (51PX PADDING, ATTACHED FLOATING CURVE) ---
 const Navbar = ({ isPrimeOnly }) => {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState({ text: [], visual: [] });
@@ -342,7 +342,6 @@ const Navbar = ({ isPrimeOnly }) => {
   // --- SCROLL LISTENER ---
   useEffect(() => {
     const handleScroll = () => {
-      // Threshold is 10px to trigger the effect
       if (window.scrollY > 10) {
         setIsScrolled(true);
       } else {
@@ -418,10 +417,10 @@ const Navbar = ({ isPrimeOnly }) => {
   };
 
   // --- DYNAMIC NAV CLASSES ---
-  // Updated padding to px-[32px]
+  // Updated padding to px-[51px]
   const navClasses = isScrolled
-    ? "fixed top-0 left-0 w-full z-[1000] flex items-center px-[32px] transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] backdrop-blur-xl bg-[#0f171e]/90 rounded-b-[24px] shadow-[0_20px_40px_-10px_rgba(0,0,0,0.6),inset_0_-1px_0_rgba(255,255,255,0.1)] border-b border-white/5"
-    : "fixed top-0 left-0 w-full z-[1000] flex items-center px-[32px] transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] bg-transparent bg-gradient-to-b from-black/80 to-transparent rounded-none border-transparent";
+    ? "fixed top-0 left-0 w-full z-[1000] flex items-center px-[51px] transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] backdrop-blur-xl bg-[#0f171e]/90 rounded-b-[24px] shadow-[0_20px_40px_-10px_rgba(0,0,0,0.6),inset_0_-1px_0_rgba(255,255,255,0.1)] border-b border-white/5"
+    : "fixed top-0 left-0 w-full z-[1000] flex items-center px-[51px] transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] bg-transparent bg-gradient-to-b from-black/80 to-transparent rounded-none border-transparent";
 
   return (
     <nav
