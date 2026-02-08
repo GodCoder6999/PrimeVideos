@@ -1015,8 +1015,7 @@ const SearchResults = ({ isPrimeOnly }) => {
   );
 };
 
-// --- MOVIE DETAIL COMPONENT (WITH CAST IMAGES & SCROLL ARROWS) ---
-// --- MOVIE DETAIL COMPONENT (WITH CAST ARROWS & MUTE BUTTON) ---
+// --- MOVIE DETAIL COMPONENT (FIXED RELATED SECTION) ---
 const MovieDetail = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
@@ -1047,7 +1046,7 @@ const MovieDetail = () => {
   // --- REFS ---
   const relatedTimeoutRef = useRef(null);
   const relatedSliderRef = useRef(null); 
-  const castSliderRef = useRef(null); // Ref for scrolling cast section
+  const castSliderRef = useRef(null);
 
   // --- INITIALIZATION ---
   useEffect(() => {
@@ -1066,11 +1065,10 @@ const MovieDetail = () => {
 
     const fetchData = async () => {
       try {
-        const [movieRes, creditsRes, videoRes, recsRes] = await Promise.all([
+        const [movieRes, creditsRes, videoRes] = await Promise.all([
           fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}&language=en-US`),
           fetch(`${BASE_URL}/${type}/${id}/credits?api_key=${TMDB_API_KEY}`),
           fetch(`${BASE_URL}/${type}/${id}/videos?api_key=${TMDB_API_KEY}`),
-          fetch(`${BASE_URL}/${type}/${id}/recommendations?api_key=${TMDB_API_KEY}&language=en-US`)
         ]);
 
         const movieData = await movieRes.json();
@@ -1086,9 +1084,19 @@ const MovieDetail = () => {
            setTimeout(() => setShowVideo(true), 3000); 
         }
 
-        const recsData = await recsRes.json();
-        const validRecs = (recsData.results || []).filter(m => m.backdrop_path || m.poster_path).slice(0, 10);
-        setRelatedMovies(validRecs);
+        // FETCH RELATED (Try recommendations first, then similar)
+        let recsRes = await fetch(`${BASE_URL}/${type}/${id}/recommendations?api_key=${TMDB_API_KEY}&language=en-US`);
+        let recsData = await recsRes.json();
+        let validRecs = (recsData.results || []).filter(m => m.backdrop_path || m.poster_path);
+
+        if (validRecs.length === 0) {
+            recsRes = await fetch(`${BASE_URL}/${type}/${id}/similar?api_key=${TMDB_API_KEY}&language=en-US`);
+            recsData = await recsRes.json();
+            validRecs = (recsData.results || []).filter(m => m.backdrop_path || m.poster_path);
+        }
+        
+        setRelatedMovies(validRecs.slice(0, 15));
+
       } catch (e) { console.error("Fetch Error:", e); }
     };
     fetchData();
@@ -1149,7 +1157,7 @@ const MovieDetail = () => {
   // Scroll Handlers
   const scrollSection = (ref, direction) => {
     if (ref.current) {
-      const scrollAmount = direction === 'left' ? -600 : 600;
+      const scrollAmount = direction === 'left' ? -800 : 800;
       ref.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
     }
   };
@@ -1207,7 +1215,7 @@ const MovieDetail = () => {
         <div className="absolute inset-0 bg-gradient-to-r from-[#0f171e] via-[#0f171e]/60 to-transparent w-[80%] z-10" />
         <div className="absolute inset-0 bg-gradient-to-t from-[#0f171e] via-transparent to-transparent z-10" />
 
-        {/* --- MUTE BUTTON (NEW) --- */}
+        {/* --- MUTE BUTTON --- */}
         {showVideo && (
            <button 
              onClick={() => setIsMuted(!isMuted)} 
@@ -1274,13 +1282,14 @@ const MovieDetail = () => {
             <ChevronLeft size={40} className="text-white hover:scale-125 transition-transform" />
           </button>
           
-          <div ref={relatedSliderRef} className="row-container scrollbar-hide pl-6 md:pl-12 py-2 scroll-smooth">
+          {/* REPLACED 'row-container' with explicit flex styles to fix blank space issue */}
+          <div ref={relatedSliderRef} className="flex gap-4 overflow-x-auto scrollbar-hide px-6 md:px-12 py-10 scroll-smooth items-start">
             {relatedMovies.length > 0 ? (
               relatedMovies.map((m, index) => (
                  <MovieCard key={m.id} movie={m} variant="standard" itemType={m.media_type || type} rank={null} isHovered={hoveredRelatedId === m.id} onHover={handleRelatedHover} onLeave={handleRelatedLeave} isPrimeOnly={true} isFirst={index === 0} isLast={index === relatedMovies.length - 1} />
               ))
             ) : (
-              <div className="text-gray-500 italic text-sm py-4 px-12">No related titles found.</div>
+              <div className="text-gray-500 italic text-sm py-4 w-full text-center">No related titles found.</div>
             )}
           </div>
 
@@ -1303,11 +1312,10 @@ const MovieDetail = () => {
              </div>
              <p className="text-base leading-7 text-gray-300 mb-6">{movie.overview}</p>
 
-             {/* --- CAST SECTION (WITH ARROWS) --- */}
+             {/* --- CAST SECTION --- */}
              <div className="mb-8 relative group/cast">
                <h3 className="text-lg font-bold text-white mb-4">Cast & Crew</h3>
                
-               {/* Cast Left Arrow */}
                {castList.length > 5 && (
                  <button onClick={() => scrollSection(castSliderRef, 'left')} className="absolute -left-4 top-1/2 -translate-y-1/2 z-10 w-10 h-24 bg-gradient-to-r from-black/80 to-transparent opacity-0 group-hover/cast:opacity-100 transition-opacity flex items-center justify-center hover:bg-black/40 cursor-pointer rounded-r-lg">
                     <ChevronLeft size={30} className="text-white hover:scale-110 transition-transform" />
@@ -1330,7 +1338,6 @@ const MovieDetail = () => {
                  )) : <div className="text-gray-500 text-sm">Cast information unavailable.</div>}
                </div>
 
-               {/* Cast Right Arrow */}
                {castList.length > 5 && (
                  <button onClick={() => scrollSection(castSliderRef, 'right')} className="absolute -right-4 top-1/2 -translate-y-1/2 z-10 w-10 h-24 bg-gradient-to-l from-black/80 to-transparent opacity-0 group-hover/cast:opacity-100 transition-opacity flex items-center justify-center hover:bg-black/40 cursor-pointer rounded-l-lg">
                     <ChevronRight size={30} className="text-white hover:scale-110 transition-transform" />
