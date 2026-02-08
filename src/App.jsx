@@ -326,7 +326,6 @@ const InfiniteScrollTrigger = ({ onIntersect }) => {
 // --- COMPONENTS ---
 
 // --- NAVBAR COMPONENT (CARVED GLASS EFFECT) ---
-// --- NAVBAR COMPONENT (PREMIUM CARVED PILLS) ---
 const Navbar = ({ isPrimeOnly }) => {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState({ text: [], visual: [] });
@@ -343,14 +342,17 @@ const Navbar = ({ isPrimeOnly }) => {
   // --- SCROLL LISTENER ---
   useEffect(() => {
     const handleScroll = () => {
-      if (window.scrollY > 10) setIsScrolled(true);
-      else setIsScrolled(false);
+      // Threshold is 10px to trigger the effect immediately upon scroll start
+      if (window.scrollY > 10) {
+        setIsScrolled(true);
+      } else {
+        setIsScrolled(false);
+      }
     };
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // --- CLICK OUTSIDE LISTENER ---
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) setMenuOpen(false);
@@ -360,7 +362,6 @@ const Navbar = ({ isPrimeOnly }) => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // --- SEARCH SUGGESTIONS LOGIC ---
   useEffect(() => {
     const fetchSuggestions = async () => {
       if (query.trim().length < 2) {
@@ -408,21 +409,17 @@ const Navbar = ({ isPrimeOnly }) => {
 
   const handleClear = () => { setQuery(""); setShowSuggestions(false); };
 
-  // --- REUSABLE "CARVED" STYLE CLASS ---
-  // This creates the recessed, glass-like pill effect without borders
-  const carvedPillStyle = "bg-black/20 backdrop-blur-sm shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08),inset_0_-1px_2px_0_rgba(0,0,0,0.4)] hover:bg-black/30 transition-all duration-300";
-
   const getNavLinkClass = (path) => {
     const isActive = location.pathname === path;
     if (isActive) {
-      // Active: Recessed/Carved Look
-      return `text-white font-bold px-5 py-2 text-[15px] rounded-full transition-all duration-300 ${carvedPillStyle}`;
+      return "text-white font-bold bg-white/10 backdrop-blur-md border border-white/10 rounded-lg px-5 py-2 text-[15px] transition-all duration-300 ease-in-out shadow-[0_0_15px_rgba(0,168,225,0.4)]";
     }
-    // Inactive: Transparent hover
-    return "text-[#c7cbd1] font-medium text-[15px] px-4 py-2 rounded-full hover:text-white hover:bg-white/5 transition-all duration-300 cursor-pointer";
+    return "text-[#c7cbd1] font-medium text-[15px] hover:text-white hover:bg-white/5 hover:backdrop-blur-sm rounded-lg px-4 py-2 transition-all duration-300 ease-in-out cursor-pointer hover:shadow-[0_0_10px_rgba(255,255,255,0.1)]";
   };
 
-  // --- NAVBAR BACKGROUND STYLE ---
+  // --- DYNAMIC CARVED GLASS CLASSES ---
+  // State 1 (Scrolled): Dark glass, inset top highlight, dark bottom separator, soft shadow.
+  // State 0 (Top): Transparent with a subtle gradient to blend into the main page hero.
   const navClasses = isScrolled
     ? "sticky top-0 w-full z-[1000] flex items-center px-[24px] transition-all duration-500 ease-in-out backdrop-blur-xl bg-[#0f171e]/90 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05),0_1px_0_0_rgba(0,0,0,0.5),0_10px_20px_-10px_rgba(0,0,0,0.5)]"
     : "sticky top-0 w-full z-[1000] flex items-center px-[24px] transition-all duration-500 ease-in-out bg-transparent bg-gradient-to-b from-black/70 to-transparent";
@@ -430,13 +427,12 @@ const Navbar = ({ isPrimeOnly }) => {
   return (
     <nav
       className={navClasses}
-      style={{ height: '70px', fontFamily: '"Amazon Ember", "Inter", "Segoe UI", sans-serif', gap: '28px' }}
+      style={{ height: '60px', fontFamily: '"Amazon Ember", "Inter", "Segoe UI", sans-serif', gap: '28px' }}
     >
-      <Link to={isPrimeOnly ? "/" : "/everything"} className="text-[#ffffff] font-bold text-[21px] tracking-[-0.2px] no-underline leading-none drop-shadow-md mr-2">
+      <Link to={isPrimeOnly ? "/" : "/everything"} className="text-[#ffffff] font-bold text-[21px] tracking-[-0.2px] no-underline leading-none drop-shadow-md">
         {theme.logoText}
       </Link>
-      
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-[6px]">
         <Link to={isPrimeOnly ? "/" : "/everything"} className={getNavLinkClass(isPrimeOnly ? "/" : "/everything")}>Home</Link>
         <Link to={isPrimeOnly ? "/movies" : "/everything/movies"} className={getNavLinkClass(isPrimeOnly ? "/movies" : "/everything/movies")}>Movies</Link>
         <Link to={isPrimeOnly ? "/tv" : "/everything/tv"} className={getNavLinkClass(isPrimeOnly ? "/tv" : "/everything/tv")}>TV Shows</Link>
@@ -444,25 +440,21 @@ const Navbar = ({ isPrimeOnly }) => {
           <Trophy size={16} className={location.pathname === "/sports" ? "text-[#00A8E1]" : "opacity-80"} />Live TV
         </Link>
       </div>
-
-      <div className="ml-auto flex items-center gap-5">
-        
-        {/* --- SEARCH BAR (CARVED PILL) --- */}
+      <div className="ml-auto flex items-center gap-6">
         <div ref={searchRef} className="relative">
-          <form onSubmit={handleSearch} className={`px-4 py-2 rounded-full flex items-center group focus-within:shadow-[inset_0_0_0_2px_rgba(255,255,255,0.1)] transition-all w-[300px] md:w-[400px] ${carvedPillStyle}`}>
+          <form onSubmit={handleSearch} className={`px-3 py-1.5 rounded-md flex items-center group focus-within:border-white/30 transition-all w-[300px] md:w-[400px] ${isScrolled ? 'bg-[#19222b]/60 border border-white/10' : 'bg-[#19222b]/60 backdrop-blur-sm border border-white/10'}`}>
             <Search size={18} className="text-[#c7cbd1]" />
-            <input className="bg-transparent border-none outline-none text-white text-sm font-medium ml-3 w-full placeholder-[#8a929b]" placeholder={isPrimeOnly ? "Search Prime..." : "Search Everything..."} value={query} onChange={(e) => setQuery(e.target.value)} onFocus={() => { if(query.length > 1) setShowSuggestions(true); }} />
+            <input className="bg-transparent border-none outline-none text-white text-sm font-medium ml-2 w-full placeholder-[#5a6069]" placeholder={isPrimeOnly ? "Search Prime..." : "Search Everything..."} value={query} onChange={(e) => setQuery(e.target.value)} onFocus={() => { if(query.length > 1) setShowSuggestions(true); }} />
             {query && <X size={16} className="text-[#c7cbd1] cursor-pointer hover:text-white" onClick={handleClear} />}
           </form>
-
           {showSuggestions && (suggestions.text.length > 0 || suggestions.visual.length > 0) && (
-            <div className="absolute top-14 right-0 w-full bg-[#19222b]/95 backdrop-blur-xl border border-gray-700 rounded-2xl shadow-2xl overflow-hidden animate-in z-[160]">
-              {suggestions.text.map((text, idx) => ( <div key={idx} onClick={() => { setQuery(text); handleSearch({preventDefault:()=>{}}); }} className="px-4 py-3 text-sm text-gray-300 hover:bg-[#333c46] hover:text-white cursor-pointer flex items-center gap-2 border-b border-white/5 last:border-0"><Search size={14} /> {text}</div> ))}
+            <div className="absolute top-12 right-0 w-full bg-[#19222b]/95 backdrop-blur-xl border border-gray-700 rounded-lg shadow-2xl overflow-hidden animate-in z-[160]">
+              {suggestions.text.map((text, idx) => ( <div key={idx} onClick={() => { setQuery(text); handleSearch({preventDefault:()=>{}}); }} className="px-4 py-2 text-sm text-gray-300 hover:bg-[#333c46] hover:text-white cursor-pointer flex items-center gap-2 border-b border-white/5 last:border-0"><Search size={14} /> {text}</div> ))}
               {suggestions.visual.length > 0 && ( <div className="px-4 pt-3 pb-2 text-[11px] font-bold text-gray-500 uppercase tracking-wider">Top Results</div> )}
               <div className="flex gap-3 p-3 overflow-x-auto scrollbar-hide bg-[#00050D]/50">
                 {suggestions.visual.map((item) => (
                   <div key={item.id} onClick={() => { setShowSuggestions(false); navigate(`/detail/${item.media_type}/${item.id}`); }} className="w-[100px] flex-shrink-0 cursor-pointer group">
-                    <div className="aspect-video rounded-lg overflow-hidden bg-gray-800 relative"><img src={`${IMAGE_BASE_URL}${item.backdrop_path || item.poster_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" /></div>
+                    <div className="aspect-video rounded-md overflow-hidden bg-gray-800 relative"><img src={`${IMAGE_BASE_URL}${item.backdrop_path || item.poster_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" /></div>
                     <div className="text-[11px] font-bold text-gray-400 mt-1 truncate group-hover:text-white">{item.title || item.name}</div>
                   </div>
                 ))}
@@ -471,32 +463,25 @@ const Navbar = ({ isPrimeOnly }) => {
           )}
         </div>
         
-        {/* --- WATCHLIST BUTTON (CARVED CIRCLE) --- */}
+        {/* --- WATCHLIST BUTTON --- */}
         <Link to="/watchlist" className="relative group flex items-center justify-center">
-            <div className={`w-11 h-11 rounded-full flex items-center justify-center ${carvedPillStyle}`}>
-               <Bookmark size={22} className="text-[#c7cbd1] group-hover:text-white transition-colors" />
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer border ${isScrolled ? 'border-transparent' : 'border-transparent'} hover:border-white/10`}>
+               <Bookmark size={24} className="text-[#c7cbd1] group-hover:text-white transition-colors" />
             </div>
-            <span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap shadow-lg">Watchlist</span>
+            <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap border border-white/10">Watchlist</span>
         </Link>
 
-        {/* --- MENU BUTTON (CARVED CIRCLE) --- */}
         <div className="relative" ref={dropdownRef}>
-          <div className={`w-11 h-11 rounded-full flex items-center justify-center cursor-pointer ${carvedPillStyle}`} onClick={() => setMenuOpen(!menuOpen)}>
-            <Grip size={22} className="text-[#c7cbd1]" />
-          </div>
+          <div className={`w-9 h-9 rounded-full bg-[#3d464f]/80 backdrop-blur-sm flex items-center justify-center border border-white/10 hover:border-white transition-all cursor-pointer`} onClick={() => setMenuOpen(!menuOpen)}><Grip size={20} className="text-[#c7cbd1]" /></div>
           {menuOpen && (
-            <div className="absolute right-0 top-14 w-64 bg-[#19222b]/95 backdrop-blur-xl border border-gray-700 rounded-xl shadow-2xl p-2 z-[150] animate-in">
+            <div className="absolute right-0 top-12 w-64 bg-[#19222b]/95 backdrop-blur-xl border border-gray-700 rounded-lg shadow-2xl p-2 z-[150] animate-in">
               <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2 pt-2">Switch Mode</div>
-              <Link to="/" onClick={() => setMenuOpen(false)} className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${isPrimeOnly ? 'bg-[#00A8E1] text-white' : 'hover:bg-[#333c46] text-gray-300'}`}><CheckCircle2 size={18} className={isPrimeOnly ? "text-white" : "opacity-0"} /><div><div className="font-bold">Prime Video</div><div className="text-[10px] opacity-80">Included with Prime only</div></div></Link>
-              <Link to="/everything" onClick={() => setMenuOpen(false)} className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${!isPrimeOnly ? 'bg-[#E50914] text-white' : 'hover:bg-[#333c46] text-gray-300'}`}><CheckCircle2 size={18} className={!isPrimeOnly ? "text-white" : "opacity-0"} /><div><div className="font-bold">Literally Everything!</div><div className="text-[10px] opacity-80">All streaming services</div></div></Link>
+              <Link to="/" onClick={() => setMenuOpen(false)} className={`flex items-center gap-3 p-3 rounded-md transition-colors ${isPrimeOnly ? 'bg-[#00A8E1] text-white' : 'hover:bg-[#333c46] text-gray-300'}`}><CheckCircle2 size={18} className={isPrimeOnly ? "text-white" : "opacity-0"} /><div><div className="font-bold">Prime Video</div><div className="text-[10px] opacity-80">Included with Prime only</div></div></Link>
+              <Link to="/everything" onClick={() => setMenuOpen(false)} className={`flex items-center gap-3 p-3 rounded-md transition-colors ${!isPrimeOnly ? 'bg-[#E50914] text-white' : 'hover:bg-[#333c46] text-gray-300'}`}><CheckCircle2 size={18} className={!isPrimeOnly ? "text-white" : "opacity-0"} /><div><div className="font-bold">Literally Everything!</div><div className="text-[10px] opacity-80">All streaming services</div></div></Link>
             </div>
           )}
         </div>
-
-        {/* --- PROFILE BUTTON (CARVED CIRCLE) --- */}
-        <div className={`w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-sm cursor-pointer ${carvedPillStyle} bg-gradient-to-br ${isPrimeOnly ? 'from-[#00A8E1] to-[#007399]' : 'from-[#E50914] to-[#b20710]'} !bg-opacity-100 !backdrop-blur-none`}>
-          U
-        </div>
+        <div className={`w-9 h-9 rounded-full ${theme.bg} flex items-center justify-center text-white font-bold text-sm cursor-pointer border border-white/10 shadow-lg`}>U</div>
       </div>
     </nav>
   );
