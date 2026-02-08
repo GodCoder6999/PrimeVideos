@@ -1017,6 +1017,7 @@ const SearchResults = ({ isPrimeOnly }) => {
 
 // --- MOVIE DETAIL COMPONENT ---
 // --- MOVIE DETAIL COMPONENT (UPDATED WITH POPUP CARDS) ---
+// --- MOVIE DETAIL COMPONENT (FIXED LAYOUT) ---
 const MovieDetail = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
@@ -1037,11 +1038,10 @@ const MovieDetail = () => {
   const [downloadLinks, setDownloadLinks] = useState([]);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
 
-  // --- NEW: HOVER STATE FOR RELATED CARDS ---
+  // --- HOVER STATE FOR RELATED CARDS ---
   const [hoveredRelatedId, setHoveredRelatedId] = useState(null);
   const relatedTimeoutRef = useRef(null);
 
-  // --- NEW: HOVER HANDLERS ---
   const handleRelatedHover = (id) => {
     if (relatedTimeoutRef.current) clearTimeout(relatedTimeoutRef.current);
     relatedTimeoutRef.current = setTimeout(() => setHoveredRelatedId(id), 400);
@@ -1061,7 +1061,7 @@ const MovieDetail = () => {
     setRelatedMovies([]); 
     setDownloadLinks([]); 
     setShowDownloadModal(false);
-    setHoveredRelatedId(null); // Reset hover
+    setHoveredRelatedId(null);
     
     window.scrollTo(0, 0);
     
@@ -1075,7 +1075,6 @@ const MovieDetail = () => {
     });
     
     fetch(`${BASE_URL}/${type}/${id}/recommendations?api_key=${TMDB_API_KEY}&language=en-US`).then(res => res.json()).then(data => {
-        // Ensure we only get items with images to avoid broken cards
         const validRecs = (data.results || []).filter(m => m.backdrop_path || m.poster_path).slice(0, 10);
         setRelatedMovies(validRecs);
     });
@@ -1112,10 +1111,11 @@ const MovieDetail = () => {
 
   return (
     <div className="min-h-screen bg-[#0f171e] text-white font-sans selection:bg-[#00A8E1] selection:text-white pb-20">
+      {/* --- HERO SECTION --- */}
       <div className="relative w-full h-[85vh] overflow-hidden">
         <div className="absolute inset-0 w-full h-full">
           <div className={`absolute inset-0 transition-opacity duration-1000 ${showVideo ? 'opacity-0' : 'opacity-100'}`}><img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover object-top md:object-right-top" alt="" /></div>
-          {/* --- FIXED YOUTUBE EMBED --- */}
+          {/* Fixed Youtube Embed */}
           {showVideo && trailerKey && (
             <div className="absolute inset-0 animate-in fade-in duration-1000 pointer-events-none">
               <iframe 
@@ -1144,48 +1144,54 @@ const MovieDetail = () => {
         </div>
       </div>
 
-      {/* --- UPDATED RELATED SECTION --- */}
-      <div className="relative z-30 -mt-24 px-4 md:px-12 mb-16">
-        <h3 className="text-xl font-bold text-white mb-4 drop-shadow-md px-2">Customers also watched</h3>
-        {relatedMovies.length > 0 ? (
-          <div 
-            className="flex overflow-x-scroll overflow-y-hidden scrollbar-hide py-10 px-2"
-            style={{ margin: '0 -8px' }} // Negative margin to align with heading
-          >
-            {relatedMovies.map((m, index) => (
+      {/* --- RELATED SECTION (POPUP ENABLED) --- */}
+      <div className="relative z-30 -mt-32 pb-10"> 
+        <h3 className="text-xl font-bold text-white mb-2 px-6 md:px-12 drop-shadow-md">Customers also watched</h3>
+        {/* We use 'row-container' here to get the padding needed for the hover scale effect */}
+        <div className="row-container scrollbar-hide pl-6 md:pl-12">
+          {relatedMovies.length > 0 ? (
+            relatedMovies.map((m, index) => (
                <MovieCard 
                  key={m.id} 
                  movie={m} 
                  variant="standard" 
-                 itemType={m.media_type || type} // Fallback to current type if media_type missing
+                 itemType={m.media_type || type}
                  rank={null} 
                  isHovered={hoveredRelatedId === m.id} 
                  onHover={handleRelatedHover} 
                  onLeave={handleRelatedLeave} 
-                 isPrimeOnly={true} // Detail page assumes Prime styling
+                 isPrimeOnly={true}
                  isFirst={index === 0}
                  isLast={index === relatedMovies.length - 1}
                />
-            ))}
-          </div>
-        ) : <div className="text-gray-500 italic text-sm py-4 px-4">No related titles found.</div>}
+            ))
+          ) : (
+            <div className="text-gray-500 italic text-sm py-4">No related titles found.</div>
+          )}
+        </div>
       </div>
 
-      <div className="px-6 md:px-16 grid grid-cols-1 lg:grid-cols-3 gap-10">
+      {/* --- DETAILS GRID (RESTORED) --- */}
+      <div className="px-6 md:px-16 grid grid-cols-1 lg:grid-cols-3 gap-10 mt-8 relative z-20">
         <div className="lg:col-span-2 space-y-8">
-          <div className="bg-[#19222b] p-6 rounded-lg border border-white/5">
+          <div className="bg-[#19222b] p-6 rounded-lg border border-white/5 shadow-xl">
             <h4 className="text-lg font-bold text-white mb-3">Synopsis</h4>
             <p className={`text-gray-300 leading-relaxed ${isDescriptionExpanded ? '' : 'line-clamp-3'}`}>{movie.overview}</p>
             <button onClick={() => setIsDescriptionExpanded(!isDescriptionExpanded)} className="mt-3 text-[#00A8E1] font-bold text-sm hover:underline">{isDescriptionExpanded ? "Show Less" : "More..."}</button>
           </div>
         </div>
         <div className="space-y-6">
-          <div className="bg-[#19222b] p-6 rounded-lg border border-white/5">
-            <div className="grid grid-cols-1 gap-4"><div><span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Director</span><span className="text-[#00A8E1]">{director}</span></div><div><span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Starring</span><span className="text-[#00A8E1]">{cast}</span></div></div>
+          <div className="bg-[#19222b] p-6 rounded-lg border border-white/5 shadow-xl">
+            <div className="grid grid-cols-1 gap-4">
+              <div><span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Director</span><span className="text-[#00A8E1] font-medium">{director}</span></div>
+              <div><span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Starring</span><span className="text-[#00A8E1] font-medium">{cast}</span></div>
+              <div><span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Genres</span><span className="text-gray-300 text-sm">{movie.genres?.map(g => g.name).join(", ")}</span></div>
+            </div>
           </div>
         </div>
       </div>
 
+      {/* --- DOWNLOAD MODAL --- */}
       {showDownloadModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
           <div className="bg-[#19222b] border border-white/10 rounded-2xl w-full max-w-md p-6 shadow-2xl relative animate-modal-pop">
