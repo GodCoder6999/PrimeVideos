@@ -1015,72 +1015,144 @@ const SearchResults = ({ isPrimeOnly }) => {
   );
 };
 
-// --- MOVIE DETAIL COMPONENT (EXACT REPLICA) ---
-// --- MOVIE DETAIL COMPONENT (FIXED & EXACT REPLICA) ---
+// --- MOVIE DETAIL COMPONENT (FULLY FUNCTIONAL) ---
 const MovieDetail = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
   
-  // Data State
+  // --- DATA STATE ---
   const [movie, setMovie] = useState(null);
   const [relatedMovies, setRelatedMovies] = useState([]);
   const [credits, setCredits] = useState(null);
   
-  // Hero Video State
-  const [trailerKey, setTrailerKey] = useState(null);
+  // --- UI STATE ---
+  const [activeTab, setActiveTab] = useState('related'); // 'related' | 'details'
   const [showVideo, setShowVideo] = useState(false);
+  const [trailerKey, setTrailerKey] = useState(null);
   const [isMuted, setIsMuted] = useState(true);
+  const [hoveredRelatedId, setHoveredRelatedId] = useState(null);
   
-  // UI State
+  // --- INTERACTION STATE ---
+  const [isInWatchlist, setIsInWatchlist] = useState(false);
+  const [isLiked, setIsLiked] = useState(false);
+  const [isDisliked, setIsDisliked] = useState(false);
+  const [toastMessage, setToastMessage] = useState(null); // For notifications
+  
+  // --- MODAL STATE ---
+  const [activeModal, setActiveModal] = useState(null); // 'download' | 'ways' | 'feedback' | 'help'
   const [loadingDownloads, setLoadingDownloads] = useState(false);
   const [downloadLinks, setDownloadLinks] = useState([]);
-  const [showDownloadModal, setShowDownloadModal] = useState(false);
 
-  // --- HOVER STATE FOR RELATED CARDS ---
-  const [hoveredRelatedId, setHoveredRelatedId] = useState(null);
   const relatedTimeoutRef = useRef(null);
 
-  const handleRelatedHover = (id) => {
-    if (relatedTimeoutRef.current) clearTimeout(relatedTimeoutRef.current);
-    relatedTimeoutRef.current = setTimeout(() => setHoveredRelatedId(id), 400);
-  };
-
-  const handleRelatedLeave = () => {
-    if (relatedTimeoutRef.current) clearTimeout(relatedTimeoutRef.current);
-    setHoveredRelatedId(null);
-  };
-
+  // --- INITIALIZATION ---
   useEffect(() => {
+    // Reset View
+    window.scrollTo(0, 0);
     setShowVideo(false); 
     setTrailerKey(null); 
     setIsMuted(true); 
     setMovie(null); 
     setRelatedMovies([]); 
-    setDownloadLinks([]); 
-    setShowDownloadModal(false);
-    setHoveredRelatedId(null);
-    window.scrollTo(0, 0);
+    setActiveTab('related');
     
-    fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}&language=en-US`).then(res => res.json()).then(data => setMovie(data)).catch(err => console.error(err));
-    fetch(`${BASE_URL}/${type}/${id}/credits?api_key=${TMDB_API_KEY}`).then(res => res.json()).then(data => setCredits(data));
-    
-    fetch(`${BASE_URL}/${type}/${id}/videos?api_key=${TMDB_API_KEY}`).then(res => res.json()).then(data => {
-      const trailer = data.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube');
-      if (trailer) { setTrailerKey(trailer.key); setTimeout(() => setShowVideo(true), 3000); }
-    });
-    
-    fetch(`${BASE_URL}/${type}/${id}/recommendations?api_key=${TMDB_API_KEY}&language=en-US`).then(res => res.json()).then(data => {
-        const validRecs = (data.results || []).filter(m => m.backdrop_path || m.poster_path).slice(0, 10);
+    // Reset Interaction State
+    const savedWatchlist = JSON.parse(localStorage.getItem('watchlist')) || [];
+    setIsInWatchlist(savedWatchlist.includes(`${type}-${id}`));
+    setIsLiked(false);
+    setIsDisliked(false);
+
+    // Fetch Data
+    const fetchData = async () => {
+      try {
+        const [movieRes, creditsRes, videoRes, recsRes] = await Promise.all([
+          fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}&language=en-US`),
+          fetch(`${BASE_URL}/${type}/${id}/credits?api_key=${TMDB_API_KEY}`),
+          fetch(`${BASE_URL}/${type}/${id}/videos?api_key=${TMDB_API_KEY}`),
+          fetch(`${BASE_URL}/${type}/${id}/recommendations?api_key=${TMDB_API_KEY}&language=en-US`)
+        ]);
+
+        const movieData = await movieRes.json();
+        setMovie(movieData);
+        
+        const creditsData = await creditsRes.json();
+        setCredits(creditsData);
+
+        const videoData = await videoRes.json();
+        const trailer = videoData.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube');
+        if (trailer) {
+           setTrailerKey(trailer.key); 
+           setTimeout(() => setShowVideo(true), 3000); 
+        }
+
+        const recsData = await recsRes.json();
+        const validRecs = (recsData.results || []).filter(m => m.backdrop_path || m.poster_path).slice(0, 10);
         setRelatedMovies(validRecs);
-    });
+      } catch (e) { console.error("Fetch Error:", e); }
+    };
+    fetchData();
   }, [type, id]);
+
+  // --- HANDLERS ---
+  const showToast = (msg) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  const handleWatchlist = () => {
+    const key = `${type}-${id}`;
+    const current = JSON.parse(localStorage.getItem('watchlist')) || [];
+    let updated;
+    if (isInWatchlist) {
+      updated = current.filter(k => k !== key);
+      setIsInWatchlist(false);
+      showToast("Removed from Watchlist");
+    } else {
+      updated = [...current, key];
+      setIsInWatchlist(true);
+      showToast("Added to Watchlist");
+    }
+    localStorage.setItem('watchlist', JSON.stringify(updated));
+  };
+
+  const handleLike = () => {
+    if (isLiked) { setIsLiked(false); } 
+    else { setIsLiked(true); setIsDisliked(false); showToast("Marked as Liked"); }
+  };
+
+  const handleDislike = () => {
+    if (isDisliked) { setIsDisliked(false); } 
+    else { setIsDisliked(true); setIsLiked(false); showToast("Marked as Disliked"); }
+  };
+
+  const handleShare = () => {
+    navigator.clipboard.writeText(window.location.href);
+    showToast("Link Copied to Clipboard");
+  };
 
   const handleDownload = async () => {
     setLoadingDownloads(true);
+    setActiveModal('download');
     try {
       const links = await get111477Downloads({ mediaItem: movie, mediaType: type });
-      if (links.length > 0) { setDownloadLinks(links); setShowDownloadModal(true); } else { alert("No download links found for this title."); }
-    } catch (e) { console.error("Download Error", e); alert("An error occurred while fetching links."); } finally { setLoadingDownloads(false); }
+      if (links.length > 0) { setDownloadLinks(links); } 
+      else { setDownloadLinks([]); }
+    } catch (e) { console.error(e); } 
+    finally { setLoadingDownloads(false); }
+  };
+
+  const handleSearchPerson = (name) => {
+    navigate(`/search?q=${encodeURIComponent(name)}`);
+  };
+
+  // Hover logic for related cards
+  const handleRelatedHover = (id) => {
+    if (relatedTimeoutRef.current) clearTimeout(relatedTimeoutRef.current);
+    relatedTimeoutRef.current = setTimeout(() => setHoveredRelatedId(id), 400);
+  };
+  const handleRelatedLeave = () => {
+    if (relatedTimeoutRef.current) clearTimeout(relatedTimeoutRef.current);
+    setHoveredRelatedId(null);
   };
 
   if (!movie) return <div className="min-h-screen w-full bg-[#0f171e]" />;
@@ -1088,92 +1160,75 @@ const MovieDetail = () => {
   // Logic
   const savedProgress = getMediaProgress(type, id);
   const isResumable = savedProgress && savedProgress.progress?.watched > 0;
-  let playLabel = type === 'tv' ? 'Play S1 E1' : 'Play';
-  if (isResumable) {
-    playLabel = type === 'tv' 
-      ? `Resume S${savedProgress.last_season_watched || 1} E${savedProgress.last_episode_watched || 1}`
-      : `Resume`;
-  }
+  let playLabel = isResumable 
+    ? (type === 'tv' ? `Resume S${savedProgress.last_season_watched || 1} E${savedProgress.last_episode_watched || 1}` : `Resume`) 
+    : (type === 'tv' ? 'Play S1 E1' : 'Play');
 
-  // Credits Data
-  const director = credits?.crew?.find(c => c.job === 'Director')?.name || "Shakun Batra"; 
-  const producers = credits?.crew?.filter(c => c.job === 'Producer').slice(0,3).map(c => c.name).join(", ") || "Hiroo Johar, Karan Johar, Apoorva Mehta";
-  const castList = credits?.cast?.slice(0, 5).map(c => c.name).join(", ") || "Deepika Padukone, Siddhant Chaturvedi, Ananya Panday";
-  
   // Metadata
+  const director = credits?.crew?.find(c => c.job === 'Director')?.name || "Unknown Director"; 
+  const producers = credits?.crew?.filter(c => c.job === 'Producer').slice(0,3).map(c => c.name).join(", ") || "Producers N/A";
+  const castList = credits?.cast?.slice(0, 5) || [];
   const runtime = movie.runtime ? `${Math.floor(movie.runtime/60)} h ${movie.runtime%60} min` : `${movie.number_of_seasons} Seasons`;
-  const rating = movie.vote_average ? movie.vote_average.toFixed(1) : "5.6";
-  const year = movie.release_date?.split('-')[0] || "2022";
-  const genres = movie.genres?.map(g => g.name).join(" • ") || "Drama • International • Serious";
+  const rating = movie.vote_average ? movie.vote_average.toFixed(1) : "N/A";
+  const year = movie.release_date?.split('-')[0] || "2024";
+  const genres = movie.genres?.map(g => g.name).join(" • ");
 
   return (
-    <div className="min-h-screen bg-[#0f171e] text-white font-sans selection:bg-[#00A8E1] selection:text-white pb-20">
+    <div className="min-h-screen bg-[#0f171e] text-white font-sans selection:bg-[#00A8E1] selection:text-white pb-20 relative">
       
+      {/* --- TOAST NOTIFICATION --- */}
+      {toastMessage && (
+        <div className="fixed top-24 right-6 z-[200] bg-white text-black px-6 py-3 rounded shadow-2xl font-bold animate-in fade-in slide-in-from-right duration-300 flex items-center gap-2">
+          <CheckCircle2 size={20} className="text-[#00A8E1]" /> {toastMessage}
+        </div>
+      )}
+
       {/* --- HERO SECTION --- */}
       <div className="relative w-full h-[85vh] overflow-hidden group">
         <div className="absolute inset-0 w-full h-full">
-           {/* Background Image */}
           <div className={`absolute inset-0 transition-opacity duration-1000 ${showVideo ? 'opacity-0' : 'opacity-100'}`}>
             <img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover object-top" alt="" />
           </div>
-          {/* YouTube Trailer */}
           {showVideo && trailerKey && (
             <div className="absolute inset-0 animate-in fade-in duration-1000 pointer-events-none">
-              <iframe 
-                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&enablejsapi=1&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} 
-                className="w-full h-full scale-[1.5] origin-center" 
-                allow="autoplay; encrypted-media" 
-                frameBorder="0" 
-                referrerPolicy="strict-origin-when-cross-origin"
-                title="Hero" 
-              />
+              <iframe src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&enablejsapi=1&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} className="w-full h-full scale-[1.5] origin-center" allow="autoplay; encrypted-media" frameBorder="0" referrerPolicy="strict-origin-when-cross-origin" title="Hero" />
             </div>
           )}
         </div>
         
-        {/* Gradients */}
         <div className="absolute inset-0 bg-gradient-to-r from-[#0f171e] via-[#0f171e]/60 to-transparent w-[80%] z-10" />
         <div className="absolute inset-0 bg-gradient-to-t from-[#0f171e] via-transparent to-transparent z-10" />
 
-        {/* Content Layer */}
         <div className="absolute inset-0 z-20 flex flex-col justify-center px-8 md:px-16 lg:px-20 max-w-4xl pt-12">
-          
-          {/* Title */}
-          <h1 className="text-5xl md:text-7xl font-bold mb-6 tracking-wide drop-shadow-lg uppercase text-white/90">
-            {movie.title || movie.name}
-          </h1>
+          <h1 className="text-5xl md:text-7xl font-bold mb-6 tracking-wide drop-shadow-lg uppercase text-white/90">{movie.title || movie.name}</h1>
 
-          {/* Action Icons Row */}
+          {/* ACTION BUTTONS */}
           <div className="flex items-center gap-4 mb-6">
-             <button onClick={() => setShowVideo(true)} className="w-14 h-14 rounded-full bg-[#425265]/80 hover:bg-[#5f738a] flex items-center justify-center transition border-2 border-transparent hover:border-gray-400 text-white group" title="Trailer">
+             <button onClick={() => { setShowVideo(true); setIsMuted(false); }} className="w-14 h-14 rounded-full bg-[#425265]/80 hover:bg-[#5f738a] flex items-center justify-center transition border-2 border-transparent hover:border-gray-400 text-white group" title="Trailer">
                 <Play size={24} fill="white" className="ml-1 group-hover:scale-110 transition-transform" />
              </button>
-             <button className="w-14 h-14 rounded-full bg-[#425265]/80 hover:bg-[#5f738a] flex items-center justify-center transition border-2 border-transparent hover:border-gray-400 text-white" title="Add to Watchlist">
-                <Plus size={28} />
+             <button onClick={handleWatchlist} className={`w-14 h-14 rounded-full bg-[#425265]/80 hover:bg-[#5f738a] flex items-center justify-center transition border-2 border-transparent hover:border-gray-400 ${isInWatchlist ? 'text-[#00A8E1]' : 'text-white'}`} title="Watchlist">
+                {isInWatchlist ? <CheckCircle2 size={28} /> : <Plus size={28} />}
              </button>
-             <button className="w-14 h-14 rounded-full bg-[#425265]/80 hover:bg-[#5f738a] flex items-center justify-center transition border-2 border-transparent hover:border-gray-400 text-white" title="Like">
-                <ThumbsUp size={24} />
+             <button onClick={handleLike} className={`w-14 h-14 rounded-full bg-[#425265]/80 hover:bg-[#5f738a] flex items-center justify-center transition border-2 border-transparent hover:border-gray-400 ${isLiked ? 'text-green-400' : 'text-white'}`} title="Like">
+                <ThumbsUp size={24} fill={isLiked ? "currentColor" : "none"} />
              </button>
-             {/* Using rotated ThumbsUp for Dislike since ThumbsDown wasn't imported */}
-             <button className="w-14 h-14 rounded-full bg-[#425265]/80 hover:bg-[#5f738a] flex items-center justify-center transition border-2 border-transparent hover:border-gray-400 text-white" title="Dislike">
-                <ThumbsUp size={24} className="transform rotate-180 mt-1" /> 
+             <button onClick={handleDislike} className={`w-14 h-14 rounded-full bg-[#425265]/80 hover:bg-[#5f738a] flex items-center justify-center transition border-2 border-transparent hover:border-gray-400 ${isDisliked ? 'text-red-400' : 'text-white'}`} title="Dislike">
+                <ThumbsUp size={24} className="transform rotate-180 mt-1" fill={isDisliked ? "currentColor" : "none"} /> 
              </button>
-             <button className="w-14 h-14 rounded-full bg-[#425265]/80 hover:bg-[#5f738a] flex items-center justify-center transition border-2 border-transparent hover:border-gray-400 text-white" title="Share">
+             <button onClick={handleShare} className="w-14 h-14 rounded-full bg-[#425265]/80 hover:bg-[#5f738a] flex items-center justify-center transition border-2 border-transparent hover:border-gray-400 text-white" title="Share">
                 <Share2 size={24} />
              </button>
           </div>
 
-          {/* Primary Buttons */}
           <div className="flex flex-col gap-3 max-w-md mb-6">
             <button onClick={() => navigate(`/watch/${type}/${id}`)} className="h-14 w-full rounded-[4px] bg-white hover:bg-[#ffffffd0] text-black font-bold text-lg flex items-center justify-center gap-2 transition shadow-lg">
               <Play fill="black" size={24} /> {playLabel}
             </button>
-            
             <button onClick={handleDownload} className="h-14 w-full rounded-[4px] bg-[#323e4d] hover:bg-[#425265] text-white font-bold text-lg flex items-center justify-center gap-2 transition shadow-lg">
-              {loadingDownloads ? <Loader className="animate-spin" /> : <Download size={24} />} Download
+              <Download size={24} /> Download
             </button>
-
-            <button className="h-14 w-full rounded-[4px] bg-[#323e4d] hover:bg-[#425265] text-white font-bold text-lg flex items-center justify-center gap-2 transition shadow-lg">
+            <button onClick={() => setActiveModal('ways')} className="h-14 w-full rounded-[4px] bg-[#323e4d] hover:bg-[#425265] text-white font-bold text-lg flex items-center justify-center gap-2 transition shadow-lg">
               More ways to watch
             </button>
           </div>
@@ -1182,153 +1237,159 @@ const MovieDetail = () => {
              <CheckCircle2 size={18} className="text-[#00A8E1]" fill="#00A8E1" color="#0f171e" />
              <span>Included with Prime</span>
           </div>
-          
         </div>
       </div>
 
       {/* --- TABS SECTION --- */}
       <div className="px-6 md:px-12 mt-4 border-b border-white/10 flex gap-8 text-lg font-bold">
-         <div className="border-b-[3px] border-white pb-3 cursor-pointer text-white">Related</div>
-         <div className="text-gray-400 pb-3 cursor-pointer hover:text-white transition">Details</div>
+         <div onClick={() => setActiveTab('related')} className={`pb-3 cursor-pointer transition border-b-[3px] ${activeTab === 'related' ? 'border-white text-white' : 'border-transparent text-gray-400 hover:text-white'}`}>Related</div>
+         <div onClick={() => setActiveTab('details')} className={`pb-3 cursor-pointer transition border-b-[3px] ${activeTab === 'details' ? 'border-white text-white' : 'border-transparent text-gray-400 hover:text-white'}`}>Details</div>
       </div>
 
-      {/* --- CUSTOMERS ALSO WATCHED --- */}
-      <div className="relative z-30 pt-6 pb-6"> 
-        <h3 className="text-[18px] font-bold text-white mb-4 px-6 md:px-12">Customers also watched</h3>
-        <div className="row-container scrollbar-hide pl-6 md:pl-12 py-2">
-          {relatedMovies.length > 0 ? (
-            relatedMovies.map((m, index) => (
-               <MovieCard 
-                 key={m.id} 
-                 movie={m} 
-                 variant="standard" 
-                 itemType={m.media_type || type}
-                 rank={null} 
-                 isHovered={hoveredRelatedId === m.id} 
-                 onHover={handleRelatedHover} 
-                 onLeave={handleRelatedLeave} 
-                 isPrimeOnly={true}
-                 isFirst={index === 0}
-                 isLast={index === relatedMovies.length - 1}
-               />
-            ))
-          ) : (
-            <div className="text-gray-500 italic text-sm py-4 px-12">No related titles found.</div>
-          )}
+      {/* --- TAB CONTENT: RELATED --- */}
+      {activeTab === 'related' && (
+        <div className="relative z-30 pt-6 pb-6 animate-in fade-in slide-in-from-left-4"> 
+          <h3 className="text-[18px] font-bold text-white mb-4 px-6 md:px-12">Customers also watched</h3>
+          <div className="row-container scrollbar-hide pl-6 md:pl-12 py-2">
+            {relatedMovies.length > 0 ? (
+              relatedMovies.map((m, index) => (
+                 <MovieCard key={m.id} movie={m} variant="standard" itemType={m.media_type || type} rank={null} isHovered={hoveredRelatedId === m.id} onHover={handleRelatedHover} onLeave={handleRelatedLeave} isPrimeOnly={true} isFirst={index === 0} isLast={index === relatedMovies.length - 1} />
+              ))
+            ) : (
+              <div className="text-gray-500 italic text-sm py-4 px-12">No related titles found.</div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* --- EXTENDED DETAILS GRID --- */}
-      <div className="px-6 md:px-12 py-8 grid grid-cols-1 lg:grid-cols-3 gap-12 border-t border-white/10 bg-[#0f171e]">
-        
-        {/* Left Column: Info & Credits */}
-        <div className="lg:col-span-2">
-           <h2 className="text-3xl font-bold mb-3">{movie.title || movie.name}</h2>
-           
-           {/* Metadata Line */}
-           <div className="flex items-center gap-3 text-sm font-medium text-gray-400 mb-4">
-              <span className="text-white border-b border-gray-500">{genres}</span>
-              <span className="text-gray-500">•</span>
-              <span className="text-gray-400">IMDb {rating}</span>
-              <span className="text-gray-500">•</span>
-              <span>{year}</span>
-              <span className="text-gray-500">•</span>
-              <span>{runtime}</span>
-           </div>
+      {/* --- TAB CONTENT: DETAILS --- */}
+      {activeTab === 'details' && (
+        <div className="px-6 md:px-12 py-8 grid grid-cols-1 lg:grid-cols-3 gap-12 border-t border-white/10 bg-[#0f171e] animate-in fade-in slide-in-from-right-4">
+          <div className="lg:col-span-2">
+             <h2 className="text-3xl font-bold mb-3">{movie.title || movie.name}</h2>
+             <div className="flex items-center gap-3 text-sm font-medium text-gray-400 mb-4">
+                <span className="text-white border-b border-gray-500">{genres}</span><span className="text-gray-500">•</span>
+                <span className="text-gray-400">IMDb {rating}</span><span className="text-gray-500">•</span>
+                <span>{year}</span><span className="text-gray-500">•</span>
+                <span>{runtime}</span>
+             </div>
+             <p className="text-base leading-7 text-gray-300 mb-4">{movie.overview}</p>
 
-           {/* Synopsis */}
-           <p className="text-base leading-7 text-gray-300 mb-2">{movie.overview}</p>
-           <button className="text-[#00A8E1] text-sm font-bold hover:underline mb-8">More</button>
+             <div className="border-t border-white/10 py-6">
+                <dl className="grid grid-cols-[150px_1fr] gap-y-4 text-sm">
+                   <dt className="text-gray-400 font-medium">Directors</dt>
+                   <dd onClick={() => handleSearchPerson(director)} className="text-[#00A8E1] hover:underline cursor-pointer">{director}</dd>
 
-           {/* Creators Table */}
-           <div className="border-t border-white/10 py-6">
-              <dl className="grid grid-cols-[150px_1fr] gap-y-4 text-sm">
-                 <dt className="text-gray-400 font-medium">Directors</dt>
-                 <dd className="text-[#00A8E1] hover:underline cursor-pointer">{director}</dd>
+                   <dt className="text-gray-400 font-medium">Producers</dt>
+                   <dd className="text-[#00A8E1]">{producers}</dd>
 
-                 <dt className="text-gray-400 font-medium">Producers</dt>
-                 <dd className="text-[#00A8E1] hover:underline cursor-pointer">{producers}</dd>
+                   <dt className="text-gray-400 font-medium">Cast</dt>
+                   <dd className="text-[#00A8E1] leading-relaxed">
+                     {castList.map((c, i) => (
+                       <span key={c.id}>
+                         <span onClick={() => handleSearchPerson(c.name)} className="hover:underline cursor-pointer">{c.name}</span>
+                         {i < castList.length - 1 && ", "}
+                       </span>
+                     ))}
+                   </dd>
+                   
+                   <dt className="text-gray-400 font-medium">Studio</dt>
+                   <dd className="text-gray-300">TMDB Studios, Viacom 18 Motion Pictures</dd>
+                </dl>
+             </div>
+             
+             <div className="mt-8 text-sm text-gray-400">By clicking play, you agree to our <span className="text-[#00A8E1] cursor-pointer hover:underline">Terms of Use</span>.</div>
 
-                 <dt className="text-gray-400 font-medium">Cast</dt>
-                 <dd className="text-[#00A8E1] hover:underline cursor-pointer leading-relaxed">{castList}</dd>
-                 
-                 <dt className="text-gray-400 font-medium">Studio</dt>
-                 <dd className="text-gray-300">TMDB Studios, Viacom 18 Motion Pictures</dd>
-              </dl>
-           </div>
-           
-           {/* Footer Text */}
-           <div className="mt-8 text-sm text-gray-400">
-             By clicking play, you agree to our <span className="text-[#00A8E1] cursor-pointer hover:underline">Terms of Use</span>.
-           </div>
+             <div className="mt-8">
+               <div className="font-bold text-white mb-3">Feedback</div>
+               <button onClick={() => setActiveModal('feedback')} className="bg-[#425265] hover:bg-[#5f738a] text-white text-sm py-2 px-6 rounded-[4px] transition font-medium shadow-md">Send us feedback</button>
+             </div>
+             <div className="mt-8">
+               <div className="font-bold text-white mb-2">Support</div>
+               <button onClick={() => setActiveModal('help')} className="text-[#00A8E1] text-sm hover:underline font-medium">Get Help</button>
+             </div>
+          </div>
 
-           {/* Feedback Buttons */}
-           <div className="mt-8">
-             <div className="font-bold text-white mb-3">Feedback</div>
-             <button className="bg-[#425265] hover:bg-[#5f738a] text-white text-sm py-2 px-6 rounded-[4px] transition font-medium shadow-md">Send us feedback</button>
-           </div>
-
-           <div className="mt-8">
-             <div className="font-bold text-white mb-2">Support</div>
-             <button className="text-[#00A8E1] text-sm hover:underline font-medium">Get Help</button>
-           </div>
-
+          <div className="space-y-4">
+             <div className="border border-gray-600 p-4 rounded-[4px]">
+                <div className="font-bold text-white mb-2 text-lg">Content advisory</div>
+                <div className="flex items-center gap-2 mb-3"><span className="border border-white/40 px-1.5 py-0.5 rounded-[2px] text-xs font-bold bg-[#33373d]">A</span></div>
+                <p className="text-gray-400 text-sm leading-relaxed">substance use, alcohol use, foul language, sexual content, violence</p>
+             </div>
+             <div className="border border-gray-600 p-4 rounded-[4px]">
+                <div className="font-bold text-white mb-2 text-lg">Audio languages</div>
+                <div className="flex items-center gap-2 mb-3"><span className="border border-white/40 px-1.5 py-0.5 rounded-[2px] text-xs font-bold bg-[#33373d]">5.1</span><span className="border border-white/40 px-1.5 py-0.5 rounded-[2px] text-xs font-bold bg-[#33373d]">AD</span></div>
+                <p className="text-gray-400 text-sm leading-relaxed">English, Hindi, Tamil, Telugu, Malayalam, Kannada</p>
+             </div>
+             <div className="border border-gray-600 p-4 rounded-[4px]">
+                <div className="font-bold text-white mb-2 text-lg">Subtitles</div>
+                <div className="flex items-center gap-2 mb-3"><span className="border border-white/40 px-1.5 py-0.5 rounded-[2px] text-xs font-bold bg-[#33373d]">CC</span></div>
+                <p className="text-gray-400 text-sm leading-relaxed">English [CC], Español, Français, Português, Deutsch, Italiano, العربية, हिन्दी, தமிழ், తెలుగు</p>
+             </div>
+          </div>
         </div>
+      )}
 
-        {/* Right Column: Info Boxes */}
-        <div className="space-y-4">
-           
-           {/* Content Advisory Box */}
-           <div className="border border-gray-600 p-4 rounded-[4px]">
-              <div className="font-bold text-white mb-2 text-lg">Content advisory</div>
-              <div className="flex items-center gap-2 mb-3">
-                 <span className="border border-white/40 px-1.5 py-0.5 rounded-[2px] text-xs font-bold bg-[#33373d]">A</span>
-              </div>
-              <p className="text-gray-400 text-sm leading-relaxed">
-                 substance use, alcohol use, foul language, sexual content, violence
-              </p>
-           </div>
-
-           {/* Audio Box */}
-           <div className="border border-gray-600 p-4 rounded-[4px]">
-              <div className="font-bold text-white mb-2 text-lg">Audio languages</div>
-              <div className="flex items-center gap-2 mb-3">
-                 <span className="border border-white/40 px-1.5 py-0.5 rounded-[2px] text-xs font-bold bg-[#33373d]">5.1</span>
-                 <span className="border border-white/40 px-1.5 py-0.5 rounded-[2px] text-xs font-bold bg-[#33373d]">AD</span>
-              </div>
-              <p className="text-gray-400 text-sm leading-relaxed">
-                 English, Hindi, Tamil, Telugu, Malayalam, Kannada
-              </p>
-           </div>
-
-           {/* Subtitles Box */}
-           <div className="border border-gray-600 p-4 rounded-[4px]">
-              <div className="font-bold text-white mb-2 text-lg">Subtitles</div>
-              <div className="flex items-center gap-2 mb-3">
-                <span className="border border-white/40 px-1.5 py-0.5 rounded-[2px] text-xs font-bold bg-[#33373d]">CC</span>
-              </div>
-              <p className="text-gray-400 text-sm leading-relaxed">
-                 English [CC], Español, Français, Português, Deutsch, Italiano, العربية, हिन्दी, தமிழ், తెలుగు
-              </p>
-           </div>
-
-        </div>
-      </div>
-
-      {/* --- DOWNLOAD MODAL --- */}
-      {showDownloadModal && (
+      {/* --- SHARED MODAL COMPONENT --- */}
+      {activeModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
           <div className="bg-[#19222b] border border-white/10 rounded-2xl w-full max-w-md p-6 shadow-2xl relative animate-modal-pop">
-            <button onClick={() => setShowDownloadModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white"><X size={24} /></button>
-            <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2"><Download className="text-[#00A8E1]" /> Download Options</h3>
-            <div className="space-y-3 max-h-[60vh] overflow-y-auto scrollbar-hide">
-              {downloadLinks.map((link, idx) => (
-                <a key={idx} href={link.url} target="_blank" rel="noopener noreferrer" className="block bg-[#232d38] hover:bg-[#00A8E1] border border-white/5 hover:border-transparent text-gray-200 hover:text-white p-4 rounded-xl transition-all group flex items-center justify-between">
-                  <div className="flex flex-col"><span className="font-bold">{link.label}</span><span className="text-[10px] opacity-70 uppercase tracking-wider">{link.source}</span></div>
-                  <Download size={20} className="opacity-50 group-hover:opacity-100" />
-                </a>
-              ))}
-            </div>
+            <button onClick={() => setActiveModal(null)} className="absolute top-4 right-4 text-gray-400 hover:text-white"><X size={24} /></button>
+            
+            {activeModal === 'download' && (
+              <>
+                <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2"><Download className="text-[#00A8E1]" /> Download Options</h3>
+                {loadingDownloads ? (
+                  <div className="flex flex-col items-center py-8"><Loader className="animate-spin text-[#00A8E1] mb-2" size={32} /><span>Searching sources...</span></div>
+                ) : downloadLinks.length > 0 ? (
+                  <div className="space-y-3 max-h-[60vh] overflow-y-auto scrollbar-hide">
+                    {downloadLinks.map((link, idx) => (
+                      <a key={idx} href={link.url} target="_blank" rel="noopener noreferrer" className="block bg-[#232d38] hover:bg-[#00A8E1] border border-white/5 hover:border-transparent text-gray-200 hover:text-white p-4 rounded-xl transition-all group flex items-center justify-between">
+                        <div className="flex flex-col"><span className="font-bold">{link.label}</span><span className="text-[10px] opacity-70 uppercase tracking-wider">{link.source}</span></div>
+                        <Download size={20} className="opacity-50 group-hover:opacity-100" />
+                      </a>
+                    ))}
+                  </div>
+                ) : (
+                   <div className="text-center py-6 text-gray-400">No direct download links found for this title. <br/><span className="text-xs">Try streaming it instead.</span></div>
+                )}
+              </>
+            )}
+
+            {activeModal === 'ways' && (
+              <>
+                <h3 className="text-xl font-bold text-white mb-4">Ways to Watch</h3>
+                <div className="space-y-4">
+                  <div className="bg-[#232d38] p-4 rounded-lg border border-white/5">
+                    <div className="font-bold text-white">Prime Video</div>
+                    <div className="text-sm text-gray-400">Included with your subscription</div>
+                  </div>
+                  <div className="bg-[#232d38] p-4 rounded-lg border border-white/5 opacity-50 cursor-not-allowed">
+                    <div className="font-bold text-white">Rent / Buy</div>
+                    <div className="text-sm text-gray-400">Not available in your region yet.</div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {activeModal === 'feedback' && (
+              <>
+                <h3 className="text-xl font-bold text-white mb-4">Send Feedback</h3>
+                <textarea className="w-full bg-[#0f171e] border border-gray-600 rounded p-3 text-white h-32 mb-4 focus:border-[#00A8E1] outline-none" placeholder="Tell us what you think..."></textarea>
+                <button onClick={() => { setActiveModal(null); showToast("Feedback Sent!"); }} className="w-full bg-[#00A8E1] text-white font-bold py-3 rounded hover:bg-[#008ebf]">Submit</button>
+              </>
+            )}
+
+            {activeModal === 'help' && (
+              <>
+                <h3 className="text-xl font-bold text-white mb-4">Help & Support</h3>
+                <p className="text-gray-300 mb-4">Need assistance with playback? Contact our support team.</p>
+                <div className="flex flex-col gap-3">
+                  <button className="bg-[#232d38] hover:bg-[#333c46] text-white p-3 rounded flex items-center justify-between"><span>Playback Issues</span> <ChevronRight size={16}/></button>
+                  <button className="bg-[#232d38] hover:bg-[#333c46] text-white p-3 rounded flex items-center justify-between"><span>Account & Billing</span> <ChevronRight size={16}/></button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
