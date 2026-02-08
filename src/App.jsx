@@ -38,6 +38,7 @@ const useConnectionOptimizer = () => {
   useEffect(() => {
     const domains = [
       "https://vidfast.pro",
+      "https://player.videasy.net",
       "https://zxcstream.xyz",
       "https://www.zxcstream.xyz",
       "https://api.themoviedb.org",
@@ -1581,6 +1582,7 @@ const MovieDetail = () => {
   );
 };
 // --- PLAYER COMPONENT (WITH UNIVERSAL RESUME) ---
+// --- PLAYER COMPONENT (WITH VIDEASY FOR BENGALI) ---
 const Player = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
@@ -1589,8 +1591,9 @@ const Player = () => {
   // --- STATE ---
   const [activeServer, setActiveServer] = useState('vidfast'); 
   const [isIndian, setIsIndian] = useState(false);
+  const [isBengali, setIsBengali] = useState(false); // Specific Bengali check
   const [imdbId, setImdbId] = useState(null);
-  const [movieData, setMovieData] = useState(null); // Store metadata for history
+  const [movieData, setMovieData] = useState(null);
   
   // Episode & Season State
   const queryParams = new URLSearchParams(location.search);
@@ -1611,13 +1614,24 @@ const Player = () => {
         const foundImdbId = data.imdb_id || data.external_ids?.imdb_id;
         setImdbId(foundImdbId);
 
-        const indianLanguages = ['hi', 'bn', 'ta', 'te', 'ml', 'kn', 'mr', 'pa', 'gu'];
-        const isIndianContent = indianLanguages.includes(data.original_language);
-        setIsIndian(isIndianContent);
+        // Language Logic
+        const lang = data.original_language;
+        const indianLanguages = ['hi', 'ta', 'te', 'ml', 'kn', 'mr', 'pa', 'gu']; // Removed 'bn' from generic list to handle separately
+        
+        const isBn = lang === 'bn';
+        const isInd = indianLanguages.includes(lang);
 
-        // Auto-select server
-        if (isIndianContent) setActiveServer('slime');
-        else setActiveServer('vidfast');
+        setIsBengali(isBn);
+        setIsIndian(isInd);
+
+        // --- AUTO SERVER SELECTION ---
+        if (isBn) {
+          setActiveServer('videasy'); // Default for Bengali
+        } else if (isInd) {
+          setActiveServer('slime');   // Default for other Indian
+        } else {
+          setActiveServer('vidfast'); // Default Global
+        }
 
         if (type === 'tv' && data.number_of_seasons) setTotalSeasons(data.number_of_seasons);
       } catch (e) { console.error("Error fetching details:", e); }
@@ -1625,11 +1639,10 @@ const Player = () => {
     fetchDetails();
   }, [type, id]);
 
-  // --- 2. PROGRESS SAVING LOGIC (TRACKING) ---
+  // --- 2. PROGRESS SAVING LOGIC (UNIVERSAL) ---
   useEffect(() => {
     if (!movieData) return;
 
-    // Function: Save to LocalStorage
     const saveProgress = (currentTime, duration) => {
         const key = `${type === 'tv' ? 't' : 'm'}${id}`;
         const existing = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
@@ -1655,25 +1668,36 @@ const Player = () => {
         }));
     };
 
-    // A. Save immediately on open (so it appears in "Continue Watching")
+    // A. Save on load
     saveProgress(0, 0);
 
-    // B. Global Listener for Player Messages (VidFast/HLS/Standard Embeds)
+    // B. Global Message Listener
     const handleMessage = (e) => {
         if (!e.data) return;
-        
-        // Check for common time update message formats
-        const isTimeUpdate = 
+
+        // 1. Standard HTML5 / VidFast Message
+        const isStandardUpdate = 
             e.data.type === 'timeupdate' || 
             e.data.event === 'timeupdate' || 
             e.data.action === 'timeupdate';
 
-        if (isTimeUpdate) {
+        if (isStandardUpdate) {
              const time = e.data.time || e.data.currentTime || e.data.data?.time;
              const duration = e.data.duration || e.data.data?.duration;
-             if (time && time > 5) { // Only save if watched more than 5 seconds
-                 saveProgress(time, duration);
-             }
+             if (time > 5) saveProgress(time, duration);
+             return;
+        }
+
+        // 2. Videasy Message (JSON String)
+        try {
+          if (typeof e.data === 'string' && e.data.includes('timestamp')) {
+            const parsed = JSON.parse(e.data);
+            if (parsed && parsed.timestamp) {
+               saveProgress(parsed.timestamp, parsed.duration);
+            }
+          }
+        } catch (err) {
+          // Ignore parsing errors for non-JSON messages
         }
     };
 
@@ -1690,14 +1714,22 @@ const Player = () => {
     }
   }, [type, id, season]);
 
-  // --- 4. SOURCE GENERATOR (WITH RESUME PARAMS) ---
+  // --- 4. SOURCE GENERATOR ---
   const getSourceUrl = () => {
-    // 1. Get saved timestamp
+    // Get Resume Time
     const progress = getMediaProgress(type, id);
     const startTime = progress?.progress?.watched || 0;
 
-    // 2. Slime (Bollywood/Indian)
-    // Uses #t=seconds for standard HTML5 playback resume
+    // A. VIDEASY (Bengali Only - Uses TMDB ID)
+    if (activeServer === 'videasy') {
+      const commonParams = `color=00A8E1&overlay=true&progress=${startTime}`;
+      if (type === 'tv') {
+        return `https://player.videasy.net/tv/${id}/${season}/${episode}?${commonParams}&nextEpisode=true&autoplayNextEpisode=true&episodeSelector=true`;
+      }
+      return `https://player.videasy.net/movie/${id}?${commonParams}`;
+    }
+
+    // B. SLIME (Bollywood/Indian - Uses IMDb ID)
     if (activeServer === 'slime') {
       const targetId = imdbId || id;
       const hash = startTime > 0 ? `#t=${startTime}` : ''; 
@@ -1705,16 +1737,14 @@ const Player = () => {
       return `https://slime403heq.com/play/${targetId}${hash}`;
     }
     
-    // 3. VidFast (Standard)
-    // Uses ?t=seconds query param
+    // C. VIDFAST (Standard - Uses TMDB ID)
     if (activeServer === 'vidfast') {
       const themeParam = "theme=00A8E1";
       if (type === 'tv') return `${VIDFAST_BASE}/tv/${id}/${season}/${episode}?autoPlay=true&t=${startTime}&${themeParam}&nextButton=true&autoNext=true`;
       return `${VIDFAST_BASE}/movie/${id}?autoPlay=true&t=${startTime}&${themeParam}`;
     }
 
-    // 4. Multi-Audio (Zxcstream)
-    // Often uses ?start=seconds or #t=seconds
+    // D. MULTI-AUDIO (Fallback)
     else {
       const startParam = startTime > 0 ? `&start=${startTime}` : '';
       if (type === 'tv') return `https://www.zxcstream.xyz/player/tv/${id}/${season}/${episode}?autoplay=false&back=true&server=0${startParam}`;
@@ -1731,7 +1761,24 @@ const Player = () => {
         {/* SERVER SWITCHER */}
         <div className="pointer-events-auto flex flex-col items-center gap-1 bg-black/60 backdrop-blur-md border border-white/10 p-1.5 rounded-xl shadow-2xl transform translate-y-2">
           <div className="flex bg-[#19222b] rounded-lg p-1 gap-1">
-            <button onClick={() => setActiveServer('slime')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${activeServer === 'slime' ? 'bg-[#E50914] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}>{isIndian && <CheckCircle2 size={12} />} Bollywood / Indian</button>
+            
+            {/* 1. Bengali Server Button */}
+            {isBengali && (
+              <button 
+                onClick={() => setActiveServer('videasy')} 
+                className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${activeServer === 'videasy' ? 'bg-[#00A8E1] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
+              >
+                <CheckCircle2 size={12} /> Bengali Player
+              </button>
+            )}
+
+            {/* 2. Indian Server Button (Hidden if Bengali, distinct logic) */}
+            {!isBengali && (
+               <button onClick={() => setActiveServer('slime')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${activeServer === 'slime' ? 'bg-[#E50914] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}>
+                 {isIndian && <CheckCircle2 size={12} />} Bollywood / Indian
+               </button>
+            )}
+
             <button onClick={() => setActiveServer('vidfast')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'vidfast' ? 'bg-[#00A8E1] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}>VidFast</button>
             <button onClick={() => setActiveServer('zxcstream')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'zxcstream' ? 'bg-[#00A8E1] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}>Multi-Audio</button>
           </div>
