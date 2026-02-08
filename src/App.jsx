@@ -1016,6 +1016,7 @@ const SearchResults = ({ isPrimeOnly }) => {
 };
 
 // --- MOVIE DETAIL COMPONENT (WITH CAST IMAGES & SCROLL ARROWS) ---
+// --- MOVIE DETAIL COMPONENT (WITH CAST ARROWS & MUTE BUTTON) ---
 const MovieDetail = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
@@ -1045,7 +1046,8 @@ const MovieDetail = () => {
 
   // --- REFS ---
   const relatedTimeoutRef = useRef(null);
-  const relatedSliderRef = useRef(null); // Ref for scrolling related section
+  const relatedSliderRef = useRef(null); 
+  const castSliderRef = useRef(null); // Ref for scrolling cast section
 
   // --- INITIALIZATION ---
   useEffect(() => {
@@ -1144,11 +1146,11 @@ const MovieDetail = () => {
     navigate(`/search?q=${encodeURIComponent(name)}`);
   };
 
-  // Scroll Handlers for Related Section
-  const scrollRelated = (direction) => {
-    if (relatedSliderRef.current) {
-      const scrollAmount = direction === 'left' ? -800 : 800;
-      relatedSliderRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+  // Scroll Handlers
+  const scrollSection = (ref, direction) => {
+    if (ref.current) {
+      const scrollAmount = direction === 'left' ? -600 : 600;
+      ref.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
     }
   };
 
@@ -1173,7 +1175,7 @@ const MovieDetail = () => {
 
   const director = credits?.crew?.find(c => c.job === 'Director')?.name || "Unknown Director"; 
   const producers = credits?.crew?.filter(c => c.job === 'Producer').slice(0,3).map(c => c.name).join(", ") || "Producers N/A";
-  const castList = credits?.cast?.slice(0, 15) || []; // Get top 15 cast members
+  const castList = credits?.cast?.slice(0, 15) || [];
   const runtime = movie.runtime ? `${Math.floor(movie.runtime/60)} h ${movie.runtime%60} min` : `${movie.number_of_seasons} Seasons`;
   const rating = movie.vote_average ? movie.vote_average.toFixed(1) : "N/A";
   const year = movie.release_date?.split('-')[0] || "2024";
@@ -1204,6 +1206,17 @@ const MovieDetail = () => {
         
         <div className="absolute inset-0 bg-gradient-to-r from-[#0f171e] via-[#0f171e]/60 to-transparent w-[80%] z-10" />
         <div className="absolute inset-0 bg-gradient-to-t from-[#0f171e] via-transparent to-transparent z-10" />
+
+        {/* --- MUTE BUTTON (NEW) --- */}
+        {showVideo && (
+           <button 
+             onClick={() => setIsMuted(!isMuted)} 
+             className="absolute bottom-12 right-12 z-50 w-12 h-12 rounded-full bg-black/40 hover:bg-black/60 border border-white/20 text-white flex items-center justify-center backdrop-blur-md transition-all hover:scale-110"
+             title={isMuted ? "Unmute" : "Mute"}
+           >
+             {isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}
+           </button>
+        )}
 
         <div className="absolute inset-0 z-20 flex flex-col justify-center px-8 md:px-16 lg:px-20 max-w-4xl pt-12">
           <h1 className="text-5xl md:text-7xl font-bold mb-6 tracking-wide drop-shadow-lg uppercase text-white/90">{movie.title || movie.name}</h1>
@@ -1257,8 +1270,7 @@ const MovieDetail = () => {
         <div className="relative z-30 pt-6 pb-6 animate-in fade-in slide-in-from-left-4 group/rel"> 
           <h3 className="text-[18px] font-bold text-white mb-4 px-6 md:px-12">Customers also watched</h3>
           
-          {/* Scroll Left Button */}
-          <button onClick={() => scrollRelated('left')} className="absolute left-0 top-[60%] -translate-y-1/2 z-[40] w-12 h-32 bg-gradient-to-r from-black/80 to-transparent opacity-0 group-hover/rel:opacity-100 transition-opacity flex items-center justify-center hover:bg-black/40 cursor-pointer">
+          <button onClick={() => scrollSection(relatedSliderRef, 'left')} className="absolute left-0 top-[60%] -translate-y-1/2 z-[40] w-12 h-32 bg-gradient-to-r from-black/80 to-transparent opacity-0 group-hover/rel:opacity-100 transition-opacity flex items-center justify-center hover:bg-black/40 cursor-pointer">
             <ChevronLeft size={40} className="text-white hover:scale-125 transition-transform" />
           </button>
           
@@ -1272,8 +1284,7 @@ const MovieDetail = () => {
             )}
           </div>
 
-          {/* Scroll Right Button */}
-          <button onClick={() => scrollRelated('right')} className="absolute right-0 top-[60%] -translate-y-1/2 z-[40] w-12 h-32 bg-gradient-to-l from-black/80 to-transparent opacity-0 group-hover/rel:opacity-100 transition-opacity flex items-center justify-center hover:bg-black/40 cursor-pointer">
+          <button onClick={() => scrollSection(relatedSliderRef, 'right')} className="absolute right-0 top-[60%] -translate-y-1/2 z-[40] w-12 h-32 bg-gradient-to-l from-black/80 to-transparent opacity-0 group-hover/rel:opacity-100 transition-opacity flex items-center justify-center hover:bg-black/40 cursor-pointer">
              <ChevronRight size={40} className="text-white hover:scale-125 transition-transform" />
           </button>
         </div>
@@ -1292,10 +1303,18 @@ const MovieDetail = () => {
              </div>
              <p className="text-base leading-7 text-gray-300 mb-6">{movie.overview}</p>
 
-             {/* --- NEW CAST SECTION --- */}
-             <div className="mb-8">
+             {/* --- CAST SECTION (WITH ARROWS) --- */}
+             <div className="mb-8 relative group/cast">
                <h3 className="text-lg font-bold text-white mb-4">Cast & Crew</h3>
-               <div className="flex gap-6 overflow-x-auto scrollbar-hide pb-2">
+               
+               {/* Cast Left Arrow */}
+               {castList.length > 5 && (
+                 <button onClick={() => scrollSection(castSliderRef, 'left')} className="absolute -left-4 top-1/2 -translate-y-1/2 z-10 w-10 h-24 bg-gradient-to-r from-black/80 to-transparent opacity-0 group-hover/cast:opacity-100 transition-opacity flex items-center justify-center hover:bg-black/40 cursor-pointer rounded-r-lg">
+                    <ChevronLeft size={30} className="text-white hover:scale-110 transition-transform" />
+                 </button>
+               )}
+
+               <div ref={castSliderRef} className="flex gap-6 overflow-x-auto scrollbar-hide pb-2 scroll-smooth">
                  {castList.length > 0 ? castList.map((person) => (
                    <div key={person.id} onClick={() => handleSearchPerson(person.name)} className="flex flex-col items-center min-w-[90px] cursor-pointer group">
                      <div className="w-24 h-24 rounded-full overflow-hidden border-2 border-[#323e4d] mb-2 group-hover:border-[#00A8E1] transition-colors relative bg-gray-800">
@@ -1310,6 +1329,13 @@ const MovieDetail = () => {
                    </div>
                  )) : <div className="text-gray-500 text-sm">Cast information unavailable.</div>}
                </div>
+
+               {/* Cast Right Arrow */}
+               {castList.length > 5 && (
+                 <button onClick={() => scrollSection(castSliderRef, 'right')} className="absolute -right-4 top-1/2 -translate-y-1/2 z-10 w-10 h-24 bg-gradient-to-l from-black/80 to-transparent opacity-0 group-hover/cast:opacity-100 transition-opacity flex items-center justify-center hover:bg-black/40 cursor-pointer rounded-l-lg">
+                    <ChevronRight size={30} className="text-white hover:scale-110 transition-transform" />
+                 </button>
+               )}
              </div>
 
              <div className="border-t border-white/10 py-6">
