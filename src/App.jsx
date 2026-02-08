@@ -326,6 +326,7 @@ const InfiniteScrollTrigger = ({ onIntersect }) => {
 // --- COMPONENTS ---
 
 // --- NAVBAR COMPONENT (CARVED GLASS EFFECT) ---
+// --- NAVBAR COMPONENT (FLOATING & CURVED ON SCROLL) ---
 const Navbar = ({ isPrimeOnly }) => {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState({ text: [], visual: [] });
@@ -342,8 +343,7 @@ const Navbar = ({ isPrimeOnly }) => {
   // --- SCROLL LISTENER ---
   useEffect(() => {
     const handleScroll = () => {
-      // Threshold is 10px to trigger the effect immediately upon scroll start
-      if (window.scrollY > 10) {
+      if (window.scrollY > 20) {
         setIsScrolled(true);
       } else {
         setIsScrolled(false);
@@ -417,17 +417,16 @@ const Navbar = ({ isPrimeOnly }) => {
     return "text-[#c7cbd1] font-medium text-[15px] hover:text-white hover:bg-white/5 hover:backdrop-blur-sm rounded-lg px-4 py-2 transition-all duration-300 ease-in-out cursor-pointer hover:shadow-[0_0_10px_rgba(255,255,255,0.1)]";
   };
 
-  // --- DYNAMIC CARVED GLASS CLASSES ---
-  // State 1 (Scrolled): Dark glass, inset top highlight, dark bottom separator, soft shadow.
-  // State 0 (Top): Transparent with a subtle gradient to blend into the main page hero.
+  // --- DYNAMIC NAV CLASSES ---
+  // Transition between "Full Width Sticky" and "Floating Curved Fixed"
   const navClasses = isScrolled
-    ? "sticky top-0 w-full z-[1000] flex items-center px-[24px] transition-all duration-500 ease-in-out backdrop-blur-xl bg-[#0f171e]/90 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05),0_1px_0_0_rgba(0,0,0,0.5),0_10px_20px_-10px_rgba(0,0,0,0.5)]"
-    : "sticky top-0 w-full z-[1000] flex items-center px-[24px] transition-all duration-500 ease-in-out bg-transparent bg-gradient-to-b from-black/70 to-transparent";
+    ? "fixed top-3 left-1/2 -translate-x-1/2 w-[94%] max-w-[1600px] z-[1000] flex items-center px-6 rounded-2xl transition-all duration-500 ease-[cubic-bezier(0.25,0.8,0.25,1)] backdrop-blur-xl bg-[#0f171e]/85 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.1),0_8px_32px_rgba(0,0,0,0.5)] border border-white/5"
+    : "fixed top-0 left-0 w-full z-[1000] flex items-center px-6 rounded-none transition-all duration-500 ease-[cubic-bezier(0.25,0.8,0.25,1)] bg-transparent bg-gradient-to-b from-black/80 to-transparent border-transparent";
 
   return (
     <nav
       className={navClasses}
-      style={{ height: '60px', fontFamily: '"Amazon Ember", "Inter", "Segoe UI", sans-serif', gap: '28px' }}
+      style={{ height: '64px', fontFamily: '"Amazon Ember", "Inter", "Segoe UI", sans-serif', gap: '28px' }}
     >
       <Link to={isPrimeOnly ? "/" : "/everything"} className="text-[#ffffff] font-bold text-[21px] tracking-[-0.2px] no-underline leading-none drop-shadow-md">
         {theme.logoText}
@@ -442,7 +441,7 @@ const Navbar = ({ isPrimeOnly }) => {
       </div>
       <div className="ml-auto flex items-center gap-6">
         <div ref={searchRef} className="relative">
-          <form onSubmit={handleSearch} className={`px-3 py-1.5 rounded-md flex items-center group focus-within:border-white/30 transition-all w-[300px] md:w-[400px] ${isScrolled ? 'bg-[#19222b]/60 border border-white/10' : 'bg-[#19222b]/60 backdrop-blur-sm border border-white/10'}`}>
+          <form onSubmit={handleSearch} className={`px-3 py-1.5 rounded-md flex items-center group focus-within:border-white/30 transition-all w-[300px] md:w-[400px] ${isScrolled ? 'bg-[#19222b]/50 border border-white/10' : 'bg-[#19222b]/60 backdrop-blur-sm border border-white/20'}`}>
             <Search size={18} className="text-[#c7cbd1]" />
             <input className="bg-transparent border-none outline-none text-white text-sm font-medium ml-2 w-full placeholder-[#5a6069]" placeholder={isPrimeOnly ? "Search Prime..." : "Search Everything..."} value={query} onChange={(e) => setQuery(e.target.value)} onFocus={() => { if(query.length > 1) setShowSuggestions(true); }} />
             {query && <X size={16} className="text-[#c7cbd1] cursor-pointer hover:text-white" onClick={handleClear} />}
