@@ -325,7 +325,7 @@ const InfiniteScrollTrigger = ({ onIntersect }) => {
 
 // --- COMPONENTS ---
 
-// --- NAVBAR COMPONENT (51PX PADDING, ATTACHED FLOATING CURVE) ---
+// --- NAVBAR COMPONENT (1500px WIDTH, 66px HEIGHT, 51px PADDING) ---
 const Navbar = ({ isPrimeOnly }) => {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState({ text: [], visual: [] });
@@ -342,6 +342,7 @@ const Navbar = ({ isPrimeOnly }) => {
   // --- SCROLL LISTENER ---
   useEffect(() => {
     const handleScroll = () => {
+      // Threshold is 10px to trigger the effect
       if (window.scrollY > 10) {
         setIsScrolled(true);
       } else {
@@ -417,15 +418,15 @@ const Navbar = ({ isPrimeOnly }) => {
   };
 
   // --- DYNAMIC NAV CLASSES ---
-  // Updated padding to px-[51px]
+  // Scrolled State: Fixed Width (1500px), Fixed Height (66px), Padding (51px), Centered
   const navClasses = isScrolled
-    ? "fixed top-0 left-0 w-full z-[1000] flex items-center px-[51px] transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] backdrop-blur-xl bg-[#0f171e]/90 rounded-b-[24px] shadow-[0_20px_40px_-10px_rgba(0,0,0,0.6),inset_0_-1px_0_rgba(255,255,255,0.1)] border-b border-white/5"
-    : "fixed top-0 left-0 w-full z-[1000] flex items-center px-[51px] transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] bg-transparent bg-gradient-to-b from-black/80 to-transparent rounded-none border-transparent";
+    ? "fixed top-0 left-1/2 -translate-x-1/2 w-[1500px] h-[66px] z-[1000] flex items-center px-[51px] transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] backdrop-blur-xl bg-[#0f171e]/90 rounded-b-[24px] shadow-[0_20px_40px_-10px_rgba(0,0,0,0.6),inset_0_-1px_0_rgba(255,255,255,0.1)] border-b border-white/5"
+    : "fixed top-0 left-0 w-full h-[66px] z-[1000] flex items-center px-[51px] transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] bg-transparent bg-gradient-to-b from-black/80 to-transparent rounded-none border-transparent";
 
   return (
     <nav
       className={navClasses}
-      style={{ height: '64px', fontFamily: '"Amazon Ember", "Inter", "Segoe UI", sans-serif', gap: '28px' }}
+      style={{ fontFamily: '"Amazon Ember", "Inter", "Segoe UI", sans-serif', gap: '28px' }}
     >
       <Link to={isPrimeOnly ? "/" : "/everything"} className="text-[#ffffff] font-bold text-[21px] tracking-[-0.2px] no-underline leading-none drop-shadow-md">
         {theme.logoText}
