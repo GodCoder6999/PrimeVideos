@@ -1016,6 +1016,7 @@ const SearchResults = ({ isPrimeOnly }) => {
 };
 
 // --- MOVIE DETAIL COMPONENT (FULLY FUNCTIONAL) ---
+// --- MOVIE DETAIL COMPONENT (WITH CAST CIRCLES & SCROLL ARROWS) ---
 const MovieDetail = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
@@ -1036,18 +1037,19 @@ const MovieDetail = () => {
   const [isInWatchlist, setIsInWatchlist] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
   const [isDisliked, setIsDisliked] = useState(false);
-  const [toastMessage, setToastMessage] = useState(null); // For notifications
+  const [toastMessage, setToastMessage] = useState(null);
   
   // --- MODAL STATE ---
-  const [activeModal, setActiveModal] = useState(null); // 'download' | 'ways' | 'feedback' | 'help'
+  const [activeModal, setActiveModal] = useState(null);
   const [loadingDownloads, setLoadingDownloads] = useState(false);
   const [downloadLinks, setDownloadLinks] = useState([]);
 
+  // --- REFS ---
   const relatedTimeoutRef = useRef(null);
+  const relatedRowRef = useRef(null); // Ref for scrolling related items
 
   // --- INITIALIZATION ---
   useEffect(() => {
-    // Reset View
     window.scrollTo(0, 0);
     setShowVideo(false); 
     setTrailerKey(null); 
@@ -1062,7 +1064,6 @@ const MovieDetail = () => {
     setIsLiked(false);
     setIsDisliked(false);
 
-    // Fetch Data
     const fetchData = async () => {
       try {
         const [movieRes, creditsRes, videoRes, recsRes] = await Promise.all([
@@ -1086,7 +1087,8 @@ const MovieDetail = () => {
         }
 
         const recsData = await recsRes.json();
-        const validRecs = (recsData.results || []).filter(m => m.backdrop_path || m.poster_path).slice(0, 10);
+        // Filter out items without images
+        const validRecs = (recsData.results || []).filter(m => m.backdrop_path || m.poster_path).slice(0, 15);
         setRelatedMovies(validRecs);
       } catch (e) { console.error("Fetch Error:", e); }
     };
@@ -1145,7 +1147,6 @@ const MovieDetail = () => {
     navigate(`/search?q=${encodeURIComponent(name)}`);
   };
 
-  // Hover logic for related cards
   const handleRelatedHover = (id) => {
     if (relatedTimeoutRef.current) clearTimeout(relatedTimeoutRef.current);
     relatedTimeoutRef.current = setTimeout(() => setHoveredRelatedId(id), 400);
@@ -1153,6 +1154,14 @@ const MovieDetail = () => {
   const handleRelatedLeave = () => {
     if (relatedTimeoutRef.current) clearTimeout(relatedTimeoutRef.current);
     setHoveredRelatedId(null);
+  };
+
+  // --- SCROLL HANDLERS FOR RELATED SECTION ---
+  const slideRelatedLeft = () => {
+    if (relatedRowRef.current) relatedRowRef.current.scrollBy({ left: -800, behavior: 'smooth' });
+  };
+  const slideRelatedRight = () => {
+    if (relatedRowRef.current) relatedRowRef.current.scrollBy({ left: 800, behavior: 'smooth' });
   };
 
   if (!movie) return <div className="min-h-screen w-full bg-[#0f171e]" />;
@@ -1167,7 +1176,7 @@ const MovieDetail = () => {
   // Metadata
   const director = credits?.crew?.find(c => c.job === 'Director')?.name || "Unknown Director"; 
   const producers = credits?.crew?.filter(c => c.job === 'Producer').slice(0,3).map(c => c.name).join(", ") || "Producers N/A";
-  const castList = credits?.cast?.slice(0, 5) || [];
+  const castList = credits?.cast?.slice(0, 10) || []; // Get top 10 for visual list
   const runtime = movie.runtime ? `${Math.floor(movie.runtime/60)} h ${movie.runtime%60} min` : `${movie.number_of_seasons} Seasons`;
   const rating = movie.vote_average ? movie.vote_average.toFixed(1) : "N/A";
   const year = movie.release_date?.split('-')[0] || "2024";
@@ -1246,23 +1255,37 @@ const MovieDetail = () => {
          <div onClick={() => setActiveTab('details')} className={`pb-3 cursor-pointer transition border-b-[3px] ${activeTab === 'details' ? 'border-white text-white' : 'border-transparent text-gray-400 hover:text-white'}`}>Details</div>
       </div>
 
-      {/* --- TAB CONTENT: RELATED --- */}
+      {/* --- TAB CONTENT: RELATED (WITH SCROLL ARROWS) --- */}
       {activeTab === 'related' && (
-        <div className="relative z-30 pt-6 pb-6 animate-in fade-in slide-in-from-left-4"> 
+        <div className="relative z-30 pt-6 pb-6 animate-in fade-in slide-in-from-left-4 group/related"> 
           <h3 className="text-[18px] font-bold text-white mb-4 px-6 md:px-12">Customers also watched</h3>
-          <div className="row-container scrollbar-hide pl-6 md:pl-12 py-2">
-            {relatedMovies.length > 0 ? (
-              relatedMovies.map((m, index) => (
-                 <MovieCard key={m.id} movie={m} variant="standard" itemType={m.media_type || type} rank={null} isHovered={hoveredRelatedId === m.id} onHover={handleRelatedHover} onLeave={handleRelatedLeave} isPrimeOnly={true} isFirst={index === 0} isLast={index === relatedMovies.length - 1} />
-              ))
-            ) : (
-              <div className="text-gray-500 italic text-sm py-4 px-12">No related titles found.</div>
-            )}
+          
+          <div className="relative">
+             {/* Left Arrow */}
+             <button onClick={slideRelatedLeft} className="absolute left-0 top-0 h-full w-16 bg-gradient-to-r from-black/80 to-transparent z-[40] flex items-center justify-center opacity-0 group-hover/related:opacity-100 transition-opacity duration-300 cursor-pointer">
+                <ChevronLeft size={40} className="text-white hover:scale-125 transition-transform" />
+             </button>
+
+             {/* Row Container */}
+             <div ref={relatedRowRef} className="row-container scrollbar-hide pl-6 md:pl-12 py-2">
+                {relatedMovies.length > 0 ? (
+                  relatedMovies.map((m, index) => (
+                     <MovieCard key={m.id} movie={m} variant="standard" itemType={m.media_type || type} rank={null} isHovered={hoveredRelatedId === m.id} onHover={handleRelatedHover} onLeave={handleRelatedLeave} isPrimeOnly={true} isFirst={index === 0} isLast={index === relatedMovies.length - 1} />
+                  ))
+                ) : (
+                  <div className="text-gray-500 italic text-sm py-4 px-12">No related titles found.</div>
+                )}
+             </div>
+
+             {/* Right Arrow */}
+             <button onClick={slideRelatedRight} className="absolute right-0 top-0 h-full w-16 bg-gradient-to-l from-black/80 to-transparent z-[40] flex items-center justify-center opacity-0 group-hover/related:opacity-100 transition-opacity duration-300 cursor-pointer">
+                <ChevronRight size={40} className="text-white hover:scale-125 transition-transform" />
+             </button>
           </div>
         </div>
       )}
 
-      {/* --- TAB CONTENT: DETAILS --- */}
+      {/* --- TAB CONTENT: DETAILS (WITH CAST CIRCLES) --- */}
       {activeTab === 'details' && (
         <div className="px-6 md:px-12 py-8 grid grid-cols-1 lg:grid-cols-3 gap-12 border-t border-white/10 bg-[#0f171e] animate-in fade-in slide-in-from-right-4">
           <div className="lg:col-span-2">
@@ -1273,7 +1296,29 @@ const MovieDetail = () => {
                 <span>{year}</span><span className="text-gray-500">•</span>
                 <span>{runtime}</span>
              </div>
-             <p className="text-base leading-7 text-gray-300 mb-4">{movie.overview}</p>
+             <p className="text-base leading-7 text-gray-300 mb-8">{movie.overview}</p>
+
+             {/* --- CAST SECTION (VISUAL) --- */}
+             <div className="mb-8">
+               <h4 className="text-white font-bold mb-4">Cast & Crew</h4>
+               <div className="flex gap-6 overflow-x-auto scrollbar-hide pb-4">
+                  {castList.map(person => (
+                    <div key={person.id} onClick={() => handleSearchPerson(person.name)} className="flex flex-col items-center gap-2 cursor-pointer group min-w-[100px]">
+                       <div className="w-24 h-24 rounded-full overflow-hidden border-2 border-transparent group-hover:border-white transition-all bg-[#33373d]">
+                          {person.profile_path ? (
+                             <img src={`${IMAGE_BASE_URL}${person.profile_path}`} className="w-full h-full object-cover" alt={person.name} />
+                          ) : (
+                             <div className="w-full h-full flex items-center justify-center text-gray-500 text-xs">No Image</div>
+                          )}
+                       </div>
+                       <div className="text-center">
+                          <div className="text-sm text-gray-200 font-medium group-hover:text-[#00A8E1] transition-colors leading-tight">{person.name}</div>
+                          <div className="text-xs text-gray-500 mt-1 leading-tight">{person.character}</div>
+                       </div>
+                    </div>
+                  ))}
+               </div>
+             </div>
 
              <div className="border-t border-white/10 py-6">
                 <dl className="grid grid-cols-[150px_1fr] gap-y-4 text-sm">
@@ -1282,16 +1327,6 @@ const MovieDetail = () => {
 
                    <dt className="text-gray-400 font-medium">Producers</dt>
                    <dd className="text-[#00A8E1]">{producers}</dd>
-
-                   <dt className="text-gray-400 font-medium">Cast</dt>
-                   <dd className="text-[#00A8E1] leading-relaxed">
-                     {castList.map((c, i) => (
-                       <span key={c.id}>
-                         <span onClick={() => handleSearchPerson(c.name)} className="hover:underline cursor-pointer">{c.name}</span>
-                         {i < castList.length - 1 && ", "}
-                       </span>
-                     ))}
-                   </dd>
                    
                    <dt className="text-gray-400 font-medium">Studio</dt>
                    <dd className="text-gray-300">TMDB Studios, Viacom 18 Motion Pictures</dd>
