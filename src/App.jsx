@@ -336,8 +336,6 @@ const Navbar = ({ isPrimeOnly }) => {
   const dropdownRef = useRef(null);
   const theme = getTheme(isPrimeOnly);
 
-  // --- BROKEN CODE REMOVED FROM HERE ---
-
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) setMenuOpen(false);
@@ -440,6 +438,15 @@ const Navbar = ({ isPrimeOnly }) => {
             </div>
           )}
         </div>
+        
+        {/* --- WATCHLIST BUTTON (ADDED) --- */}
+        <Link to="/watchlist" className="relative group flex items-center justify-center">
+            <div className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#333c46] transition-colors cursor-pointer">
+               <Bookmark size={24} className="text-[#c7cbd1] group-hover:text-white transition-colors" />
+            </div>
+            <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap border border-white/10">Watchlist</span>
+        </Link>
+
         <div className="relative" ref={dropdownRef}>
           <div className={`w-9 h-9 rounded-full bg-[#3d464f] flex items-center justify-center border border-white/10 hover:border-white transition-all cursor-pointer`} onClick={() => setMenuOpen(!menuOpen)}><Grip size={20} className="text-[#c7cbd1]" /></div>
           {menuOpen && (
@@ -453,6 +460,99 @@ const Navbar = ({ isPrimeOnly }) => {
         <div className={`w-9 h-9 rounded-full ${theme.bg} flex items-center justify-center text-white font-bold text-sm cursor-pointer border border-white/10`}>U</div>
       </div>
     </nav>
+  );
+};
+
+// --- WATCHLIST PAGE COMPONENT ---
+const WatchlistPage = ({ isPrimeOnly }) => {
+  const [watchlistItems, setWatchlistItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const fetchWatchlist = async () => {
+      setLoading(true);
+      const savedList = JSON.parse(localStorage.getItem('watchlist')) || [];
+      
+      if (savedList.length === 0) {
+        setWatchlistItems([]);
+        setLoading(false);
+        return;
+      }
+
+      const promises = savedList.map(async (key) => {
+        // Key format: "type-id" (e.g., "movie-12345")
+        const [type, id] = key.split('-');
+        if (!type || !id) return null;
+        try {
+          const res = await fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}`);
+          const data = await res.json();
+          // Inject the type back into the object for the card component to use
+          return { ...data, media_type: type };
+        } catch (e) {
+          console.error("Failed to load watchlist item", e);
+          return null;
+        }
+      });
+
+      const results = await Promise.all(promises);
+      setWatchlistItems(results.filter(item => item !== null));
+      setLoading(false);
+    };
+
+    fetchWatchlist();
+  }, []);
+
+  return (
+    <div className="pt-10 px-6 md:px-12 min-h-screen pb-20">
+      <div className="flex items-center gap-3 mb-8">
+        <Bookmark className="text-[#00A8E1]" size={32} />
+        <h2 className="text-3xl font-bold text-white">Your Watchlist</h2>
+      </div>
+
+      {loading ? (
+        <div className="h-60 flex items-center justify-center">
+          <Loader className="animate-spin text-[#00A8E1]" size={40} />
+        </div>
+      ) : watchlistItems.length > 0 ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+          {watchlistItems.map((item) => (
+            <div 
+                key={item.id} 
+                onClick={() => navigate(`/detail/${item.media_type}/${item.id}`)}
+                className="relative group cursor-pointer transition-transform duration-300 hover:scale-105"
+            >
+                <div className="aspect-[2/3] rounded-lg overflow-hidden border border-white/10 group-hover:border-white/50 relative shadow-lg">
+                   {item.poster_path ? (
+                       <img src={`${IMAGE_BASE_URL}${item.poster_path}`} alt={item.title || item.name} className="w-full h-full object-cover" />
+                   ) : (
+                       <div className="w-full h-full bg-[#19222b] flex items-center justify-center text-gray-500">No Image</div>
+                   )}
+                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                       <Play fill="white" size={30} className="text-white drop-shadow-lg" />
+                   </div>
+                </div>
+                <div className="mt-3">
+                    <h4 className="text-white font-bold text-sm truncate">{item.title || item.name}</h4>
+                    <div className="text-xs text-gray-400 mt-1 flex items-center gap-2">
+                        <span className="uppercase border border-white/20 px-1 rounded text-[10px]">{item.media_type}</span>
+                        <span>{item.vote_average?.toFixed(1)} ★</span>
+                    </div>
+                </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="flex flex-col items-center justify-center h-[50vh] text-center">
+          <Bookmark size={64} className="text-gray-600 mb-4" />
+          <h3 className="text-xl font-bold text-gray-300 mb-2">Your watchlist is empty</h3>
+          <p className="text-gray-500 mb-6 max-w-md">Content you add to your watchlist will appear here.</p>
+          <button onClick={() => navigate('/')} className="px-6 py-3 bg-[#00A8E1] text-white font-bold rounded-md hover:bg-[#008ebf] transition">
+            Browse Movies
+          </button>
+        </div>
+      )}
+    </div>
   );
 };
 
@@ -1751,6 +1851,7 @@ function App() {
           <Route path="/watch/sport/iptv" element={<SportsPlayer />} />
           <Route path="/live" element={<><Navbar isPrimeOnly={true} /><SportsPage /></>} />
           <Route path="/store" element={<><Navbar isPrimeOnly={true} /><StorePage /></>} />
+          <Route path="/watchlist" element={<><Navbar isPrimeOnly={true} /><WatchlistPage isPrimeOnly={true} /></>} />
         </Routes>
       </div>
     </BrowserRouter>
