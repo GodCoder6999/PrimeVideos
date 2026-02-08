@@ -38,6 +38,7 @@ const useConnectionOptimizer = () => {
       "https://vidfast.pro",
       "https://zxcstream.xyz",
       "https://www.zxcstream.xyz",
+      "https://slime403heq.com", // Added new source
       "https://api.themoviedb.org",
       "https://image.tmdb.org",
       "https://iptv-org.github.io",
@@ -278,7 +279,7 @@ const useInfiniteRows = (type = 'movie', isPrimeOnly = true) => {
       topUrl = getBaseTopUrl('movie');
     } else {
       heroTitle = isPrimeOnly ? "Prime - Recommended" : "Trending Now";
-      heroUrl = getBaseHeroUrl('movie'); // Fallback to movie discover for reliable images in mixed mode
+      heroUrl = getBaseHeroUrl('movie');
       topUrl = getBaseTopUrl('movie');
     }
 
@@ -325,7 +326,7 @@ const InfiniteScrollTrigger = ({ onIntersect }) => {
 
 // --- COMPONENTS ---
 
-// --- NAVBAR COMPONENT (1500px WIDTH, 66px HEIGHT, 51px PADDING) ---
+// --- NAVBAR COMPONENT (Glitch-Free, Spaced, Floating Effect) ---
 const Navbar = ({ isPrimeOnly }) => {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState({ text: [], visual: [] });
@@ -339,20 +340,19 @@ const Navbar = ({ isPrimeOnly }) => {
   const dropdownRef = useRef(null);
   const theme = getTheme(isPrimeOnly);
 
-  // --- SCROLL LISTENER ---
+  // --- SCROLL LISTENER (Optimized) ---
   useEffect(() => {
     const handleScroll = () => {
-      // Threshold is 10px to trigger the effect
-      if (window.scrollY > 10) {
-        setIsScrolled(true);
-      } else {
-        setIsScrolled(false);
+      const scrolled = window.scrollY > 20;
+      if (isScrolled !== scrolled) {
+        setIsScrolled(scrolled);
       }
     };
-    window.addEventListener("scroll", handleScroll);
+    window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
+  }, [isScrolled]);
 
+  // --- CLICK OUTSIDE LISTENER ---
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) setMenuOpen(false);
@@ -362,6 +362,7 @@ const Navbar = ({ isPrimeOnly }) => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // --- SEARCH LOGIC ---
   useEffect(() => {
     const fetchSuggestions = async () => {
       if (query.trim().length < 2) {
@@ -412,79 +413,121 @@ const Navbar = ({ isPrimeOnly }) => {
   const getNavLinkClass = (path) => {
     const isActive = location.pathname === path;
     if (isActive) {
-      return "text-white font-bold bg-white/10 backdrop-blur-md border border-white/10 rounded-lg px-5 py-2 text-[15px] transition-all duration-300 ease-in-out shadow-[0_0_15px_rgba(0,168,225,0.4)]";
+      return "text-white font-bold bg-white/20 backdrop-blur-md rounded-[20px] px-5 py-2 text-[15px] transition-all duration-300 shadow-[0_0_15px_rgba(255,255,255,0.1)]";
     }
-    return "text-[#c7cbd1] font-medium text-[15px] hover:text-white hover:bg-white/5 hover:backdrop-blur-sm rounded-lg px-4 py-2 transition-all duration-300 ease-in-out cursor-pointer hover:shadow-[0_0_10px_rgba(255,255,255,0.1)]";
+    return "text-[#aaaaaa] font-bold text-[15px] hover:text-white px-4 py-2 transition-colors duration-300";
   };
 
   // --- DYNAMIC NAV CLASSES ---
-  // Scrolled State: Fixed Width (1500px), Fixed Height (66px), Padding (51px), Centered
-  const navClasses = isScrolled
-    ? "fixed top-0 left-1/2 -translate-x-1/2 w-[1500px] h-[66px] z-[1000] flex items-center px-[51px] transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] backdrop-blur-xl bg-[#0f171e]/90 rounded-b-[24px] shadow-[0_20px_40px_-10px_rgba(0,0,0,0.6),inset_0_-1px_0_rgba(255,255,255,0.1)] border-b border-white/5"
-    : "fixed top-0 left-0 w-full h-[66px] z-[1000] flex items-center px-[51px] transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] bg-transparent bg-gradient-to-b from-black/80 to-transparent rounded-none border-transparent";
+  // Glitch Fix: Added 'will-change-transform' and consistent flex behavior
+  const navContainerClass = isScrolled
+    ? "fixed top-0 left-1/2 -translate-x-1/2 w-[1521px] max-w-[95%] h-[66px] z-[1000] rounded-b-[16px] backdrop-blur-xl bg-[#0f171e]/95 shadow-[0_4px_30px_rgba(0,0,0,0.5),inset_0_-1px_0_rgba(255,255,255,0.1)] border-b border-white/5 transition-all duration-500 ease-[cubic-bezier(0.25,0.8,0.25,1)]"
+    : "fixed top-0 left-1/2 -translate-x-1/2 w-full h-[66px] z-[1000] bg-gradient-to-b from-black/90 to-transparent transition-all duration-500 ease-[cubic-bezier(0.25,0.8,0.25,1)]";
 
   return (
-    <nav
-      className={navClasses}
-      style={{ fontFamily: '"Amazon Ember", "Inter", "Segoe UI", sans-serif', gap: '28px' }}
-    >
-      <Link to={isPrimeOnly ? "/" : "/everything"} className="text-[#ffffff] font-bold text-[21px] tracking-[-0.2px] no-underline leading-none drop-shadow-md">
-        {theme.logoText}
-      </Link>
-      <div className="flex items-center gap-[6px]">
-        <Link to={isPrimeOnly ? "/" : "/everything"} className={getNavLinkClass(isPrimeOnly ? "/" : "/everything")}>Home</Link>
-        <Link to={isPrimeOnly ? "/movies" : "/everything/movies"} className={getNavLinkClass(isPrimeOnly ? "/movies" : "/everything/movies")}>Movies</Link>
-        <Link to={isPrimeOnly ? "/tv" : "/everything/tv"} className={getNavLinkClass(isPrimeOnly ? "/tv" : "/everything/tv")}>TV Shows</Link>
-        <Link to="/sports" className={`${getNavLinkClass("/sports")} flex items-center gap-2`}>
-          <Trophy size={16} className={location.pathname === "/sports" ? "text-[#00A8E1]" : "opacity-80"} />Live TV
-        </Link>
-      </div>
-      <div className="ml-auto flex items-center gap-6">
-        <div ref={searchRef} className="relative">
-          <form onSubmit={handleSearch} className={`px-3 py-1.5 rounded-md flex items-center group focus-within:border-white/30 transition-all w-[300px] md:w-[400px] ${isScrolled ? 'bg-[#19222b]/50 border border-white/10' : 'bg-[#19222b]/60 backdrop-blur-sm border border-white/20'}`}>
-            <Search size={18} className="text-[#c7cbd1]" />
-            <input className="bg-transparent border-none outline-none text-white text-sm font-medium ml-2 w-full placeholder-[#5a6069]" placeholder={isPrimeOnly ? "Search Prime..." : "Search Everything..."} value={query} onChange={(e) => setQuery(e.target.value)} onFocus={() => { if(query.length > 1) setShowSuggestions(true); }} />
-            {query && <X size={16} className="text-[#c7cbd1] cursor-pointer hover:text-white" onClick={handleClear} />}
-          </form>
-          {showSuggestions && (suggestions.text.length > 0 || suggestions.visual.length > 0) && (
-            <div className="absolute top-12 right-0 w-full bg-[#19222b]/95 backdrop-blur-xl border border-gray-700 rounded-lg shadow-2xl overflow-hidden animate-in z-[160]">
-              {suggestions.text.map((text, idx) => ( <div key={idx} onClick={() => { setQuery(text); handleSearch({preventDefault:()=>{}}); }} className="px-4 py-2 text-sm text-gray-300 hover:bg-[#333c46] hover:text-white cursor-pointer flex items-center gap-2 border-b border-white/5 last:border-0"><Search size={14} /> {text}</div> ))}
-              {suggestions.visual.length > 0 && ( <div className="px-4 pt-3 pb-2 text-[11px] font-bold text-gray-500 uppercase tracking-wider">Top Results</div> )}
-              <div className="flex gap-3 p-3 overflow-x-auto scrollbar-hide bg-[#00050D]/50">
-                {suggestions.visual.map((item) => (
-                  <div key={item.id} onClick={() => { setShowSuggestions(false); navigate(`/detail/${item.media_type}/${item.id}`); }} className="w-[100px] flex-shrink-0 cursor-pointer group">
-                    <div className="aspect-video rounded-md overflow-hidden bg-gray-800 relative"><img src={`${IMAGE_BASE_URL}${item.backdrop_path || item.poster_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" /></div>
-                    <div className="text-[11px] font-bold text-gray-400 mt-1 truncate group-hover:text-white">{item.title || item.name}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+    <nav className={navContainerClass} style={{ fontFamily: '"Amazon Ember", "Inter", sans-serif' }}>
+      {/* Inner Content with INCREASED Padding (px-16 = 64px) */}
+      <div className="w-full h-full flex items-center justify-between px-16">
         
-        {/* --- WATCHLIST BUTTON --- */}
-        <Link to="/watchlist" className="relative group flex items-center justify-center">
-            <div className={`w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer border ${isScrolled ? 'border-transparent' : 'border-transparent'} hover:border-white/10`}>
-               <Bookmark size={24} className="text-[#c7cbd1] group-hover:text-white transition-colors" />
-            </div>
-            <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap border border-white/10">Watchlist</span>
-        </Link>
+        {/* LEFT SECTION */}
+        <div className="flex items-center gap-8">
+          <Link to={isPrimeOnly ? "/" : "/everything"} className="text-[#ffffff] font-bold text-[22px] tracking-tight no-underline leading-none hover:text-[#00A8E1] transition-colors">
+            {theme.logoText}
+          </Link>
 
-        <div className="relative" ref={dropdownRef}>
-          <div className={`w-9 h-9 rounded-full bg-[#3d464f]/80 backdrop-blur-sm flex items-center justify-center border border-white/10 hover:border-white transition-all cursor-pointer`} onClick={() => setMenuOpen(!menuOpen)}><Grip size={20} className="text-[#c7cbd1]" /></div>
-          {menuOpen && (
-            <div className="absolute right-0 top-12 w-64 bg-[#19222b]/95 backdrop-blur-xl border border-gray-700 rounded-lg shadow-2xl p-2 z-[150] animate-in">
-              <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2 pt-2">Switch Mode</div>
-              <Link to="/" onClick={() => setMenuOpen(false)} className={`flex items-center gap-3 p-3 rounded-md transition-colors ${isPrimeOnly ? 'bg-[#00A8E1] text-white' : 'hover:bg-[#333c46] text-gray-300'}`}><CheckCircle2 size={18} className={isPrimeOnly ? "text-white" : "opacity-0"} /><div><div className="font-bold">Prime Video</div><div className="text-[10px] opacity-80">Included with Prime only</div></div></Link>
-              <Link to="/everything" onClick={() => setMenuOpen(false)} className={`flex items-center gap-3 p-3 rounded-md transition-colors ${!isPrimeOnly ? 'bg-[#E50914] text-white' : 'hover:bg-[#333c46] text-gray-300'}`}><CheckCircle2 size={18} className={!isPrimeOnly ? "text-white" : "opacity-0"} /><div><div className="font-bold">Literally Everything!</div><div className="text-[10px] opacity-80">All streaming services</div></div></Link>
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            <Link to={isPrimeOnly ? "/" : "/everything"} className={getNavLinkClass(isPrimeOnly ? "/" : "/everything")}>Home</Link>
+            <Link to={isPrimeOnly ? "/movies" : "/everything/movies"} className={getNavLinkClass(isPrimeOnly ? "/movies" : "/everything/movies")}>Movies</Link>
+            <Link to={isPrimeOnly ? "/tv" : "/everything/tv"} className={getNavLinkClass(isPrimeOnly ? "/tv" : "/everything/tv")}>TV shows</Link>
+            <Link to="/sports" className={getNavLinkClass("/sports")}>Live TV</Link>
+            
+            {/* Vertical Separator */}
+            <div className="w-[1px] h-5 bg-gray-600 mx-3"></div>
+
+            <Link to="/subscriptions" className="text-[#aaaaaa] font-bold text-[15px] hover:text-white px-2 flex items-center gap-2 transition-colors">
+               <Grip size={18} className="rotate-45" /> Subscriptions
+            </Link>
+            <Link to="/store" className="text-[#aaaaaa] font-bold text-[15px] hover:text-white px-2 flex items-center gap-2 transition-colors">
+               <Monitor size={18} /> Store
+            </Link>
+          </div>
         </div>
-        <div className={`w-9 h-9 rounded-full ${theme.bg} flex items-center justify-center text-white font-bold text-sm cursor-pointer border border-white/10 shadow-lg`}>U</div>
+
+        {/* RIGHT SECTION */}
+        <div className="flex items-center gap-6">
+          
+          {/* 1. Search Icon (Expandable) */}
+          <div ref={searchRef} className="relative group">
+            <div className={`flex items-center ${query ? 'bg-[#19222b] border border-white/20 w-[260px]' : 'w-auto'} transition-all duration-300 rounded-[4px]`}>
+               {query ? (
+                  <>
+                    <Search size={20} className="text-[#c7cbd1] ml-2" />
+                    <form onSubmit={handleSearch} className="flex-1">
+                      <input 
+                        className="bg-transparent border-none outline-none text-white text-[15px] font-medium px-2 w-full h-9 placeholder-[#5a6069]" 
+                        placeholder="Search..." 
+                        value={query} 
+                        onChange={(e) => setQuery(e.target.value)} 
+                        autoFocus
+                      />
+                    </form>
+                    <X size={18} className="text-[#c7cbd1] mr-2 cursor-pointer" onClick={handleClear} />
+                  </>
+               ) : (
+                  <Search size={24} className="text-[#aaaaaa] hover:text-white cursor-pointer transition-colors" onClick={() => setQuery(" ")} />
+               )}
+            </div>
+
+            {/* Suggestions Dropdown */}
+            {showSuggestions && (suggestions.text.length > 0 || suggestions.visual.length > 0) && (
+              <div className="absolute top-12 right-0 w-[300px] bg-[#19222b] border border-gray-700 rounded-lg shadow-2xl overflow-hidden z-[160]">
+                 {suggestions.text.map((text, idx) => (<div key={idx} onClick={() => { setQuery(text); handleSearch({preventDefault:()=>{}}); }} className="px-4 py-2 text-sm text-gray-300 hover:bg-[#333c46] cursor-pointer flex items-center gap-2"><Search size={14} /> {text}</div>))}
+                 <div className="flex gap-2 p-2 overflow-x-auto scrollbar-hide bg-[#00050D]/50">
+                    {suggestions.visual.map((item) => (
+                      <div key={item.id} onClick={() => { setShowSuggestions(false); navigate(`/detail/${item.media_type}/${item.id}`); }} className="w-[80px] flex-shrink-0 cursor-pointer"><img src={`${IMAGE_BASE_URL}${item.poster_path}`} className="rounded-sm opacity-80 hover:opacity-100" alt="" /></div>
+                    ))}
+                 </div>
+              </div>
+            )}
+          </div>
+
+          {/* 2. Grid/Menu Icon */}
+          <div className="relative" ref={dropdownRef}>
+            <div className="cursor-pointer" onClick={() => setMenuOpen(!menuOpen)}>
+              <Grip size={24} className="text-[#aaaaaa] hover:text-white transition-colors" />
+            </div>
+            {menuOpen && (
+              <div className="absolute right-0 top-10 w-56 bg-[#19222b] border border-gray-700 rounded-lg shadow-2xl p-2 z-[150] animate-in fade-in">
+                 <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2 pt-2">Switch Mode</div>
+                 <Link to="/" onClick={() => setMenuOpen(false)} className={`flex items-center gap-3 p-3 rounded-md transition-colors ${isPrimeOnly ? 'bg-[#00A8E1] text-white' : 'hover:bg-[#333c46] text-gray-300'}`}><CheckCircle2 size={18} className={isPrimeOnly ? "text-white" : "opacity-0"} /><div><div className="font-bold">Prime Video</div><div className="text-[10px] opacity-80">Included with Prime only</div></div></Link>
+                 <Link to="/everything" onClick={() => setMenuOpen(false)} className={`flex items-center gap-3 p-3 rounded-md transition-colors ${!isPrimeOnly ? 'bg-[#E50914] text-white' : 'hover:bg-[#333c46] text-gray-300'}`}><CheckCircle2 size={18} className={!isPrimeOnly ? "text-white" : "opacity-0"} /><div><div className="font-bold">Literally Everything!</div><div className="text-[10px] opacity-80">All streaming services</div></div></Link>
+              </div>
+            )}
+          </div>
+
+          {/* 3. Watchlist (Bookmark) */}
+          <Link to="/watchlist">
+            <Bookmark size={24} className="text-[#aaaaaa] hover:text-white transition-colors" />
+          </Link>
+
+          {/* 4. User Profile */}
+          <div className="w-9 h-9 rounded-full bg-[#232f3e] flex items-center justify-center cursor-pointer border border-transparent hover:border-white/50 transition-all overflow-hidden relative">
+             <div className="absolute inset-0 bg-gradient-to-tr from-[#1A92B6] to-[#6DD5FA] opacity-80"></div>
+             <div className="relative z-10 w-3 h-3 bg-white rounded-full mb-1"></div>
+             <div className="absolute bottom-0 w-6 h-3 bg-white rounded-t-full z-10"></div>
+          </div>
+
+          {/* 5. Join Prime Button */}
+          <button className="bg-[#007185] hover:bg-[#006476] text-white text-[15px] font-bold px-4 py-2 rounded-[4px] transition-colors shadow-sm">
+            Join Prime
+          </button>
+
+        </div>
       </div>
     </nav>
   );
 };
+
 // --- WATCHLIST PAGE COMPONENT ---
 const WatchlistPage = ({ isPrimeOnly }) => {
   const [watchlistItems, setWatchlistItems] = useState([]);
@@ -526,7 +569,7 @@ const WatchlistPage = ({ isPrimeOnly }) => {
   }, []);
 
   return (
-    <div className="pt-10 px-6 md:px-12 min-h-screen pb-20">
+    <div className="pt-28 px-6 md:px-12 min-h-screen pb-20">
       <div className="flex items-center gap-3 mb-8">
         <Bookmark className="text-[#00A8E1]" size={32} />
         <h2 className="text-3xl font-bold text-white">Your Watchlist</h2>
@@ -578,17 +621,224 @@ const WatchlistPage = ({ isPrimeOnly }) => {
   );
 };
 
+// --- PLAYER COMPONENT (WITH BOLLYWOOD/INDIAN SERVER SUPPORT) ---
+const Player = () => {
+  const { type, id } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // --- STATE ---
+  const [activeServer, setActiveServer] = useState('vidfast'); 
+  const [isIndian, setIsIndian] = useState(false); // Track if content is Indian
+  const [imdbId, setImdbId] = useState(null); // Required for Slime player
+  
+  // Episode & Season State
+  const queryParams = new URLSearchParams(location.search);
+  const [season, setSeason] = useState(Number(queryParams.get('season')) || 1);
+  const [episode, setEpisode] = useState(Number(queryParams.get('episode')) || 1);
+  const [showEpisodes, setShowEpisodes] = useState(false);
+  const [seasonData, setSeasonData] = useState(null);
+  const [totalSeasons, setTotalSeasons] = useState(1);
+
+  // --- 1. FETCH METADATA & LANGUAGE DETECTION ---
+  useEffect(() => {
+    const fetchDetails = async () => {
+      try {
+        // Append external_ids to get IMDB ID in one go
+        const res = await fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`);
+        const data = await res.json();
+        
+        // 1. Get IMDB ID
+        // For movies, it's often at root level or inside external_ids
+        const foundImdbId = data.imdb_id || data.external_ids?.imdb_id;
+        setImdbId(foundImdbId);
+
+        // 2. Check for Indian Languages (Hindi, Bengali, Tamil, Telugu, etc)
+        const indianLanguages = ['hi', 'bn', 'ta', 'te', 'ml', 'kn', 'mr', 'pa', 'gu'];
+        const isIndianContent = indianLanguages.includes(data.original_language);
+        setIsIndian(isIndianContent);
+
+        // 3. Auto-Switch Server Logic
+        if (isIndianContent) {
+          setActiveServer('slime'); // Switch to new Bollywood server
+        } else {
+          setActiveServer('vidfast'); // Default for others
+        }
+
+        // 4. Set Total Seasons (TV Only)
+        if (type === 'tv' && data.number_of_seasons) {
+          setTotalSeasons(data.number_of_seasons);
+        }
+      } catch (e) {
+        console.error("Error fetching details:", e);
+      }
+    };
+    fetchDetails();
+  }, [type, id]);
+
+  // --- 2. FETCH SEASONS (TV ONLY) ---
+  useEffect(() => {
+    if (type === 'tv') {
+      fetch(`${BASE_URL}/tv/${id}/season/${season}?api_key=${TMDB_API_KEY}`)
+        .then(res => res.json())
+        .then(data => setSeasonData(data));
+    }
+  }, [type, id, season]);
+
+  // --- 3. SOURCE GENERATOR ---
+  const getSourceUrl = () => {
+    // A. Slime (Bollywood/Indian) - Uses IMDb ID
+    if (activeServer === 'slime') {
+      const targetId = imdbId || id; // Fallback to TMDB ID if IMDb missing
+      if (type === 'tv') {
+         // Assuming standard query param format for TV on this player
+         return `https://slime403heq.com/play/${targetId}?season=${season}&episode=${episode}`;
+      } else {
+         return `https://slime403heq.com/play/${targetId}`;
+      }
+    }
+    
+    // B. VidRock (Bengali Fallback / Older Logic)
+    if (activeServer === 'vidrock') {
+      const identifier = imdbId || id;
+      if (type === 'tv') {
+        return `https://vidrock.net/tv/${identifier}/${season}/${episode}`;
+      } else {
+        return `https://vidrock.net/movie/${identifier}`;
+      }
+    }
+
+    // C. VidFast (Standard Global)
+    if (activeServer === 'vidfast') {
+      const themeParam = "theme=00A8E1";
+      if (type === 'tv') {
+        return `${VIDFAST_BASE}/tv/${id}/${season}/${episode}?autoPlay=true&${themeParam}&nextButton=true&autoNext=true`;
+      } else {
+        return `${VIDFAST_BASE}/movie/${id}?autoPlay=true&${themeParam}`;
+      }
+    }
+
+    // D. Multi-Audio (Zxcstream)
+    else {
+      if (type === 'tv') {
+        return `https://www.zxcstream.xyz/player/tv/${id}/${season}/${episode}?autoplay=false&back=true&server=0`;
+      } else {
+        return `https://www.zxcstream.xyz/player/movie/${id}?autoplay=false&back=true&server=0`;
+      }
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black z-[100] overflow-hidden flex flex-col" style={{ transform: 'translateZ(0)' }}>
+      {/* TOP CONTROLS LAYER */}
+      <div className="absolute top-0 left-0 w-full h-20 pointer-events-none z-[120] flex items-center justify-between px-6">
+        <button
+          onClick={() => navigate(-1)}
+          className="pointer-events-auto bg-black/50 hover:bg-[#00A8E1] text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all shadow-lg group"
+        >
+          <ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" />
+        </button>
+
+        {/* SERVER SWITCHER */}
+        <div className="pointer-events-auto flex flex-col items-center gap-1 bg-black/60 backdrop-blur-md border border-white/10 p-1.5 rounded-xl shadow-2xl transform translate-y-2">
+          <div className="flex bg-[#19222b] rounded-lg p-1 gap-1">
+            
+            {/* NEW BOLLYWOOD SERVER BUTTON */}
+            <button
+              onClick={() => setActiveServer('slime')}
+              className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${activeServer === 'slime' ? 'bg-[#E50914] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
+            >
+              {isIndian && <CheckCircle2 size={12} />} Bollywood / Indian
+            </button>
+
+            <button
+              onClick={() => setActiveServer('vidfast')}
+              className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'vidfast' ? 'bg-[#00A8E1] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
+            >
+              VidFast
+            </button>
+            
+            <button
+              onClick={() => setActiveServer('zxcstream')}
+              className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'zxcstream' ? 'bg-[#00A8E1] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
+            >
+              Multi-Audio
+            </button>
+          </div>
+          {activeServer === 'zxcstream' && (
+            <div className="text-[10px] text-[#00A8E1] font-bold animate-pulse">Select Audio Language in Player Settings</div>
+          )}
+        </div>
+
+        {/* EPISODE LIST TOGGLE (For TV) */}
+        {type === 'tv' ? (
+          <button
+            onClick={() => setShowEpisodes(!showEpisodes)}
+            className={`pointer-events-auto p-3 rounded-full backdrop-blur-md border border-white/10 transition-all ${showEpisodes ? 'bg-[#00A8E1] text-white' : 'bg-black/50 hover:bg-[#333c46] text-gray-200'}`}
+          >
+            <List size={24} />
+          </button>
+        ) : (
+          <div className="w-12"></div>
+        )}
+      </div>
+
+      {/* PLAYER FRAME */}
+      <div className="flex-1 relative w-full h-full bg-black">
+        <iframe
+          key={activeServer + season + episode}
+          src={getSourceUrl()}
+          className="w-full h-full border-none"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+          loading="eager"
+          fetchPriority="high"
+          referrerPolicy="origin"
+          allowFullScreen
+          title="Player"
+        ></iframe>
+      </div>
+
+      {/* EPISODE SIDEBAR (TV Only) */}
+      {type === 'tv' && (
+        <div className={`fixed right-0 top-0 h-full bg-[#00050D]/95 backdrop-blur-xl border-l border-white/10 transition-all duration-500 ease-in-out z-[110] flex flex-col ${showEpisodes ? 'w-[350px] translate-x-0 shadow-2xl' : 'w-[350px] translate-x-full shadow-none'}`}>
+          <div className="pt-24 px-6 pb-4 border-b border-white/10 flex items-center justify-between bg-[#1a242f]/50">
+            <h2 className="font-bold text-white text-lg">Episodes</h2>
+            <div className="relative">
+              <select value={season} onChange={(e) => setSeason(Number(e.target.value))} className="appearance-none bg-[#00A8E1] text-white font-bold py-1.5 pl-3 pr-8 rounded cursor-pointer text-sm outline-none hover:bg-[#008ebf] transition">
+                {Array.from({length: totalSeasons}, (_, i) => i + 1).map(s => (<option key={s} value={s} className="bg-[#1a242f]">Season {s}</option>))}
+              </select>
+              <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-white pointer-events-none" />
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-hide">
+            {seasonData?.episodes ? (seasonData.episodes.map(ep => (
+              <div key={ep.id} onClick={() => setEpisode(ep.episode_number)} className={`flex gap-3 p-2 rounded-lg cursor-pointer transition-all group ${episode === ep.episode_number ? 'bg-[#333c46] border border-[#00A8E1]' : 'hover:bg-[#333c46] border border-transparent'}`}>
+                <div className="relative w-28 h-16 flex-shrink-0 bg-black rounded overflow-hidden">
+                  {ep.still_path ? (<img src={`${IMAGE_BASE_URL}${ep.still_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" />) : (<div className="w-full h-full flex items-center justify-center text-gray-600 text-xs">No Img</div>)}
+                  {episode === ep.episode_number && (<div className="absolute inset-0 bg-black/40 flex items-center justify-center"><Play size={16} fill="white" className="text-white" /></div>)}
+                </div>
+                <div className="flex flex-col justify-center min-w-0">
+                  <span className={`text-xs font-bold mb-0.5 ${episode === ep.episode_number ? 'text-[#00A8E1]' : 'text-gray-400'}`}>Episode {ep.episode_number}</span>
+                  <h4 className={`text-sm font-medium truncate leading-tight ${episode === ep.episode_number ? 'text-white' : 'text-gray-300 group-hover:text-white'}`}>{ep.name}</h4>
+                </div>
+              </div>
+            ))) : (<div className="text-center text-gray-500 mt-10 flex flex-col items-center"><Loader className="animate-spin mb-2" /><span>Loading Season {season}...</span></div>)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // --- SPORTS / LIVE TV COMPONENTS ---
 const SportsPage = () => {
   const [channels, setChannels] = useState([]);
   const [displayedChannels, setDisplayedChannels] = useState([]);
-  // --- MANUAL STREAM CONFIGURATION ---
   const SPECIAL_STREAM = {
     name: "ICC T20 WC Live (Bengali)",
     logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR-sN5te7jsC9YTazKRH6RgQCxTAqs60oWZMw&s",
     group: "Cricket",
     parentGroup: "Sports",
-    // ADDED PROXY HERE
     url: "https://corsproxy.io/?" + encodeURIComponent("https://live15p.hotstar.com/hls/live/2116748/inallow-icct20wc-2026/ben/1540062322/15mindvrm0118ba48ab59034e4b9dbc9285e29e083507february2026/master_apmf_360_1.m3u8")
   };
 
@@ -656,7 +906,6 @@ const SportsPage = () => {
         const parsed = [];
         let current = {};
 
-        // --- 1. INJECT YOUR MANUAL STREAM FIRST ---
         parsed.push(SPECIAL_STREAM);
 
         for (let i = 0; i < lines.length; i++) {
@@ -689,7 +938,6 @@ const SportsPage = () => {
       })
       .catch(e => {
         console.error("Playlist Error:", e);
-        // Even if playlist fails, show your manual stream
         setChannels([SPECIAL_STREAM]);
         setLoading(false);
       });
@@ -906,865 +1154,7 @@ const SportsPage = () => {
     </div>
   );
 };
-const SportsPlayer = () => {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const videoRef = useRef(null);
-  const { streamUrl, title, logo, group } = location.state || {};
-  const [isMuted, setIsMuted] = useState(false);
 
-  useEffect(() => {
-    if (!streamUrl) return;
-    let hls;
-    if (Hls && Hls.isSupported()) {
-      hls = new Hls(); hls.loadSource(streamUrl); hls.attachMedia(videoRef.current);
-      hls.on(Hls.Events.MANIFEST_PARSED, () => { videoRef.current.play().catch(e => console.log("Auto-play prevented", e)); });
-    } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-      videoRef.current.src = streamUrl; videoRef.current.addEventListener('loadedmetadata', () => { videoRef.current.play(); });
-    }
-    return () => { if (hls) hls.destroy(); };
-  }, [streamUrl]);
-
-  if (!streamUrl) return <div className="text-white pt-20 text-center">No stream selected. <button onClick={() => navigate(-1)} className="text-[#00A8E1] ml-2 hover:underline">Go Back</button></div>;
-
-  return (
-    <div className="fixed inset-0 bg-[#0f171e] z-[200] flex flex-col">
-      <div className="absolute top-0 left-0 w-full h-24 bg-gradient-to-b from-black/80 to-transparent z-50 flex items-center px-6 justify-between pointer-events-none">
-        <div className="flex items-center gap-4 pointer-events-auto">
-          <button onClick={() => navigate(-1)} className="w-12 h-12 rounded-full bg-black/40 hover:bg-[#00A8E1] backdrop-blur-md flex items-center justify-center text-white transition border border-white/10 group"><ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" /></button>
-          <div>
-            <div className="flex items-center gap-3">{logo && <img src={logo} className="h-8 w-auto object-contain bg-white/10 rounded px-1" alt="" onError={(e) => e.target.style.display = 'none'} />}<h1 className="text-white font-bold text-xl leading-tight drop-shadow-md">{title || "Live Stream"}</h1></div>
-            <div className="flex items-center gap-2 mt-1"><span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_red]"></span><span className="text-[#00A8E1] text-xs font-bold tracking-widest uppercase">{group || "LIVE BROADCAST"}</span></div>
-          </div>
-        </div>
-        <div className="pointer-events-auto"><button onClick={() => { setIsMuted(!isMuted); videoRef.current.muted = !isMuted; }} className="w-12 h-12 rounded-full bg-black/40 hover:bg-white/20 backdrop-blur-md flex items-center justify-center text-white transition border border-white/10 hover:shadow-[0_0_15px_rgba(255,255,255,0.2)]">{isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}</button></div>
-      </div>
-      <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden group">
-        <video ref={videoRef} className="w-full h-full object-contain" controls autoPlay playsInline preload="auto"></video>
-        <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-black/90 to-transparent pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end px-8 pb-8"><div className="text-white/80 text-sm font-medium">Streaming via secure HLS protocol • {new Date().toLocaleTimeString()}</div></div>
-      </div>
-    </div>
-  );
-};
-
-const Hero = ({ isPrimeOnly }) => {
-  const [movies, setMovies] = useState([]);
-  const [currentSlide, setCurrentSlide] = useState(0);
-  const [trailerKey, setTrailerKey] = useState(null);
-  const [showVideo, setShowVideo] = useState(false);
-  const [isMuted, setIsMuted] = useState(true);
-  const playTimeout = useRef(null);
-  const stopTimeout = useRef(null);
-  const isHovering = useRef(false);
-  const navigate = useNavigate();
-  const theme = getTheme(isPrimeOnly);
-
-  useEffect(() => {
-    const endpoint = isPrimeOnly
-      ? `/discover/movie?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc`
-      : `/trending/all/day?api_key=${TMDB_API_KEY}`;
-    fetch(`${BASE_URL}${endpoint}`).then(res => res.json()).then(data => setMovies(data.results.slice(0, 5)));
-  }, [isPrimeOnly]);
-
-  useEffect(() => {
-    if (movies.length === 0) return;
-    setShowVideo(false); setTrailerKey(null); clearTimeout(playTimeout.current); clearTimeout(stopTimeout.current);
-    const movie = movies[currentSlide];
-    const mediaType = movie.media_type || 'movie';
-    fetch(`${BASE_URL}/${mediaType}/${movie.id}/videos?api_key=${TMDB_API_KEY}`).then(res => res.json()).then(data => {
-      const trailer = data.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube') || data.results?.find(v => v.site === 'YouTube');
-      if (trailer) { setTrailerKey(trailer.key); if (isHovering.current) { playTimeout.current = setTimeout(() => setShowVideo(true), 4000); } }
-    });
-  }, [currentSlide, movies]);
-
-  const handleMouseEnter = () => { isHovering.current = true; clearTimeout(stopTimeout.current); clearTimeout(playTimeout.current); playTimeout.current = setTimeout(() => setShowVideo(true), 4000); };
-  const handleMouseLeave = () => { isHovering.current = false; clearTimeout(playTimeout.current); clearTimeout(stopTimeout.current); stopTimeout.current = setTimeout(() => setShowVideo(false), 1000); };
-  const nextSlide = () => setCurrentSlide((prev) => (prev + 1) % movies.length);
-  const prevSlide = () => setCurrentSlide((prev) => (prev - 1 + movies.length) % movies.length);
-
-  if (movies.length === 0) return <div className="h-[85vh] w-full bg-[#00050D]" />;
-  const movie = movies[currentSlide];
-
-  return (
-    <div className="relative w-full h-[85vh] overflow-hidden group" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
-      <div className={`absolute inset-0 transition-opacity duration-700 ${showVideo ? 'opacity-0' : 'opacity-100'}`}><img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover" alt="" /></div>
-      {/* --- FIXED YOUTUBE EMBED --- */}
-      {showVideo && trailerKey && (
-        <div className="absolute inset-0 animate-in pointer-events-none">
-          <iframe 
-            src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&enablejsapi=1&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} 
-            className="w-full h-full scale-[1.3]" 
-            allow="autoplay; encrypted-media" 
-            frameBorder="0" 
-            referrerPolicy="strict-origin-when-cross-origin"
-            title="Hero Trailer"
-          ></iframe>
-        </div>
-      )}
-      <div className="absolute inset-0 bg-gradient-to-r from-[#00050D] via-[#00050D]/40 to-transparent" /><div className="absolute inset-0 bg-gradient-to-t from-[#00050D] via-transparent to-transparent" />
-      <div className="absolute top-[25%] left-[4%] max-w-[600px] z-30 animate-row-enter">
-        <h1 className="text-5xl md:text-7xl font-extrabold text-white mb-4 drop-shadow-[0_4px_10px_rgba(0,0,0,0.8)] tracking-tight leading-tight">{movie.title || movie.name}</h1>
-        <div className="flex items-center gap-3 text-[#a9b7c1] font-bold text-sm mb-6">{isPrimeOnly && <span className={`${theme.color} tracking-wide`}>Included with Prime</span>}<span className="bg-[#33373d]/80 text-white px-1.5 py-0.5 rounded text-xs border border-gray-600 backdrop-blur-md">UHD</span><span className="bg-[#33373d]/80 text-white px-1.5 py-0.5 rounded text-xs border border-gray-600 backdrop-blur-md">16+</span></div>
-        <p className="text-lg text-white font-medium line-clamp-3 mb-8 opacity-90 drop-shadow-md text-shadow-sm">{movie.overview}</p>
-        <div className="flex items-center gap-4">
-          <button onClick={() => navigate(`/watch/${movie.media_type || 'movie'}/${movie.id}`)} className={`${theme.bg} ${theme.hoverBg} text-white h-14 pl-8 pr-8 rounded-md font-bold text-lg flex items-center gap-3 transition transform hover:scale-105 ${theme.shadow}`}><Play fill="white" size={24} /> {isPrimeOnly ? "Play" : "Rent or Play"}</button>
-          <button className="w-14 h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm group"><Plus size={28} className="text-gray-200 group-hover:text-white" /></button>
-          <button onClick={() => navigate(`/detail/${movie.media_type || 'movie'}/${movie.id}`)} className="w-14 h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm group"><Info size={28} className="text-gray-200 group-hover:text-white" /></button>
-        </div>
-      </div>
-      <div className="absolute top-32 right-[4%] z-40"><button onClick={() => setIsMuted(!isMuted)} className="w-12 h-12 rounded-full border-2 border-white/20 bg-black/20 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/10 hover:border-white transition">{isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}</button></div>
-      <button onClick={prevSlide} className="absolute left-4 top-1/2 -translate-y-1/2 z-40 p-2 rounded-full bg-black/20 hover:bg-black/50 text-white/50 hover:text-white transition backdrop-blur-sm border border-transparent hover:border-white/30"><ChevronLeft size={40} /></button>
-      <button onClick={nextSlide} className="absolute right-4 top-1/2 -translate-y-1/2 z-40 p-2 rounded-full bg-black/20 hover:bg-black/50 text-white/50 hover:text-white transition backdrop-blur-sm border border-transparent hover:border-white/30"><ChevronRight size={40} /></button>
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-40">{movies.map((_, idx) => (<div key={idx} className={`w-2 h-2 rounded-full transition-all ${idx === currentSlide ? 'bg-white w-4' : 'bg-gray-500'}`} />))}</div>
-    </div>
-  );
-};
-
-// --- UPDATED MOVIE CARD (WITH PROGRESS BAR) ---
-const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank, isPrimeOnly, isFirst, isLast }) => {
-  const navigate = useNavigate();
-  const type = movie.media_type || itemType || 'movie';
-  const id = movie.id;
-
-  // PROGRESS LOGIC
-  const progressData = getMediaProgress(type, id);
-  const percent = progressData?.progress?.watched && progressData?.progress?.duration
-    ? (progressData.progress.watched / progressData.progress.duration) * 100
-    : 0;
-
-  const imageUrl = movie.poster_path || movie.backdrop_path;
-  const baseWidth = 'w-[160px] md:w-[200px]';
-  const aspectRatio = 'aspect-[360/440]';
-  const cardMargin = variant === 'ranked' ? 'ml-[110px]' : '';
-  const originClass = isFirst ? 'origin-left' : isLast ? 'origin-right' : 'origin-center';
-
-  const rating = movie.vote_average ? Math.round(movie.vote_average * 10) + "%" : "98%";
-  const year = movie.release_date?.split('-')[0] || "2024";
-  const duration = movie.media_type === 'tv' ? '1 Season' : '2h 15m';
-
-  return (
-    <div className={`relative flex-shrink-0 ${baseWidth} ${aspectRatio} ${cardMargin} group transition-all duration-300`} onMouseEnter={() => onHover(movie.id)} onMouseLeave={onLeave} onClick={() => navigate(`/detail/${type}/${id}`)} style={{ zIndex: isHovered ? 100 : 10 }}>
-      {variant === 'ranked' && <span className="rank-number animate-neon-pulse">{rank}</span>}
-      <div className={`relative w-full h-full rounded-xl overflow-hidden cursor-pointer bg-[#19222b] shadow-xl transform transition-all duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1) border border-white/5 ring-1 ring-white/5 glow-card ${originClass}`} style={{ transform: isHovered ? 'scale(1.8)' : 'scale(1)', boxShadow: isHovered ? '0 25px 50px rgba(0,0,0,0.8)' : '0 4px 6px rgba(0,0,0,0.1)' }}>
-        <div className={`w-full h-full relative bg-black transition-transform duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1) ${isHovered ? 'scale-[1.02]' : 'scale-100'}`}>
-          <img src={`${IMAGE_BASE_URL}${imageUrl}`} alt={movie.title} className="w-full h-full object-cover" loading="lazy" />
-          {percent > 0 && percent < 95 && (<div className="absolute bottom-0 left-0 w-full h-1 bg-gray-700 z-20"><div className="h-full bg-[#00A8E1]" style={{ width: `${percent}%` }} /></div>)}
-        </div>
-        <div className={`absolute inset-0 flex flex-col justify-end px-4 py-5 text-white bg-gradient-to-t from-[#0f171e] via-[#0f171e]/95 to-transparent transition-all duration-300 ease-out z-30 ${isHovered ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-          <div className="mb-2 opacity-90"><span className="text-[5px] font-black tracking-[0.2em] text-[#00A8E1] uppercase bg-[#00A8E1]/10 px-1 py-0.5 rounded-sm">Prime</span></div>
-          <h3 className="font-extrabold text-[10px] leading-[1.2] text-white drop-shadow-md line-clamp-2 mb-2 w-[90%]">{movie.title || movie.name}</h3>
-          {percent > 0 && percent < 95 && (<div className="text-[6px] text-[#00A8E1] font-bold mb-1">Resume {type === 'tv' && progressData.last_season_watched ? `S${progressData.last_season_watched} E${progressData.last_episode_watched}` : ''}</div>)}
-          <div className="flex items-center gap-2 mb-3"><button className="bg-white hover:bg-[#d6d6d6] text-black text-[6px] font-bold h-6 px-3 rounded-[3px] transition-colors flex items-center justify-center gap-1 uppercase tracking-wider"><Play fill="black" size={6} /> Play</button><button className="w-6 h-6 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white transition flex items-center justify-center"><Plus size={8} className="text-white" /></button></div>
-          <div className="flex items-center gap-1.5 text-[6px] font-medium text-gray-300 mb-1"><span className="text-[#46d369] font-bold">{rating} Match</span><span className="text-gray-600 text-[5px]">•</span><span className="text-white">{year}</span><span className="text-gray-600 text-[5px]">•</span><span>{duration}</span><span className="ml-auto border border-white/20 px-1 rounded-[2px] text-[5px] text-gray-400">U/A 13+</span></div>
-          <div className="flex items-center gap-1 mb-2 opacity-80"><span className="bg-white/10 text-[4.5px] font-bold px-1 py-0.5 rounded-[2px] text-gray-200">4K UHD</span><span className="bg-white/10 text-[4.5px] font-bold px-1 py-0.5 rounded-[2px] text-gray-200">HDR10</span><span className="bg-white/10 text-[4.5px] font-bold px-1 py-0.5 rounded-[2px] text-gray-200">Dolby Atmos</span></div>
-          <p className="text-[5.5px] text-gray-400 line-clamp-2 leading-relaxed font-medium">{movie.overview || "Stream this title now on Prime Video."}</p>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// --- ROW COMPONENT ---
-const Row = ({ title, fetchUrl, data = null, variant = 'standard', itemType = 'movie', isPrimeOnly }) => {
-  const [movies, setMovies] = useState([]);
-  const [hoveredId, setHoveredId] = useState(null);
-  const rowRef = useRef(null);
-  const timeoutRef = useRef(null);
-  const theme = getTheme(isPrimeOnly);
-
-  useEffect(() => {
-    if (data) { setMovies(data); return; }
-    fetch(`${BASE_URL}${fetchUrl}`).then(res => res.json()).then(data => { const validResults = (data.results || []).filter(m => m.backdrop_path || m.poster_path); setMovies(validResults); }).catch(err => console.error(err));
-  }, [fetchUrl, data]);
-
-  const handleHover = (id) => { if (timeoutRef.current) clearTimeout(timeoutRef.current); timeoutRef.current = setTimeout(() => setHoveredId(id), 400); };
-  const handleLeave = () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); setHoveredId(null); };
-  const slideLeft = () => { if (rowRef.current) rowRef.current.scrollBy({ left: -800, behavior: 'smooth' }); };
-  const slideRight = () => { if (rowRef.current) rowRef.current.scrollBy({ left: 800, behavior: 'smooth' }); };
-  const displayMovies = variant === 'ranked' ? movies.slice(0, 10) : movies;
-
-  return (
-    <div className="mb-6 pl-4 md:pl-12 relative z-20 group/row animate-row-enter hover:z-30 transition-all duration-300">
-      <h3 className="text-[19px] font-bold text-white mb-2 flex items-center gap-2">{variant === 'ranked' ? <span className={theme.color}>Top 10</span> : <span className={theme.color}>{theme.name}</span>} {title}<ChevronRight size={18} className="text-[#8197a4] opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer"/></h3>
-      <div className="relative">
-        <button onClick={slideLeft} className="absolute left-0 top-[40%] -translate-y-1/2 z-[60] w-12 h-full bg-gradient-to-r from-black/80 to-transparent opacity-0 group-hover/row:opacity-100 transition-opacity duration-300 flex items-center justify-start pl-3 hover:w-16 cursor-pointer"><ChevronLeft size={40} className="text-white hover:scale-125 transition-transform" /></button>
-        <div ref={rowRef} className={`row-container ${variant === 'vertical' ? 'vertical' : ''} scrollbar-hide`}>
-          {displayMovies.map((movie, index) => ( <MovieCard key={movie.id} movie={movie} variant={variant} itemType={itemType} rank={index + 1} isHovered={hoveredId === movie.id} onHover={handleHover} onLeave={handleLeave} isPrimeOnly={isPrimeOnly} isFirst={index === 0} isLast={index === displayMovies.length - 1} /> ))}
-        </div>
-        <button onClick={slideRight} className="absolute right-0 top-[40%] -translate-y-1/2 z-[60] w-12 h-full bg-gradient-to-l from-black/80 to-transparent opacity-0 group-hover/row:opacity-100 transition-opacity duration-300 flex items-center justify-end pr-3 hover:w-16 cursor-pointer"><ChevronRight size={40} className="text-white hover:scale-125 transition-transform" /></button>
-      </div>
-    </div>
-  );
-};
-
-const SearchResults = ({ isPrimeOnly }) => {
-  const [movies, setMovies] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const query = new URLSearchParams(useLocation().search).get('q');
-  const theme = getTheme(isPrimeOnly);
-  const navigate = useNavigate();
-  useEffect(() => {
-    if (query) {
-      setLoading(true); setMovies([]);
-      fetch(`${BASE_URL}/search/multi?api_key=${TMDB_API_KEY}&query=${query}`).then(res => res.json()).then(async (data) => {
-        let results = data.results || [];
-        if (isPrimeOnly) {
-          const filteredResults = [];
-          for (const item of results) {
-            const mediaType = item.media_type || 'movie'; if (mediaType !== 'movie' && mediaType !== 'tv') continue;
-            try {
-              const providerRes = await fetch(`${BASE_URL}/${mediaType}/${item.id}/watch/providers?api_key=${TMDB_API_KEY}`);
-              const providerData = await providerRes.json();
-              const inProviders = providerData.results?.[PRIME_REGION]?.flatrate || [];
-              if (inProviders.some(p => p.provider_id.toString() === "9" || p.provider_id.toString() === "119")) { filteredResults.push(item); }
-              await new Promise(r => setTimeout(r, 50));
-            } catch (e) {}
-          }
-          setMovies(filteredResults);
-        } else { setMovies(results); }
-        setLoading(false);
-      });
-    }
-  }, [query, isPrimeOnly]);
-
-  return (
-    <div className="pt-28 px-8 min-h-screen">
-      <h2 className="text-white text-2xl mb-6 flex items-center gap-2">Results for "{query}" {loading && <Loader className="animate-spin ml-2" size={20} />}</h2>
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-        {movies.map(m => (m.poster_path && (<div key={m.id} className="cursor-pointer" onClick={() => navigate(`/detail/${m.media_type || 'movie'}/${m.id}`)}><img src={`${IMAGE_BASE_URL}${m.poster_path}`} className={`rounded-md hover:scale-105 transition-transform border-2 border-transparent hover:${theme.border}`} alt={m.title} /></div>)))}
-      </div>
-    </div>
-  );
-};
-
-// --- MOVIE DETAIL COMPONENT (FIXED RELATED SECTION) ---
-const MovieDetail = () => {
-  const { type, id } = useParams();
-  const navigate = useNavigate();
-  
-  // --- DATA STATE ---
-  const [movie, setMovie] = useState(null);
-  const [relatedMovies, setRelatedMovies] = useState([]);
-  const [credits, setCredits] = useState(null);
-  
-  // --- UI STATE ---
-  const [activeTab, setActiveTab] = useState('related'); // 'related' | 'details'
-  const [showVideo, setShowVideo] = useState(false);
-  const [trailerKey, setTrailerKey] = useState(null);
-  const [isMuted, setIsMuted] = useState(true);
-  const [hoveredRelatedId, setHoveredRelatedId] = useState(null);
-  
-  // --- INTERACTION STATE ---
-  const [isInWatchlist, setIsInWatchlist] = useState(false);
-  const [isLiked, setIsLiked] = useState(false);
-  const [isDisliked, setIsDisliked] = useState(false);
-  const [toastMessage, setToastMessage] = useState(null);
-  
-  // --- MODAL STATE ---
-  const [activeModal, setActiveModal] = useState(null);
-  const [loadingDownloads, setLoadingDownloads] = useState(false);
-  const [downloadLinks, setDownloadLinks] = useState([]);
-
-  // --- REFS ---
-  const relatedTimeoutRef = useRef(null);
-  const relatedSliderRef = useRef(null); 
-  const castSliderRef = useRef(null);
-
-  // --- INITIALIZATION ---
-  useEffect(() => {
-    window.scrollTo(0, 0);
-    setShowVideo(false); 
-    setTrailerKey(null); 
-    setIsMuted(true); 
-    setMovie(null); 
-    setRelatedMovies([]); 
-    setActiveTab('related');
-    
-    const savedWatchlist = JSON.parse(localStorage.getItem('watchlist')) || [];
-    setIsInWatchlist(savedWatchlist.includes(`${type}-${id}`));
-    setIsLiked(false);
-    setIsDisliked(false);
-
-    const fetchData = async () => {
-      try {
-        const [movieRes, creditsRes, videoRes] = await Promise.all([
-          fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}&language=en-US`),
-          fetch(`${BASE_URL}/${type}/${id}/credits?api_key=${TMDB_API_KEY}`),
-          fetch(`${BASE_URL}/${type}/${id}/videos?api_key=${TMDB_API_KEY}`),
-        ]);
-
-        const movieData = await movieRes.json();
-        setMovie(movieData);
-        
-        const creditsData = await creditsRes.json();
-        setCredits(creditsData);
-
-        const videoData = await videoRes.json();
-        const trailer = videoData.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube');
-        if (trailer) {
-           setTrailerKey(trailer.key); 
-           setTimeout(() => setShowVideo(true), 3000); 
-        }
-
-        // FETCH RELATED (Try recommendations first, then similar)
-        let recsRes = await fetch(`${BASE_URL}/${type}/${id}/recommendations?api_key=${TMDB_API_KEY}&language=en-US`);
-        let recsData = await recsRes.json();
-        let validRecs = (recsData.results || []).filter(m => m.backdrop_path || m.poster_path);
-
-        if (validRecs.length === 0) {
-            recsRes = await fetch(`${BASE_URL}/${type}/${id}/similar?api_key=${TMDB_API_KEY}&language=en-US`);
-            recsData = await recsRes.json();
-            validRecs = (recsData.results || []).filter(m => m.backdrop_path || m.poster_path);
-        }
-        
-        setRelatedMovies(validRecs.slice(0, 15));
-
-      } catch (e) { console.error("Fetch Error:", e); }
-    };
-    fetchData();
-  }, [type, id]);
-
-  // --- HANDLERS ---
-  const showToast = (msg) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3000);
-  };
-
-  const handleWatchlist = () => {
-    const key = `${type}-${id}`;
-    const current = JSON.parse(localStorage.getItem('watchlist')) || [];
-    let updated;
-    if (isInWatchlist) {
-      updated = current.filter(k => k !== key);
-      setIsInWatchlist(false);
-      showToast("Removed from Watchlist");
-    } else {
-      updated = [...current, key];
-      setIsInWatchlist(true);
-      showToast("Added to Watchlist");
-    }
-    localStorage.setItem('watchlist', JSON.stringify(updated));
-  };
-
-  const handleLike = () => {
-    if (isLiked) { setIsLiked(false); } 
-    else { setIsLiked(true); setIsDisliked(false); showToast("Marked as Liked"); }
-  };
-
-  const handleDislike = () => {
-    if (isDisliked) { setIsDisliked(false); } 
-    else { setIsDisliked(true); setIsLiked(false); showToast("Marked as Disliked"); }
-  };
-
-  const handleShare = () => {
-    navigator.clipboard.writeText(window.location.href);
-    showToast("Link Copied to Clipboard");
-  };
-
-  const handleDownload = async () => {
-    setLoadingDownloads(true);
-    setActiveModal('download');
-    try {
-      const links = await get111477Downloads({ mediaItem: movie, mediaType: type });
-      if (links.length > 0) { setDownloadLinks(links); } 
-      else { setDownloadLinks([]); }
-    } catch (e) { console.error(e); } 
-    finally { setLoadingDownloads(false); }
-  };
-
-  const handleSearchPerson = (name) => {
-    navigate(`/search?q=${encodeURIComponent(name)}`);
-  };
-
-  // Scroll Handlers
-  const scrollSection = (ref, direction) => {
-    if (ref.current) {
-      const scrollAmount = direction === 'left' ? -800 : 800;
-      ref.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
-    }
-  };
-
-  // Hover logic
-  const handleRelatedHover = (id) => {
-    if (relatedTimeoutRef.current) clearTimeout(relatedTimeoutRef.current);
-    relatedTimeoutRef.current = setTimeout(() => setHoveredRelatedId(id), 400);
-  };
-  const handleRelatedLeave = () => {
-    if (relatedTimeoutRef.current) clearTimeout(relatedTimeoutRef.current);
-    setHoveredRelatedId(null);
-  };
-
-  if (!movie) return <div className="min-h-screen w-full bg-[#0f171e]" />;
-  
-  // Logic & Metadata
-  const savedProgress = getMediaProgress(type, id);
-  const isResumable = savedProgress && savedProgress.progress?.watched > 0;
-  let playLabel = isResumable 
-    ? (type === 'tv' ? `Resume S${savedProgress.last_season_watched || 1} E${savedProgress.last_episode_watched || 1}` : `Resume`) 
-    : (type === 'tv' ? 'Play S1 E1' : 'Play');
-
-  const director = credits?.crew?.find(c => c.job === 'Director')?.name || "Unknown Director"; 
-  const producers = credits?.crew?.filter(c => c.job === 'Producer').slice(0,3).map(c => c.name).join(", ") || "Producers N/A";
-  const castList = credits?.cast?.slice(0, 15) || [];
-  const runtime = movie.runtime ? `${Math.floor(movie.runtime/60)} h ${movie.runtime%60} min` : `${movie.number_of_seasons} Seasons`;
-  const rating = movie.vote_average ? movie.vote_average.toFixed(1) : "N/A";
-  const year = movie.release_date?.split('-')[0] || "2024";
-  const genres = movie.genres?.map(g => g.name).join(" • ");
-
-  return (
-    <div className="min-h-screen bg-[#0f171e] text-white font-sans selection:bg-[#00A8E1] selection:text-white pb-20 relative">
-      
-      {/* --- TOAST NOTIFICATION --- */}
-      {toastMessage && (
-        <div className="fixed top-24 right-6 z-[200] bg-white text-black px-6 py-3 rounded shadow-2xl font-bold animate-in fade-in slide-in-from-right duration-300 flex items-center gap-2">
-          <CheckCircle2 size={20} className="text-[#00A8E1]" /> {toastMessage}
-        </div>
-      )}
-
-      {/* --- HERO SECTION --- */}
-      <div className="relative w-full h-[85vh] overflow-hidden group">
-        <div className="absolute inset-0 w-full h-full">
-          <div className={`absolute inset-0 transition-opacity duration-1000 ${showVideo ? 'opacity-0' : 'opacity-100'}`}>
-            <img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover object-top" alt="" />
-          </div>
-          {showVideo && trailerKey && (
-            <div className="absolute inset-0 animate-in fade-in duration-1000 pointer-events-none">
-              <iframe src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&enablejsapi=1&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} className="w-full h-full scale-[1.5] origin-center" allow="autoplay; encrypted-media" frameBorder="0" referrerPolicy="strict-origin-when-cross-origin" title="Hero" />
-            </div>
-          )}
-        </div>
-        
-        <div className="absolute inset-0 bg-gradient-to-r from-[#0f171e] via-[#0f171e]/60 to-transparent w-[80%] z-10" />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#0f171e] via-transparent to-transparent z-10" />
-
-        {/* --- MUTE BUTTON --- */}
-        {showVideo && (
-           <button 
-             onClick={() => setIsMuted(!isMuted)} 
-             className="absolute bottom-12 right-12 z-50 w-12 h-12 rounded-full bg-black/40 hover:bg-black/60 border border-white/20 text-white flex items-center justify-center backdrop-blur-md transition-all hover:scale-110"
-             title={isMuted ? "Unmute" : "Mute"}
-           >
-             {isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}
-           </button>
-        )}
-
-        <div className="absolute inset-0 z-20 flex flex-col justify-center px-8 md:px-16 lg:px-20 max-w-4xl pt-12">
-          <h1 className="text-5xl md:text-7xl font-bold mb-6 tracking-wide drop-shadow-lg uppercase text-white/90">{movie.title || movie.name}</h1>
-
-          {/* ACTION BUTTONS */}
-          <div className="flex items-center gap-4 mb-6">
-             <button onClick={() => { setShowVideo(true); setIsMuted(false); }} className="w-14 h-14 rounded-full bg-[#425265]/80 hover:bg-[#5f738a] flex items-center justify-center transition border-2 border-transparent hover:border-gray-400 text-white group" title="Trailer">
-                <Play size={24} fill="white" className="ml-1 group-hover:scale-110 transition-transform" />
-             </button>
-             <button onClick={handleWatchlist} className={`w-14 h-14 rounded-full bg-[#425265]/80 hover:bg-[#5f738a] flex items-center justify-center transition border-2 border-transparent hover:border-gray-400 ${isInWatchlist ? 'text-[#00A8E1]' : 'text-white'}`} title="Watchlist">
-                {isInWatchlist ? <CheckCircle2 size={28} /> : <Plus size={28} />}
-             </button>
-             <button onClick={handleLike} className={`w-14 h-14 rounded-full bg-[#425265]/80 hover:bg-[#5f738a] flex items-center justify-center transition border-2 border-transparent hover:border-gray-400 ${isLiked ? 'text-green-400' : 'text-white'}`} title="Like">
-                <ThumbsUp size={24} fill={isLiked ? "currentColor" : "none"} />
-             </button>
-             <button onClick={handleDislike} className={`w-14 h-14 rounded-full bg-[#425265]/80 hover:bg-[#5f738a] flex items-center justify-center transition border-2 border-transparent hover:border-gray-400 ${isDisliked ? 'text-red-400' : 'text-white'}`} title="Dislike">
-                <ThumbsUp size={24} className="transform rotate-180 mt-1" fill={isDisliked ? "currentColor" : "none"} /> 
-             </button>
-             <button onClick={handleShare} className="w-14 h-14 rounded-full bg-[#425265]/80 hover:bg-[#5f738a] flex items-center justify-center transition border-2 border-transparent hover:border-gray-400 text-white" title="Share">
-                <Share2 size={24} />
-             </button>
-          </div>
-
-          <div className="flex flex-col gap-3 max-w-md mb-6">
-            <button onClick={() => navigate(`/watch/${type}/${id}`)} className="h-14 w-full rounded-[4px] bg-white hover:bg-[#ffffffd0] text-black font-bold text-lg flex items-center justify-center gap-2 transition shadow-lg">
-              <Play fill="black" size={24} /> {playLabel}
-            </button>
-            <button onClick={handleDownload} className="h-14 w-full rounded-[4px] bg-[#323e4d] hover:bg-[#425265] text-white font-bold text-lg flex items-center justify-center gap-2 transition shadow-lg">
-              <Download size={24} /> Download
-            </button>
-            <button onClick={() => setActiveModal('ways')} className="h-14 w-full rounded-[4px] bg-[#323e4d] hover:bg-[#425265] text-white font-bold text-lg flex items-center justify-center gap-2 transition shadow-lg">
-              More ways to watch
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2 text-sm font-medium text-gray-300">
-             <CheckCircle2 size={18} className="text-[#00A8E1]" fill="#00A8E1" color="#0f171e" />
-             <span>Included with Prime</span>
-          </div>
-        </div>
-      </div>
-
-      {/* --- TABS SECTION --- */}
-      <div className="px-6 md:px-12 mt-4 border-b border-white/10 flex gap-8 text-lg font-bold">
-         <div onClick={() => setActiveTab('related')} className={`pb-3 cursor-pointer transition border-b-[3px] ${activeTab === 'related' ? 'border-white text-white' : 'border-transparent text-gray-400 hover:text-white'}`}>Related</div>
-         <div onClick={() => setActiveTab('details')} className={`pb-3 cursor-pointer transition border-b-[3px] ${activeTab === 'details' ? 'border-white text-white' : 'border-transparent text-gray-400 hover:text-white'}`}>Details</div>
-      </div>
-
-      {/* --- TAB CONTENT: RELATED --- */}
-      {activeTab === 'related' && (
-        <div className="relative z-30 pt-6 pb-6 animate-in fade-in slide-in-from-left-4 group/rel"> 
-          <h3 className="text-[18px] font-bold text-white mb-4 px-6 md:px-12">Customers also watched</h3>
-          
-          <button onClick={() => scrollSection(relatedSliderRef, 'left')} className="absolute left-0 top-[60%] -translate-y-1/2 z-[40] w-12 h-32 bg-gradient-to-r from-black/80 to-transparent opacity-0 group-hover/rel:opacity-100 transition-opacity flex items-center justify-center hover:bg-black/40 cursor-pointer">
-            <ChevronLeft size={40} className="text-white hover:scale-125 transition-transform" />
-          </button>
-          
-          {/* REPLACED 'row-container' with explicit flex styles to fix blank space issue */}
-          <div ref={relatedSliderRef} className="flex gap-4 overflow-x-auto scrollbar-hide px-6 md:px-12 py-10 scroll-smooth items-start">
-            {relatedMovies.length > 0 ? (
-              relatedMovies.map((m, index) => (
-                 <MovieCard key={m.id} movie={m} variant="standard" itemType={m.media_type || type} rank={null} isHovered={hoveredRelatedId === m.id} onHover={handleRelatedHover} onLeave={handleRelatedLeave} isPrimeOnly={true} isFirst={index === 0} isLast={index === relatedMovies.length - 1} />
-              ))
-            ) : (
-              <div className="text-gray-500 italic text-sm py-4 w-full text-center">No related titles found.</div>
-            )}
-          </div>
-
-          <button onClick={() => scrollSection(relatedSliderRef, 'right')} className="absolute right-0 top-[60%] -translate-y-1/2 z-[40] w-12 h-32 bg-gradient-to-l from-black/80 to-transparent opacity-0 group-hover/rel:opacity-100 transition-opacity flex items-center justify-center hover:bg-black/40 cursor-pointer">
-             <ChevronRight size={40} className="text-white hover:scale-125 transition-transform" />
-          </button>
-        </div>
-      )}
-
-      {/* --- TAB CONTENT: DETAILS --- */}
-      {activeTab === 'details' && (
-        <div className="px-6 md:px-12 py-8 grid grid-cols-1 lg:grid-cols-3 gap-12 border-t border-white/10 bg-[#0f171e] animate-in fade-in slide-in-from-right-4">
-          <div className="lg:col-span-2">
-             <h2 className="text-3xl font-bold mb-3">{movie.title || movie.name}</h2>
-             <div className="flex items-center gap-3 text-sm font-medium text-gray-400 mb-4">
-                <span className="text-white border-b border-gray-500">{genres}</span><span className="text-gray-500">•</span>
-                <span className="text-gray-400">IMDb {rating}</span><span className="text-gray-500">•</span>
-                <span>{year}</span><span className="text-gray-500">•</span>
-                <span>{runtime}</span>
-             </div>
-             <p className="text-base leading-7 text-gray-300 mb-6">{movie.overview}</p>
-
-             {/* --- CAST SECTION --- */}
-             <div className="mb-8 relative group/cast">
-               <h3 className="text-lg font-bold text-white mb-4">Cast & Crew</h3>
-               
-               {castList.length > 5 && (
-                 <button onClick={() => scrollSection(castSliderRef, 'left')} className="absolute -left-4 top-1/2 -translate-y-1/2 z-10 w-10 h-24 bg-gradient-to-r from-black/80 to-transparent opacity-0 group-hover/cast:opacity-100 transition-opacity flex items-center justify-center hover:bg-black/40 cursor-pointer rounded-r-lg">
-                    <ChevronLeft size={30} className="text-white hover:scale-110 transition-transform" />
-                 </button>
-               )}
-
-               <div ref={castSliderRef} className="flex gap-6 overflow-x-auto scrollbar-hide pb-2 scroll-smooth">
-                 {castList.length > 0 ? castList.map((person) => (
-                   <div key={person.id} onClick={() => handleSearchPerson(person.name)} className="flex flex-col items-center min-w-[90px] cursor-pointer group">
-                     <div className="w-24 h-24 rounded-full overflow-hidden border-2 border-[#323e4d] mb-2 group-hover:border-[#00A8E1] transition-colors relative bg-gray-800">
-                       {person.profile_path ? (
-                         <img src={`https://image.tmdb.org/t/p/w185${person.profile_path}`} className="w-full h-full object-cover group-hover:scale-110 transition-transform" alt={person.name} />
-                       ) : (
-                         <div className="w-full h-full flex items-center justify-center text-gray-500 text-xs font-bold uppercase">{person.name.charAt(0)}</div>
-                       )}
-                     </div>
-                     <div className="text-sm font-bold text-white text-center leading-tight group-hover:text-[#00A8E1] transition-colors line-clamp-2">{person.name}</div>
-                     <div className="text-xs text-gray-400 text-center leading-tight mt-0.5 line-clamp-1">{person.character}</div>
-                   </div>
-                 )) : <div className="text-gray-500 text-sm">Cast information unavailable.</div>}
-               </div>
-
-               {castList.length > 5 && (
-                 <button onClick={() => scrollSection(castSliderRef, 'right')} className="absolute -right-4 top-1/2 -translate-y-1/2 z-10 w-10 h-24 bg-gradient-to-l from-black/80 to-transparent opacity-0 group-hover/cast:opacity-100 transition-opacity flex items-center justify-center hover:bg-black/40 cursor-pointer rounded-l-lg">
-                    <ChevronRight size={30} className="text-white hover:scale-110 transition-transform" />
-                 </button>
-               )}
-             </div>
-
-             <div className="border-t border-white/10 py-6">
-                <dl className="grid grid-cols-[150px_1fr] gap-y-4 text-sm">
-                   <dt className="text-gray-400 font-medium">Directors</dt>
-                   <dd onClick={() => handleSearchPerson(director)} className="text-[#00A8E1] hover:underline cursor-pointer">{director}</dd>
-
-                   <dt className="text-gray-400 font-medium">Producers</dt>
-                   <dd className="text-[#00A8E1]">{producers}</dd>
-                   
-                   <dt className="text-gray-400 font-medium">Studio</dt>
-                   <dd className="text-gray-300">TMDB Studios, Viacom 18 Motion Pictures</dd>
-                </dl>
-             </div>
-             
-             <div className="mt-8 text-sm text-gray-400">By clicking play, you agree to our <span className="text-[#00A8E1] cursor-pointer hover:underline">Terms of Use</span>.</div>
-
-             <div className="mt-8">
-               <div className="font-bold text-white mb-3">Feedback</div>
-               <button onClick={() => setActiveModal('feedback')} className="bg-[#425265] hover:bg-[#5f738a] text-white text-sm py-2 px-6 rounded-[4px] transition font-medium shadow-md">Send us feedback</button>
-             </div>
-             <div className="mt-8">
-               <div className="font-bold text-white mb-2">Support</div>
-               <button onClick={() => setActiveModal('help')} className="text-[#00A8E1] text-sm hover:underline font-medium">Get Help</button>
-             </div>
-          </div>
-
-          <div className="space-y-4">
-             <div className="border border-gray-600 p-4 rounded-[4px]">
-                <div className="font-bold text-white mb-2 text-lg">Content advisory</div>
-                <div className="flex items-center gap-2 mb-3"><span className="border border-white/40 px-1.5 py-0.5 rounded-[2px] text-xs font-bold bg-[#33373d]">A</span></div>
-                <p className="text-gray-400 text-sm leading-relaxed">substance use, alcohol use, foul language, sexual content, violence</p>
-             </div>
-             <div className="border border-gray-600 p-4 rounded-[4px]">
-                <div className="font-bold text-white mb-2 text-lg">Audio languages</div>
-                <div className="flex items-center gap-2 mb-3"><span className="border border-white/40 px-1.5 py-0.5 rounded-[2px] text-xs font-bold bg-[#33373d]">5.1</span><span className="border border-white/40 px-1.5 py-0.5 rounded-[2px] text-xs font-bold bg-[#33373d]">AD</span></div>
-                <p className="text-gray-400 text-sm leading-relaxed">English, Hindi, Tamil, Telugu, Malayalam, Kannada</p>
-             </div>
-             <div className="border border-gray-600 p-4 rounded-[4px]">
-                <div className="font-bold text-white mb-2 text-lg">Subtitles</div>
-                <div className="flex items-center gap-2 mb-3"><span className="border border-white/40 px-1.5 py-0.5 rounded-[2px] text-xs font-bold bg-[#33373d]">CC</span></div>
-                <p className="text-gray-400 text-sm leading-relaxed">English [CC], Español, Français, Português, Deutsch, Italiano, العربية, हिन्दी, தமிழ், తెలుగు</p>
-             </div>
-          </div>
-        </div>
-      )}
-
-      {/* --- SHARED MODAL COMPONENT --- */}
-      {activeModal && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-[#19222b] border border-white/10 rounded-2xl w-full max-w-md p-6 shadow-2xl relative animate-modal-pop">
-            <button onClick={() => setActiveModal(null)} className="absolute top-4 right-4 text-gray-400 hover:text-white"><X size={24} /></button>
-            
-            {activeModal === 'download' && (
-              <>
-                <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2"><Download className="text-[#00A8E1]" /> Download Options</h3>
-                {loadingDownloads ? (
-                  <div className="flex flex-col items-center py-8"><Loader className="animate-spin text-[#00A8E1] mb-2" size={32} /><span>Searching sources...</span></div>
-                ) : downloadLinks.length > 0 ? (
-                  <div className="space-y-3 max-h-[60vh] overflow-y-auto scrollbar-hide">
-                    {downloadLinks.map((link, idx) => (
-                      <a key={idx} href={link.url} target="_blank" rel="noopener noreferrer" className="block bg-[#232d38] hover:bg-[#00A8E1] border border-white/5 hover:border-transparent text-gray-200 hover:text-white p-4 rounded-xl transition-all group flex items-center justify-between">
-                        <div className="flex flex-col"><span className="font-bold">{link.label}</span><span className="text-[10px] opacity-70 uppercase tracking-wider">{link.source}</span></div>
-                        <Download size={20} className="opacity-50 group-hover:opacity-100" />
-                      </a>
-                    ))}
-                  </div>
-                ) : (
-                   <div className="text-center py-6 text-gray-400">No direct download links found for this title. <br/><span className="text-xs">Try streaming it instead.</span></div>
-                )}
-              </>
-            )}
-
-            {activeModal === 'ways' && (
-              <>
-                <h3 className="text-xl font-bold text-white mb-4">Ways to Watch</h3>
-                <div className="space-y-4">
-                  <div className="bg-[#232d38] p-4 rounded-lg border border-white/5">
-                    <div className="font-bold text-white">Prime Video</div>
-                    <div className="text-sm text-gray-400">Included with your subscription</div>
-                  </div>
-                  <div className="bg-[#232d38] p-4 rounded-lg border border-white/5 opacity-50 cursor-not-allowed">
-                    <div className="font-bold text-white">Rent / Buy</div>
-                    <div className="text-sm text-gray-400">Not available in your region yet.</div>
-                  </div>
-                </div>
-              </>
-            )}
-
-            {activeModal === 'feedback' && (
-              <>
-                <h3 className="text-xl font-bold text-white mb-4">Send Feedback</h3>
-                <textarea className="w-full bg-[#0f171e] border border-gray-600 rounded p-3 text-white h-32 mb-4 focus:border-[#00A8E1] outline-none" placeholder="Tell us what you think..."></textarea>
-                <button onClick={() => { setActiveModal(null); showToast("Feedback Sent!"); }} className="w-full bg-[#00A8E1] text-white font-bold py-3 rounded hover:bg-[#008ebf]">Submit</button>
-              </>
-            )}
-
-            {activeModal === 'help' && (
-              <>
-                <h3 className="text-xl font-bold text-white mb-4">Help & Support</h3>
-                <p className="text-gray-300 mb-4">Need assistance with playback? Contact our support team.</p>
-                <div className="flex flex-col gap-3">
-                  <button className="bg-[#232d38] hover:bg-[#333c46] text-white p-3 rounded flex items-center justify-between"><span>Playback Issues</span> <ChevronRight size={16}/></button>
-                  <button className="bg-[#232d38] hover:bg-[#333c46] text-white p-3 rounded flex items-center justify-between"><span>Account & Billing</span> <ChevronRight size={16}/></button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-// --- PLAYER COMPONENT (UPDATED FOR RESUME) ---
-const Player = () => {
-  const { type, id } = useParams();
-  const navigate = useNavigate();
-  const location = useLocation();
-
-  // --- STATE ---
-  const [activeServer, setActiveServer] = useState('vidfast'); // Default, will change if Bengali
-  const [isBengali, setIsBengali] = useState(false); // Track if content is Bengali
-  // Episode & Season State
-  const queryParams = new URLSearchParams(location.search);
-  const [season, setSeason] = useState(Number(queryParams.get('season')) || 1);
-  const [episode, setEpisode] = useState(Number(queryParams.get('episode')) || 1);
-  const [showEpisodes, setShowEpisodes] = useState(false);
-  const [seasonData, setSeasonData] = useState(null);
-  const [totalSeasons, setTotalSeasons] = useState(1);
-  const [imdbId, setImdbId] = useState(null); // VidRock sometimes prefers IMDB ID
-
-  // --- 1. FETCH METADATA & LANGUAGE DETECTION ---
-  useEffect(() => {
-    const fetchDetails = async () => {
-      try {
-        const res = await fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}`);
-        const data = await res.json();
-        // CHECK LANGUAGE
-        if (data.original_language === 'bn') {
-          setIsBengali(true);
-          setActiveServer('vidrock'); // Auto-switch to VidRock for Bengali
-        } else {
-          setIsBengali(false);
-          setActiveServer('vidfast');
-        }
-
-        // Store IMDB ID for VidRock fallback
-        if (data.imdb_id) setImdbId(data.imdb_id);
-        // Set Total Seasons for TV
-        if (type === 'tv' && data.number_of_seasons) {
-          setTotalSeasons(data.number_of_seasons);
-        }
-      } catch (e) {
-        console.error("Error fetching details:", e);
-      }
-    };
-    fetchDetails();
-  }, [type, id]);
-
-  // --- 2. FETCH SEASONS (TV ONLY) ---
-  useEffect(() => {
-    if (type === 'tv') {
-      fetch(`${BASE_URL}/tv/${id}/season/${season}?api_key=${TMDB_API_KEY}`)
-        .then(res => res.json())
-        .then(data => setSeasonData(data));
-    }
-  }, [type, id, season]);
-
-  // --- 3. SOURCE GENERATOR ---
-  const getSourceUrl = () => {
-    // A. VidRock (Bengali Only)
-    if (activeServer === 'vidrock') {
-      // Use IMDB ID if available, otherwise TMDB ID
-      const identifier = imdbId || id;
-      if (type === 'tv') {
-        return `https://vidrock.net/tv/${identifier}/${season}/${episode}`;
-      } else {
-        return `https://vidrock.net/movie/${identifier}`;
-      }
-    }
-    // B. VidFast (Standard)
-    if (activeServer === 'vidfast') {
-      const themeParam = "theme=00A8E1";
-      if (type === 'tv') {
-        return `${VIDFAST_BASE}/tv/${id}/${season}/${episode}?autoPlay=true&${themeParam}&nextButton=true&autoNext=true`;
-      } else {
-        return `${VIDFAST_BASE}/movie/${id}?autoPlay=true&${themeParam}`;
-      }
-    }
-    // C. Zxcstream (Multi-Audio)
-    else {
-      if (type === 'tv') {
-        return `https://www.zxcstream.xyz/player/tv/${id}/${season}/${episode}?autoplay=false&back=true&server=0`;
-      } else {
-        return `https://www.zxcstream.xyz/player/movie/${id}?autoplay=false&back=true&server=0`;
-      }
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black z-[100] overflow-hidden flex flex-col" style={{ transform: 'translateZ(0)' }}>
-      {/* TOP CONTROLS LAYER */}
-      <div className="absolute top-0 left-0 w-full h-20 pointer-events-none z-[120] flex items-center justify-between px-6">
-        <button
-          onClick={() => navigate(-1)}
-          className="pointer-events-auto bg-black/50 hover:bg-[#00A8E1] text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all shadow-lg group"
-        >
-          <ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" />
-        </button>
-
-        {/* SERVER SWITCHER */}
-        <div className="pointer-events-auto flex flex-col items-center gap-1 bg-black/60 backdrop-blur-md border border-white/10 p-1.5 rounded-xl shadow-2xl transform translate-y-2">
-          <div className="flex bg-[#19222b] rounded-lg p-1 gap-1">
-            {/* SHOW VIDROCK ONLY IF BENGALI */}
-            {isBengali && (
-              <button
-                onClick={() => setActiveServer('vidrock')}
-                className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'vidrock' ? 'bg-[#E50914] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
-              >
-                VidRock (Bengali)
-              </button>
-            )}
-
-            <button
-              onClick={() => setActiveServer('vidfast')}
-              className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'vidfast' ? 'bg-[#00A8E1] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
-            >
-              VidFast
-            </button>
-            <button
-              onClick={() => setActiveServer('zxcstream')}
-              className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'zxcstream' ? 'bg-[#00A8E1] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
-            >
-              Multi-Audio
-            </button>
-          </div>
-          {activeServer === 'zxcstream' && (
-            <div className="text-[10px] text-[#00A8E1] font-bold animate-pulse">Select Audio Language in Player Settings</div>
-          )}
-        </div>
-
-        {/* EPISODE LIST TOGGLE (For TV) */}
-        {type === 'tv' ? (
-          <button
-            onClick={() => setShowEpisodes(!showEpisodes)}
-            className={`pointer-events-auto p-3 rounded-full backdrop-blur-md border border-white/10 transition-all ${showEpisodes ? 'bg-[#00A8E1] text-white' : 'bg-black/50 hover:bg-[#333c46] text-gray-200'}`}
-          >
-            <List size={24} />
-          </button>
-        ) : (
-          <div className="w-12"></div>
-        )}
-      </div>
-
-      {/* PLAYER FRAME */}
-      <div className="flex-1 relative w-full h-full bg-black">
-        <iframe
-          key={activeServer + season + episode}
-          src={getSourceUrl()}
-          className="w-full h-full border-none"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
-          loading="eager"
-          fetchPriority="high"
-          referrerPolicy="origin"
-          allowFullScreen
-          title="Player"
-        ></iframe>
-      </div>
-
-      {/* EPISODE SIDEBAR (TV Only) */}
-      {type === 'tv' && (
-        <div className={`fixed right-0 top-0 h-full bg-[#00050D]/95 backdrop-blur-xl border-l border-white/10 transition-all duration-500 ease-in-out z-[110] flex flex-col ${showEpisodes ? 'w-[350px] translate-x-0 shadow-2xl' : 'w-[350px] translate-x-full shadow-none'}`}>
-          <div className="pt-24 px-6 pb-4 border-b border-white/10 flex items-center justify-between bg-[#1a242f]/50">
-            <h2 className="font-bold text-white text-lg">Episodes</h2>
-            <div className="relative">
-              <select value={season} onChange={(e) => setSeason(Number(e.target.value))} className="appearance-none bg-[#00A8E1] text-white font-bold py-1.5 pl-3 pr-8 rounded cursor-pointer text-sm outline-none hover:bg-[#008ebf] transition">
-                {Array.from({length: totalSeasons}, (_, i) => i + 1).map(s => (<option key={s} value={s} className="bg-[#1a242f]">Season {s}</option>))}
-              </select>
-              <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-white pointer-events-none" />
-            </div>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-hide">
-            {seasonData?.episodes ? (seasonData.episodes.map(ep => (
-              <div key={ep.id} onClick={() => setEpisode(ep.episode_number)} className={`flex gap-3 p-2 rounded-lg cursor-pointer transition-all group ${episode === ep.episode_number ? 'bg-[#333c46] border border-[#00A8E1]' : 'hover:bg-[#333c46] border border-transparent'}`}>
-                <div className="relative w-28 h-16 flex-shrink-0 bg-black rounded overflow-hidden">
-                  {ep.still_path ? (<img src={`${IMAGE_BASE_URL}${ep.still_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" />) : (<div className="w-full h-full flex items-center justify-center text-gray-600 text-xs">No Img</div>)}
-                  {episode === ep.episode_number && (<div className="absolute inset-0 bg-black/40 flex items-center justify-center"><Play size={16} fill="white" className="text-white" /></div>)}
-                </div>
-                <div className="flex flex-col justify-center min-w-0">
-                  <span className={`text-xs font-bold mb-0.5 ${episode === ep.episode_number ? 'text-[#00A8E1]' : 'text-gray-400'}`}>Episode {ep.episode_number}</span>
-                  <h4 className={`text-sm font-medium truncate leading-tight ${episode === ep.episode_number ? 'text-white' : 'text-gray-300 group-hover:text-white'}`}>{ep.name}</h4>
-                </div>
-              </div>
-            ))) : (<div className="text-center text-gray-500 mt-10 flex flex-col items-center"><Loader className="animate-spin mb-2" /><span>Loading Season {season}...</span></div>)}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
 // --- MAIN WRAPPERS ---
 const Home = ({ isPrimeOnly }) => {
   const { rows, loadMore } = useInfiniteRows('all', isPrimeOnly);
