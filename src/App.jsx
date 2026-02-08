@@ -1015,199 +1015,187 @@ const SearchResults = ({ isPrimeOnly }) => {
   );
 };
 
-// --- MOVIE DETAIL COMPONENT ---
-// --- MOVIE DETAIL COMPONENT (UPDATED WITH POPUP CARDS) ---
-// --- MOVIE DETAIL COMPONENT (FIXED LAYOUT) ---
 const MovieDetail = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
-  
-  // Data State
   const [movie, setMovie] = useState(null);
   const [relatedMovies, setRelatedMovies] = useState([]);
   const [credits, setCredits] = useState(null);
-  
-  // Hero Video State
   const [trailerKey, setTrailerKey] = useState(null);
   const [showVideo, setShowVideo] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
-  
-  // UI State
-  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
   const [loadingDownloads, setLoadingDownloads] = useState(false);
   const [downloadLinks, setDownloadLinks] = useState([]);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
 
-  // --- HOVER STATE FOR RELATED CARDS ---
-  const [hoveredRelatedId, setHoveredRelatedId] = useState(null);
-  const relatedTimeoutRef = useRef(null);
-
-  const handleRelatedHover = (id) => {
-    if (relatedTimeoutRef.current) clearTimeout(relatedTimeoutRef.current);
-    relatedTimeoutRef.current = setTimeout(() => setHoveredRelatedId(id), 400);
-  };
-
-  const handleRelatedLeave = () => {
-    if (relatedTimeoutRef.current) clearTimeout(relatedTimeoutRef.current);
-    setHoveredRelatedId(null);
-  };
-
   useEffect(() => {
-    // Reset states on navigation
-    setShowVideo(false); 
-    setTrailerKey(null); 
-    setIsMuted(true); 
-    setMovie(null); 
-    setRelatedMovies([]); 
-    setDownloadLinks([]); 
-    setShowDownloadModal(false);
-    setHoveredRelatedId(null);
-    
     window.scrollTo(0, 0);
-    
-    // Fetch Data
-    fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}&language=en-US`).then(res => res.json()).then(data => setMovie(data)).catch(err => console.error(err));
-    fetch(`${BASE_URL}/${type}/${id}/credits?api_key=${TMDB_API_KEY}`).then(res => res.json()).then(data => setCredits(data));
-    
-    fetch(`${BASE_URL}/${type}/${id}/videos?api_key=${TMDB_API_KEY}`).then(res => res.json()).then(data => {
-      const trailer = data.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube');
-      if (trailer) { setTrailerKey(trailer.key); setTimeout(() => setShowVideo(true), 3000); }
-    });
-    
-    fetch(`${BASE_URL}/${type}/${id}/recommendations?api_key=${TMDB_API_KEY}&language=en-US`).then(res => res.json()).then(data => {
-        const validRecs = (data.results || []).filter(m => m.backdrop_path || m.poster_path).slice(0, 10);
-        setRelatedMovies(validRecs);
-    });
+    setShowVideo(false);
+    setTrailerKey(null);
+    setMovie(null);
+
+    fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}`)
+      .then(res => res.json())
+      .then(data => setMovie(data));
+
+    fetch(`${BASE_URL}/${type}/${id}/credits?api_key=${TMDB_API_KEY}`)
+      .then(res => res.json())
+      .then(data => setCredits(data));
+
+    fetch(`${BASE_URL}/${type}/${id}/videos?api_key=${TMDB_API_KEY}`)
+      .then(res => res.json())
+      .then(data => {
+        const trailer = data.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube');
+        if (trailer) {
+          setTrailerKey(trailer.key);
+          setTimeout(() => setShowVideo(true), 3000);
+        }
+      });
+
+    fetch(`${BASE_URL}/${type}/${id}/recommendations?api_key=${TMDB_API_KEY}`)
+      .then(res => res.json())
+      .then(data => setRelatedMovies(data.results?.slice(0, 12) || []));
   }, [type, id]);
 
-  const handleDownload = async () => {
-    setLoadingDownloads(true);
-    try {
-      const links = await get111477Downloads({ mediaItem: movie, mediaType: type });
-      if (links.length > 0) { setDownloadLinks(links); setShowDownloadModal(true); } else { alert("No download links found for this title."); }
-    } catch (e) { console.error("Download Error", e); alert("An error occurred while fetching links."); } finally { setLoadingDownloads(false); }
-  };
+  if (!movie) return <div className="min-h-screen bg-[#0f171e]" />;
 
-  if (!movie) return <div className="min-h-screen w-full bg-[#0f171e]" />;
-  
-  // RESUME LOGIC
-  const savedProgress = getMediaProgress(type, id);
-  const isResumable = savedProgress && savedProgress.progress?.watched > 0;
-  let playLabel = type === 'tv' ? 'Play S1 E1' : 'Play Movie';
-  if (isResumable) {
-    if (type === 'tv') {
-      playLabel = `Resume S${savedProgress.last_season_watched || 1} E${savedProgress.last_episode_watched || 1}`;
-    } else {
-      const remaining = Math.round((savedProgress.progress.duration - savedProgress.progress.watched) / 60);
-      playLabel = `Resume (${remaining}m left)`;
-    }
-  }
-
-  const director = credits?.crew?.find(c => c.job === 'Director')?.name || "Unknown Director";
-  const cast = credits?.cast?.slice(0, 5).map(c => c.name).join(", ") || "N/A";
-  const runtime = movie.runtime ? `${Math.floor(movie.runtime/60)}h ${movie.runtime%60}min` : `${movie.number_of_seasons} Seasons`;
-  const rating = movie.vote_average ? movie.vote_average.toFixed(1) : "N/A";
-  const year = movie.release_date?.split('-')[0] || movie.first_air_date?.split('-')[0] || "2024";
+  const director = credits?.crew?.find(c => c.job === 'Director')?.name || '—';
+  const cast = credits?.cast?.slice(0, 6).map(c => c.name).join(', ') || '—';
 
   return (
-    <div className="min-h-screen bg-[#0f171e] text-white font-sans selection:bg-[#00A8E1] selection:text-white pb-20">
-      {/* --- HERO SECTION --- */}
-      <div className="relative w-full h-[85vh] overflow-hidden">
-        <div className="absolute inset-0 w-full h-full">
-          <div className={`absolute inset-0 transition-opacity duration-1000 ${showVideo ? 'opacity-0' : 'opacity-100'}`}><img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover object-top md:object-right-top" alt="" /></div>
-          {/* Fixed Youtube Embed */}
-          {showVideo && trailerKey && (
-            <div className="absolute inset-0 animate-in fade-in duration-1000 pointer-events-none">
-              <iframe 
-                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&enablejsapi=1&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} 
-                className="w-full h-full scale-[1.5] origin-center" 
-                allow="autoplay; encrypted-media" 
-                frameBorder="0" 
-                referrerPolicy="strict-origin-when-cross-origin"
-                title="Hero Background" 
-              />
-            </div>
-          )}
-        </div>
-        <div className="absolute inset-0 bg-gradient-to-r from-[#0f171e] via-[#0f171e]/90 to-transparent w-[90%] md:w-[65%] z-10" />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#0f171e] via-transparent to-transparent z-10" />
-        <div className="absolute inset-0 z-20 flex flex-col justify-center px-6 md:px-16 lg:px-24 max-w-3xl pt-20">
-          <div className="mb-4 opacity-0 animate-fade-in-up" style={{ animationDelay: '0ms' }}><span className="text-[11px] font-black tracking-[0.2em] text-[#00A8E1] uppercase bg-[#00A8E1]/10 px-2 py-1 rounded">INCLUDED WITH PRIME</span></div>
-          <h1 className="text-4xl md:text-6xl lg:text-7xl font-extrabold mb-4 leading-[0.95] tracking-tight drop-shadow-2xl opacity-0 animate-fade-in-up" style={{ animationDelay: '100ms' }}>{movie.title || movie.name}</h1>
-          <div className="flex items-center flex-wrap gap-3 text-sm font-medium text-gray-300 mb-8 opacity-0 animate-fade-in-up" style={{ animationDelay: '200ms' }}><span className="text-[#00A8E1] font-bold">IMDb {rating}</span><span>•</span><span>{runtime}</span><span>•</span><span>{year}</span></div>
-          <div className="flex items-center gap-4 mb-8 opacity-0 animate-fade-in-up" style={{ animationDelay: '300ms' }}>
-            <button onClick={() => navigate(`/watch/${type}/${id}`)} className="h-14 px-8 rounded bg-white text-black font-bold text-lg hover:bg-gray-200 transition-transform transform hover:scale-105 flex items-center gap-3 shadow-[0_0_40px_rgba(255,255,255,0.2)]"><Play fill="black" size={24} /> {playLabel}</button>
-            <button onClick={handleDownload} disabled={loadingDownloads} className="h-14 px-6 rounded bg-[#2a333d]/60 border-2 border-[#4a5561] hover:border-white hover:bg-[#2a333d] flex items-center justify-center gap-2 transition text-gray-200 hover:text-white">{loadingDownloads ? <Loader className="animate-spin" size={24} /> : <Download size={24} />}<span className="font-bold">Download</span></button>
-            <div className="flex gap-3"><button className="w-12 h-12 rounded-full bg-[#2a333d]/60 border-2 border-[#4a5561] hover:border-white hover:bg-[#2a333d] flex items-center justify-center transition text-gray-200 hover:text-white"><Plus size={22} /></button><button onClick={() => setIsMuted(!isMuted)} className="w-12 h-12 rounded-full bg-[#2a333d]/60 border-2 border-[#4a5561] hover:border-white hover:bg-[#2a333d] flex items-center justify-center transition text-gray-200 hover:text-white">{isMuted ? <VolumeX size={22}/> : <Volume2 size={22}/>}</button></div>
+    <div className="min-h-screen bg-[#0f171e] text-white pb-20">
+
+      {/* HERO */}
+      <div className="relative h-[85vh] overflow-hidden">
+        <img
+          src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`}
+          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ${showVideo ? 'opacity-0' : 'opacity-100'}`}
+          alt=""
+        />
+
+        {showVideo && trailerKey && (
+          <iframe
+            src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&loop=1&playlist=${trailerKey}`}
+            className="absolute inset-0 w-full h-full scale-[1.5]"
+            allow="autoplay; encrypted-media"
+            frameBorder="0"
+            title="Trailer"
+          />
+        )}
+
+        <div className="absolute inset-0 bg-gradient-to-r from-[#0f171e] via-[#0f171e]/90 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#0f171e] to-transparent" />
+
+        <div className="absolute inset-0 z-10 flex flex-col justify-center px-6 md:px-16 max-w-3xl">
+          <span className="text-xs font-bold text-[#00A8E1] mb-3 uppercase">
+            Included with Prime
+          </span>
+
+          <h1 className="text-5xl md:text-6xl font-extrabold mb-4">
+            {movie.title || movie.name}
+          </h1>
+
+          <div className="flex gap-3 text-sm text-gray-300 mb-6">
+            <span>IMDb {movie.vote_average?.toFixed(1)}</span>
+            <span>•</span>
+            <span>{movie.release_date?.split('-')[0]}</span>
+            <span>•</span>
+            <span>{movie.runtime ? `${movie.runtime} min` : `${movie.number_of_seasons} Seasons`}</span>
           </div>
-          <div className="text-gray-300 text-lg leading-relaxed line-clamp-3 max-w-2xl opacity-0 animate-fade-in-up" style={{ animationDelay: '400ms' }}>{movie.overview}</div>
+
+          <div className="flex gap-4">
+            <button
+              onClick={() => navigate(`/watch/${type}/${id}`)}
+              className="bg-white text-black px-8 h-14 rounded font-bold flex items-center gap-3"
+            >
+              <Play fill="black" /> Play
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* --- RELATED SECTION (POPUP ENABLED) --- */}
-      <div className="relative z-30 -mt-32 pb-10"> 
-        <h3 className="text-xl font-bold text-white mb-2 px-6 md:px-12 drop-shadow-md">Customers also watched</h3>
-        {/* We use 'row-container' here to get the padding needed for the hover scale effect */}
-        <div className="row-container scrollbar-hide pl-6 md:pl-12">
-          {relatedMovies.length > 0 ? (
-            relatedMovies.map((m, index) => (
-               <MovieCard 
-                 key={m.id} 
-                 movie={m} 
-                 variant="standard" 
-                 itemType={m.media_type || type}
-                 rank={null} 
-                 isHovered={hoveredRelatedId === m.id} 
-                 onHover={handleRelatedHover} 
-                 onLeave={handleRelatedLeave} 
-                 isPrimeOnly={true}
-                 isFirst={index === 0}
-                 isLast={index === relatedMovies.length - 1}
-               />
-            ))
-          ) : (
-            <div className="text-gray-500 italic text-sm py-4">No related titles found.</div>
-          )}
-        </div>
-      </div>
+      {/* 🔥 PRIME-STYLE DETAILS SECTION (FIXED) */}
+      <div className="relative z-20 -mt-20 px-6 md:px-16 grid grid-cols-1 lg:grid-cols-[1.9fr_1.1fr] gap-10">
 
-      {/* --- DETAILS GRID (RESTORED) --- */}
-      <div className="px-6 md:px-16 grid grid-cols-1 lg:grid-cols-3 gap-10 mt-8 relative z-20">
-        <div className="lg:col-span-2 space-y-8">
-          <div className="bg-[#19222b] p-6 rounded-lg border border-white/5 shadow-xl">
-            <h4 className="text-lg font-bold text-white mb-3">Synopsis</h4>
-            <p className={`text-gray-300 leading-relaxed ${isDescriptionExpanded ? '' : 'line-clamp-3'}`}>{movie.overview}</p>
-            <button onClick={() => setIsDescriptionExpanded(!isDescriptionExpanded)} className="mt-3 text-[#00A8E1] font-bold text-sm hover:underline">{isDescriptionExpanded ? "Show Less" : "More..."}</button>
-          </div>
-        </div>
+        {/* LEFT COLUMN */}
         <div className="space-y-6">
-          <div className="bg-[#19222b] p-6 rounded-lg border border-white/5 shadow-xl">
-            <div className="grid grid-cols-1 gap-4">
-              <div><span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Director</span><span className="text-[#00A8E1] font-medium">{director}</span></div>
-              <div><span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Starring</span><span className="text-[#00A8E1] font-medium">{cast}</span></div>
-              <div><span className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Genres</span><span className="text-gray-300 text-sm">{movie.genres?.map(g => g.name).join(", ")}</span></div>
-            </div>
-          </div>
-        </div>
-      </div>
 
-      {/* --- DOWNLOAD MODAL --- */}
-      {showDownloadModal && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-[#19222b] border border-white/10 rounded-2xl w-full max-w-md p-6 shadow-2xl relative animate-modal-pop">
-            <button onClick={() => setShowDownloadModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white"><X size={24} /></button>
-            <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2"><Download className="text-[#00A8E1]" /> Download Options</h3>
-            <div className="space-y-3 max-h-[60vh] overflow-y-auto scrollbar-hide">
-              {downloadLinks.map((link, idx) => (
-                <a key={idx} href={link.url} target="_blank" rel="noopener noreferrer" className="block bg-[#232d38] hover:bg-[#00A8E1] border border-white/5 hover:border-transparent text-gray-200 hover:text-white p-4 rounded-xl transition-all group flex items-center justify-between">
-                  <div className="flex flex-col"><span className="font-bold">{link.label}</span><span className="text-[10px] opacity-70 uppercase tracking-wider">{link.source}</span></div>
-                  <Download size={20} className="opacity-50 group-hover:opacity-100" />
-                </a>
+          {/* Tabs */}
+          <div className="flex gap-8 border-b border-white/10 text-sm font-semibold">
+            <button className="pb-3 border-b-2 border-white text-white">
+              Related
+            </button>
+            <button className="pb-3 text-gray-400 hover:text-white">
+              Details
+            </button>
+          </div>
+
+          {/* Description */}
+          <div className="bg-[#19222b] p-6 rounded-xl border border-white/5">
+            <p className="text-gray-300 text-sm leading-relaxed">
+              {movie.overview}
+            </p>
+          </div>
+
+          {/* Customers also watched */}
+          <div>
+            <h3 className="text-lg font-bold mb-4">Customers also watched</h3>
+            <div className="flex gap-4 overflow-x-auto scrollbar-hide">
+              {relatedMovies.map(m => (
+                <div
+                  key={m.id}
+                  onClick={() => navigate(`/detail/${type}/${m.id}`)}
+                  className="w-[180px] aspect-video bg-[#19222b] rounded-lg overflow-hidden border border-white/5 cursor-pointer"
+                >
+                  <img
+                    src={`${IMAGE_BASE_URL}${m.backdrop_path || m.poster_path}`}
+                    className="w-full h-full object-cover"
+                    alt=""
+                  />
+                </div>
               ))}
             </div>
           </div>
+
+          {/* Creators & Cast */}
+          <div className="bg-[#19222b] p-6 rounded-xl border border-white/5 space-y-3">
+            <div>
+              <span className="text-xs text-gray-400 uppercase">Director</span>
+              <div className="text-[#00A8E1]">{director}</div>
+            </div>
+            <div>
+              <span className="text-xs text-gray-400 uppercase">Starring</span>
+              <div className="text-[#00A8E1]">{cast}</div>
+            </div>
+          </div>
         </div>
-      )}
+
+        {/* RIGHT COLUMN */}
+        <div className="space-y-4">
+
+          <div className="bg-[#19222b] p-4 rounded-xl border border-white/5">
+            <h4 className="text-sm font-bold mb-2">Content advisory</h4>
+            <p className="text-gray-400 text-sm">
+              substance use, alcohol use, foul language, sexual content, violence
+            </p>
+          </div>
+
+          <div className="bg-[#19222b] p-4 rounded-xl border border-white/5">
+            <h4 className="text-sm font-bold mb-2">Audio languages</h4>
+            <p className="text-gray-400 text-sm">
+              English, Hindi (Dialogue Boost: Medium, High)
+            </p>
+          </div>
+
+          <div className="bg-[#19222b] p-4 rounded-xl border border-white/5">
+            <h4 className="text-sm font-bold mb-2">Subtitles</h4>
+            <p className="text-gray-400 text-sm">
+              English, English [CC], हिन्दी, বাংলা, தமிழ், తెలుగు, മലയാളം
+            </p>
+          </div>
+
+        </div>
+      </div>
     </div>
   );
 };
