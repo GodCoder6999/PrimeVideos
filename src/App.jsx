@@ -325,7 +325,7 @@ const InfiniteScrollTrigger = ({ onIntersect }) => {
 
 // --- COMPONENTS ---
 
-// --- NAVBAR COMPONENT (1500px WIDTH, 66px HEIGHT, 51px PADDING) ---
+// --- NAVBAR COMPONENT (EXACT REPLICA: 1521px x 66px) ---
 const Navbar = ({ isPrimeOnly }) => {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState({ text: [], visual: [] });
@@ -342,7 +342,6 @@ const Navbar = ({ isPrimeOnly }) => {
   // --- SCROLL LISTENER ---
   useEffect(() => {
     const handleScroll = () => {
-      // Threshold is 10px to trigger the effect
       if (window.scrollY > 10) {
         setIsScrolled(true);
       } else {
@@ -353,6 +352,7 @@ const Navbar = ({ isPrimeOnly }) => {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  // --- CLICK OUTSIDE LISTENER ---
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) setMenuOpen(false);
@@ -362,6 +362,7 @@ const Navbar = ({ isPrimeOnly }) => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // --- SEARCH LOGIC ---
   useEffect(() => {
     const fetchSuggestions = async () => {
       if (query.trim().length < 2) {
@@ -412,75 +413,120 @@ const Navbar = ({ isPrimeOnly }) => {
   const getNavLinkClass = (path) => {
     const isActive = location.pathname === path;
     if (isActive) {
-      return "text-white font-bold bg-white/10 backdrop-blur-md border border-white/10 rounded-lg px-5 py-2 text-[15px] transition-all duration-300 ease-in-out shadow-[0_0_15px_rgba(0,168,225,0.4)]";
+      // Pill shape highlight for active state
+      return "text-white font-bold bg-white/20 backdrop-blur-md rounded-[20px] px-4 py-1.5 text-[15px] transition-all duration-300";
     }
-    return "text-[#c7cbd1] font-medium text-[15px] hover:text-white hover:bg-white/5 hover:backdrop-blur-sm rounded-lg px-4 py-2 transition-all duration-300 ease-in-out cursor-pointer hover:shadow-[0_0_10px_rgba(255,255,255,0.1)]";
+    return "text-[#aaaaaa] font-bold text-[15px] hover:text-white px-3 py-1.5 transition-colors duration-300";
   };
 
-  // --- DYNAMIC NAV CLASSES ---
-  // Scrolled State: Fixed Width (1500px), Fixed Height (66px), Padding (51px), Centered
+  // --- NAVBAR CLASSES ---
+  // When scrolled: Fixed 1521px width, 66px height, rounded bottom, carved glass effect
   const navClasses = isScrolled
-    ? "fixed top-0 left-1/2 -translate-x-1/2 w-[1500px] h-[66px] z-[1000] flex items-center px-[51px] transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] backdrop-blur-xl bg-[#0f171e]/90 rounded-b-[24px] shadow-[0_20px_40px_-10px_rgba(0,0,0,0.6),inset_0_-1px_0_rgba(255,255,255,0.1)] border-b border-white/5"
-    : "fixed top-0 left-0 w-full h-[66px] z-[1000] flex items-center px-[51px] transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] bg-transparent bg-gradient-to-b from-black/80 to-transparent rounded-none border-transparent";
+    ? "fixed top-0 left-1/2 -translate-x-1/2 w-[1521px] h-[66px] z-[1000] flex items-center px-[20px] transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] backdrop-blur-xl bg-[#0f171e]/95 rounded-b-[12px] shadow-[0_15px_30px_rgba(0,0,0,0.5),inset_0_-1px_0_rgba(255,255,255,0.08)] border-b border-white/5"
+    : "fixed top-0 left-0 w-full h-[66px] z-[1000] flex items-center justify-center px-[20px] transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] bg-gradient-to-b from-black/90 to-transparent";
+
+  // Inner container to ensure content stays within the 1521px limit even when full width
+  const innerContainerClass = isScrolled 
+    ? "w-full h-full flex items-center justify-between" 
+    : "w-[1521px] h-full flex items-center justify-between";
 
   return (
-    <nav
-      className={navClasses}
-      style={{ fontFamily: '"Amazon Ember", "Inter", "Segoe UI", sans-serif', gap: '28px' }}
-    >
-      <Link to={isPrimeOnly ? "/" : "/everything"} className="text-[#ffffff] font-bold text-[21px] tracking-[-0.2px] no-underline leading-none drop-shadow-md">
-        {theme.logoText}
-      </Link>
-      <div className="flex items-center gap-[6px]">
-        <Link to={isPrimeOnly ? "/" : "/everything"} className={getNavLinkClass(isPrimeOnly ? "/" : "/everything")}>Home</Link>
-        <Link to={isPrimeOnly ? "/movies" : "/everything/movies"} className={getNavLinkClass(isPrimeOnly ? "/movies" : "/everything/movies")}>Movies</Link>
-        <Link to={isPrimeOnly ? "/tv" : "/everything/tv"} className={getNavLinkClass(isPrimeOnly ? "/tv" : "/everything/tv")}>TV Shows</Link>
-        <Link to="/sports" className={`${getNavLinkClass("/sports")} flex items-center gap-2`}>
-          <Trophy size={16} className={location.pathname === "/sports" ? "text-[#00A8E1]" : "opacity-80"} />Live TV
-        </Link>
-      </div>
-      <div className="ml-auto flex items-center gap-6">
-        <div ref={searchRef} className="relative">
-          <form onSubmit={handleSearch} className={`px-3 py-1.5 rounded-md flex items-center group focus-within:border-white/30 transition-all w-[300px] md:w-[400px] ${isScrolled ? 'bg-[#19222b]/50 border border-white/10' : 'bg-[#19222b]/60 backdrop-blur-sm border border-white/20'}`}>
-            <Search size={18} className="text-[#c7cbd1]" />
-            <input className="bg-transparent border-none outline-none text-white text-sm font-medium ml-2 w-full placeholder-[#5a6069]" placeholder={isPrimeOnly ? "Search Prime..." : "Search Everything..."} value={query} onChange={(e) => setQuery(e.target.value)} onFocus={() => { if(query.length > 1) setShowSuggestions(true); }} />
-            {query && <X size={16} className="text-[#c7cbd1] cursor-pointer hover:text-white" onClick={handleClear} />}
-          </form>
-          {showSuggestions && (suggestions.text.length > 0 || suggestions.visual.length > 0) && (
-            <div className="absolute top-12 right-0 w-full bg-[#19222b]/95 backdrop-blur-xl border border-gray-700 rounded-lg shadow-2xl overflow-hidden animate-in z-[160]">
-              {suggestions.text.map((text, idx) => ( <div key={idx} onClick={() => { setQuery(text); handleSearch({preventDefault:()=>{}}); }} className="px-4 py-2 text-sm text-gray-300 hover:bg-[#333c46] hover:text-white cursor-pointer flex items-center gap-2 border-b border-white/5 last:border-0"><Search size={14} /> {text}</div> ))}
-              {suggestions.visual.length > 0 && ( <div className="px-4 pt-3 pb-2 text-[11px] font-bold text-gray-500 uppercase tracking-wider">Top Results</div> )}
-              <div className="flex gap-3 p-3 overflow-x-auto scrollbar-hide bg-[#00050D]/50">
-                {suggestions.visual.map((item) => (
-                  <div key={item.id} onClick={() => { setShowSuggestions(false); navigate(`/detail/${item.media_type}/${item.id}`); }} className="w-[100px] flex-shrink-0 cursor-pointer group">
-                    <div className="aspect-video rounded-md overflow-hidden bg-gray-800 relative"><img src={`${IMAGE_BASE_URL}${item.backdrop_path || item.poster_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" /></div>
-                    <div className="text-[11px] font-bold text-gray-400 mt-1 truncate group-hover:text-white">{item.title || item.name}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+    <nav className={navClasses} style={{ fontFamily: '"Amazon Ember", "Inter", sans-serif' }}>
+      <div className={innerContainerClass}>
         
-        {/* --- WATCHLIST BUTTON --- */}
-        <Link to="/watchlist" className="relative group flex items-center justify-center">
-            <div className={`w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer border ${isScrolled ? 'border-transparent' : 'border-transparent'} hover:border-white/10`}>
-               <Bookmark size={24} className="text-[#c7cbd1] group-hover:text-white transition-colors" />
-            </div>
-            <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap border border-white/10">Watchlist</span>
-        </Link>
+        {/* --- LEFT SECTION --- */}
+        <div className="flex items-center gap-6">
+          <Link to={isPrimeOnly ? "/" : "/everything"} className="text-[#ffffff] font-bold text-[19px] tracking-tight no-underline leading-none mr-2">
+            {theme.logoText}
+          </Link>
 
-        <div className="relative" ref={dropdownRef}>
-          <div className={`w-9 h-9 rounded-full bg-[#3d464f]/80 backdrop-blur-sm flex items-center justify-center border border-white/10 hover:border-white transition-all cursor-pointer`} onClick={() => setMenuOpen(!menuOpen)}><Grip size={20} className="text-[#c7cbd1]" /></div>
-          {menuOpen && (
-            <div className="absolute right-0 top-12 w-64 bg-[#19222b]/95 backdrop-blur-xl border border-gray-700 rounded-lg shadow-2xl p-2 z-[150] animate-in">
-              <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2 pt-2">Switch Mode</div>
-              <Link to="/" onClick={() => setMenuOpen(false)} className={`flex items-center gap-3 p-3 rounded-md transition-colors ${isPrimeOnly ? 'bg-[#00A8E1] text-white' : 'hover:bg-[#333c46] text-gray-300'}`}><CheckCircle2 size={18} className={isPrimeOnly ? "text-white" : "opacity-0"} /><div><div className="font-bold">Prime Video</div><div className="text-[10px] opacity-80">Included with Prime only</div></div></Link>
-              <Link to="/everything" onClick={() => setMenuOpen(false)} className={`flex items-center gap-3 p-3 rounded-md transition-colors ${!isPrimeOnly ? 'bg-[#E50914] text-white' : 'hover:bg-[#333c46] text-gray-300'}`}><CheckCircle2 size={18} className={!isPrimeOnly ? "text-white" : "opacity-0"} /><div><div className="font-bold">Literally Everything!</div><div className="text-[10px] opacity-80">All streaming services</div></div></Link>
-            </div>
-          )}
+          <div className="flex items-center gap-1">
+            <Link to={isPrimeOnly ? "/" : "/everything"} className={getNavLinkClass(isPrimeOnly ? "/" : "/everything")}>Home</Link>
+            <Link to={isPrimeOnly ? "/movies" : "/everything/movies"} className={getNavLinkClass(isPrimeOnly ? "/movies" : "/everything/movies")}>Movies</Link>
+            <Link to={isPrimeOnly ? "/tv" : "/everything/tv"} className={getNavLinkClass(isPrimeOnly ? "/tv" : "/everything/tv")}>TV shows</Link>
+            <Link to="/sports" className={getNavLinkClass("/sports")}>Live TV</Link>
+            
+            {/* Vertical Separator */}
+            <div className="w-[1px] h-5 bg-gray-600 mx-2"></div>
+
+            <Link to="/subscriptions" className="text-[#aaaaaa] font-bold text-[15px] hover:text-white px-2 flex items-center gap-2 transition-colors">
+               <Grip size={18} className="rotate-45" /> Subscriptions
+            </Link>
+            <Link to="/store" className="text-[#aaaaaa] font-bold text-[15px] hover:text-white px-2 flex items-center gap-2 transition-colors">
+               <Monitor size={18} /> Store
+            </Link>
+          </div>
         </div>
-        <div className={`w-9 h-9 rounded-full ${theme.bg} flex items-center justify-center text-white font-bold text-sm cursor-pointer border border-white/10 shadow-lg`}>U</div>
+
+        {/* --- RIGHT SECTION --- */}
+        <div className="flex items-center gap-5">
+          
+          {/* 1. Search Icon (Expandable) */}
+          <div ref={searchRef} className="relative group">
+            <div className={`flex items-center ${query ? 'bg-[#19222b] border border-white/20 w-[240px]' : 'w-auto'} transition-all duration-300 rounded-[4px]`}>
+               {query ? (
+                  <>
+                    <Search size={20} className="text-[#c7cbd1] ml-2" />
+                    <form onSubmit={handleSearch} className="flex-1">
+                      <input 
+                        className="bg-transparent border-none outline-none text-white text-[15px] font-medium px-2 w-full h-9 placeholder-[#5a6069]" 
+                        placeholder="Search..." 
+                        value={query} 
+                        onChange={(e) => setQuery(e.target.value)} 
+                        autoFocus
+                      />
+                    </form>
+                    <X size={18} className="text-[#c7cbd1] mr-2 cursor-pointer" onClick={handleClear} />
+                  </>
+               ) : (
+                  <Search size={22} className="text-[#aaaaaa] hover:text-white cursor-pointer transition-colors" onClick={() => setQuery(" ")} />
+               )}
+            </div>
+
+            {/* Suggestions Dropdown */}
+            {showSuggestions && (suggestions.text.length > 0 || suggestions.visual.length > 0) && (
+              <div className="absolute top-12 right-0 w-[300px] bg-[#19222b] border border-gray-700 rounded-lg shadow-2xl overflow-hidden z-[160]">
+                 {suggestions.text.map((text, idx) => (<div key={idx} onClick={() => { setQuery(text); handleSearch({preventDefault:()=>{}}); }} className="px-4 py-2 text-sm text-gray-300 hover:bg-[#333c46] cursor-pointer flex items-center gap-2"><Search size={14} /> {text}</div>))}
+                 <div className="flex gap-2 p-2 overflow-x-auto scrollbar-hide bg-[#00050D]/50">
+                    {suggestions.visual.map((item) => (
+                      <div key={item.id} onClick={() => { setShowSuggestions(false); navigate(`/detail/${item.media_type}/${item.id}`); }} className="w-[80px] flex-shrink-0 cursor-pointer"><img src={`${IMAGE_BASE_URL}${item.poster_path}`} className="rounded-sm opacity-80 hover:opacity-100" alt="" /></div>
+                    ))}
+                 </div>
+              </div>
+            )}
+          </div>
+
+          {/* 2. Grid/Menu Icon */}
+          <div className="relative" ref={dropdownRef}>
+            <div className="cursor-pointer" onClick={() => setMenuOpen(!menuOpen)}>
+              <Grip size={22} className="text-[#aaaaaa] hover:text-white transition-colors" />
+            </div>
+            {menuOpen && (
+              <div className="absolute right-0 top-10 w-56 bg-[#19222b] border border-gray-700 rounded-lg shadow-2xl p-2 z-[150] animate-in fade-in">
+                 <Link to="/" className="block p-2 text-sm text-gray-300 hover:bg-[#333c46] hover:text-white rounded">Prime Video</Link>
+                 <Link to="/everything" className="block p-2 text-sm text-gray-300 hover:bg-[#333c46] hover:text-white rounded">Everything</Link>
+              </div>
+            )}
+          </div>
+
+          {/* 3. Watchlist (Bookmark) */}
+          <Link to="/watchlist">
+            <Bookmark size={22} className="text-[#aaaaaa] hover:text-white transition-colors" />
+          </Link>
+
+          {/* 4. User Profile */}
+          <div className="w-9 h-9 rounded-full bg-[#232f3e] flex items-center justify-center cursor-pointer border border-transparent hover:border-white/50 transition-all overflow-hidden relative">
+             <div className="absolute inset-0 bg-gradient-to-tr from-[#1A92B6] to-[#6DD5FA] opacity-80"></div>
+             <div className="relative z-10 w-3 h-3 bg-white rounded-full mb-1"></div>
+             <div className="absolute bottom-0 w-6 h-3 bg-white rounded-t-full z-10"></div>
+          </div>
+
+          {/* 5. Join Prime Button */}
+          <button className="bg-[#007185] hover:bg-[#006476] text-white text-[15px] font-bold px-4 py-2 rounded-[4px] transition-colors shadow-sm">
+            Join Prime
+          </button>
+
+        </div>
       </div>
     </nav>
   );
