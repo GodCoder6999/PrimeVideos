@@ -1018,34 +1018,31 @@ const SearchResults = ({ isPrimeOnly }) => {
 const MovieDetail = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
+
   const [movie, setMovie] = useState(null);
-  const [relatedMovies, setRelatedMovies] = useState([]);
   const [credits, setCredits] = useState(null);
+  const [relatedMovies, setRelatedMovies] = useState([]);
   const [trailerKey, setTrailerKey] = useState(null);
   const [showVideo, setShowVideo] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
-  const [loadingDownloads, setLoadingDownloads] = useState(false);
-  const [downloadLinks, setDownloadLinks] = useState([]);
-  const [showDownloadModal, setShowDownloadModal] = useState(false);
 
   useEffect(() => {
     window.scrollTo(0, 0);
-    setShowVideo(false);
-    setTrailerKey(null);
-    setMovie(null);
 
     fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}`)
       .then(res => res.json())
-      .then(data => setMovie(data));
+      .then(setMovie);
 
     fetch(`${BASE_URL}/${type}/${id}/credits?api_key=${TMDB_API_KEY}`)
       .then(res => res.json())
-      .then(data => setCredits(data));
+      .then(setCredits);
 
     fetch(`${BASE_URL}/${type}/${id}/videos?api_key=${TMDB_API_KEY}`)
       .then(res => res.json())
       .then(data => {
-        const trailer = data.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube');
+        const trailer = data.results?.find(
+          v => v.type === 'Trailer' && v.site === 'YouTube'
+        );
         if (trailer) {
           setTrailerKey(trailer.key);
           setTimeout(() => setShowVideo(true), 3000);
@@ -1054,29 +1051,33 @@ const MovieDetail = () => {
 
     fetch(`${BASE_URL}/${type}/${id}/recommendations?api_key=${TMDB_API_KEY}`)
       .then(res => res.json())
-      .then(data => setRelatedMovies(data.results?.slice(0, 12) || []));
+      .then(data => setRelatedMovies(data.results || []));
   }, [type, id]);
 
   if (!movie) return <div className="min-h-screen bg-[#0f171e]" />;
 
-  const director = credits?.crew?.find(c => c.job === 'Director')?.name || '—';
-  const cast = credits?.cast?.slice(0, 6).map(c => c.name).join(', ') || '—';
+  const director =
+    credits?.crew?.find(c => c.job === 'Director')?.name || '—';
+  const cast =
+    credits?.cast?.slice(0, 8).map(c => c.name).join(', ') || '—';
 
   return (
-    <div className="min-h-screen bg-[#0f171e] text-white pb-20">
+    <div className="min-h-screen bg-[#0f171e] text-white">
 
       {/* HERO */}
       <div className="relative h-[85vh] overflow-hidden">
         <img
           src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`}
-          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ${showVideo ? 'opacity-0' : 'opacity-100'}`}
+          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ${
+            showVideo ? 'opacity-0' : 'opacity-100'
+          }`}
           alt=""
         />
 
         {showVideo && trailerKey && (
           <iframe
             src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&loop=1&playlist=${trailerKey}`}
-            className="absolute inset-0 w-full h-full scale-[1.5]"
+            className="absolute inset-0 w-full h-full scale-[1.4]"
             allow="autoplay; encrypted-media"
             frameBorder="0"
             title="Trailer"
@@ -1100,100 +1101,143 @@ const MovieDetail = () => {
             <span>•</span>
             <span>{movie.release_date?.split('-')[0]}</span>
             <span>•</span>
-            <span>{movie.runtime ? `${movie.runtime} min` : `${movie.number_of_seasons} Seasons`}</span>
+            <span>
+              {movie.runtime
+                ? `${Math.floor(movie.runtime / 60)} h ${movie.runtime % 60} min`
+                : `${movie.number_of_seasons} Seasons`}
+            </span>
           </div>
 
-          <div className="flex gap-4">
-            <button
-              onClick={() => navigate(`/watch/${type}/${id}`)}
-              className="bg-white text-black px-8 h-14 rounded font-bold flex items-center gap-3"
-            >
-              <Play fill="black" /> Play
-            </button>
-          </div>
+          <button
+            onClick={() => navigate(`/watch/${type}/${id}`)}
+            className="bg-white text-black px-8 h-14 rounded font-bold flex items-center gap-3 w-fit"
+          >
+            <Play fill="black" /> Play
+          </button>
         </div>
       </div>
 
-      {/* 🔥 PRIME-STYLE DETAILS SECTION (FIXED) */}
-      <div className="relative z-20 -mt-20 px-6 md:px-16 grid grid-cols-1 lg:grid-cols-[1.9fr_1.1fr] gap-10">
+      {/* PRIME VIDEO DETAILS */}
+      <div className="relative z-30 -mt-16 px-6 md:px-16 pb-20">
 
-        {/* LEFT COLUMN */}
-        <div className="space-y-6">
+        {/* Tabs */}
+        <div className="flex gap-6 text-sm font-semibold border-b border-white/10 mb-6">
+          <button className="pb-3 border-b-2 border-white">Related</button>
+          <button className="pb-3 text-gray-400 hover:text-white">Details</button>
+        </div>
 
-          {/* Tabs */}
-          <div className="flex gap-8 border-b border-white/10 text-sm font-semibold">
-            <button className="pb-3 border-b-2 border-white text-white">
-              Related
-            </button>
-            <button className="pb-3 text-gray-400 hover:text-white">
-              Details
-            </button>
-          </div>
+        <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-10">
 
-          {/* Description */}
-          <div className="bg-[#19222b] p-6 rounded-xl border border-white/5">
-            <p className="text-gray-300 text-sm leading-relaxed">
-              {movie.overview}
-            </p>
-          </div>
+          {/* LEFT */}
+          <div className="space-y-6">
 
-          {/* Customers also watched */}
-          <div>
-            <h3 className="text-lg font-bold mb-4">Customers also watched</h3>
-            <div className="flex gap-4 overflow-x-auto scrollbar-hide">
-              {relatedMovies.map(m => (
-                <div
-                  key={m.id}
-                  onClick={() => navigate(`/detail/${type}/${m.id}`)}
-                  className="w-[180px] aspect-video bg-[#19222b] rounded-lg overflow-hidden border border-white/5 cursor-pointer"
-                >
-                  <img
-                    src={`${IMAGE_BASE_URL}${m.backdrop_path || m.poster_path}`}
-                    className="w-full h-full object-cover"
-                    alt=""
-                  />
-                </div>
-              ))}
+            {/* Description */}
+            <div className="bg-[#19222b] rounded-xl border border-white/5 p-6">
+              <h3 className="text-lg font-bold mb-1">
+                {movie.title || movie.name}
+              </h3>
+
+              <div className="text-xs text-gray-400 mb-3">
+                <span>Drama</span> • <span>International</span> •{' '}
+                <span>Serious</span> •{' '}
+                <span>IMDb {movie.vote_average?.toFixed(1)}/10</span> •{' '}
+                <span>{movie.release_date?.split('-')[0]}</span> •{' '}
+                <span>
+                  {movie.runtime
+                    ? `${Math.floor(movie.runtime / 60)} h ${movie.runtime % 60} min`
+                    : `${movie.number_of_seasons} Seasons`}
+                </span>
+              </div>
+
+              <p className="text-sm text-gray-300 leading-relaxed line-clamp-3">
+                {movie.overview}
+              </p>
+
+              <button className="text-sm text-[#00A8E1] font-semibold mt-2 hover:underline">
+                More
+              </button>
+            </div>
+
+            {/* Creators & Cast */}
+            <div className="bg-[#19222b] rounded-xl border border-white/5 p-6 space-y-4">
+              <h3 className="text-lg font-bold">Creators and Cast</h3>
+
+              <div className="text-sm">
+                <span className="text-gray-400 block mb-1">Directors</span>
+                <span className="text-[#00A8E1]">{director}</span>
+              </div>
+
+              <div className="text-sm">
+                <span className="text-gray-400 block mb-1">Cast</span>
+                <span className="text-[#00A8E1]">{cast}</span>
+              </div>
+
+              <div className="text-sm">
+                <span className="text-gray-400 block mb-1">Studio</span>
+                <span className="text-[#00A8E1]">
+                  {movie.production_companies?.[0]?.name || '—'}
+                </span>
+              </div>
+            </div>
+
+            {/* Customers also watched */}
+            <div>
+              <h3 className="text-lg font-bold mb-4">
+                Customers also watched
+              </h3>
+
+              <div className="flex gap-4 overflow-x-auto scrollbar-hide">
+                {relatedMovies.map(m => (
+                  <div
+                    key={m.id}
+                    onClick={() => navigate(`/detail/${type}/${m.id}`)}
+                    className="w-[180px] aspect-video rounded-lg overflow-hidden border border-white/5 bg-[#19222b] cursor-pointer"
+                  >
+                    <img
+                      src={`${IMAGE_BASE_URL}${m.backdrop_path || m.poster_path}`}
+                      className="w-full h-full object-cover"
+                      alt=""
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
-          {/* Creators & Cast */}
-          <div className="bg-[#19222b] p-6 rounded-xl border border-white/5 space-y-3">
-            <div>
-              <span className="text-xs text-gray-400 uppercase">Director</span>
-              <div className="text-[#00A8E1]">{director}</div>
+          {/* RIGHT */}
+          <div className="space-y-4">
+
+            <div className="bg-[#19222b] rounded-xl border border-white/5 p-4">
+              <h4 className="text-sm font-bold mb-2">Content advisory</h4>
+              <p className="text-sm text-gray-400">
+                substance use, alcohol use, foul language, sexual content,
+                violence
+              </p>
             </div>
-            <div>
-              <span className="text-xs text-gray-400 uppercase">Starring</span>
-              <div className="text-[#00A8E1]">{cast}</div>
+
+            <div className="bg-[#19222b] rounded-xl border border-white/5 p-4">
+              <h4 className="text-sm font-bold mb-2">Audio languages</h4>
+              <p className="text-sm text-gray-400">
+                English, हिन्दी (Dialogue Boost: Medium, High)
+              </p>
+            </div>
+
+            <div className="bg-[#19222b] rounded-xl border border-white/5 p-4">
+              <h4 className="text-sm font-bold mb-2">Subtitles</h4>
+              <p className="text-sm text-gray-400 leading-relaxed">
+                English, English [CC], हिन्दी, தமிழ், తెలుగు, മലയാളം, বাংলা,
+                Bahasa Melayu, Filipino, Indonesia, Português (Brasil)
+              </p>
             </div>
           </div>
         </div>
 
-        {/* RIGHT COLUMN */}
-        <div className="space-y-4">
-
-          <div className="bg-[#19222b] p-4 rounded-xl border border-white/5">
-            <h4 className="text-sm font-bold mb-2">Content advisory</h4>
-            <p className="text-gray-400 text-sm">
-              substance use, alcohol use, foul language, sexual content, violence
-            </p>
-          </div>
-
-          <div className="bg-[#19222b] p-4 rounded-xl border border-white/5">
-            <h4 className="text-sm font-bold mb-2">Audio languages</h4>
-            <p className="text-gray-400 text-sm">
-              English, Hindi (Dialogue Boost: Medium, High)
-            </p>
-          </div>
-
-          <div className="bg-[#19222b] p-4 rounded-xl border border-white/5">
-            <h4 className="text-sm font-bold mb-2">Subtitles</h4>
-            <p className="text-gray-400 text-sm">
-              English, English [CC], हिन्दी, বাংলা, தமிழ், తెలుగు, മലയാളം
-            </p>
-          </div>
-
+        <div className="text-xs text-gray-500 mt-8 border-t border-white/10 pt-4">
+          By clicking play, you agree to our{' '}
+          <span className="text-white hover:underline cursor-pointer">
+            Terms of Use
+          </span>
+          .
         </div>
       </div>
     </div>
