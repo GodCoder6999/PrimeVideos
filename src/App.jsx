@@ -1138,227 +1138,6 @@ const SportsPage = () => {
   );
 };
 
-// --- PLAYER COMPONENT (UPDATED WITH SLIME SOURCE) ---
-const Player = () => {
-  const { type, id } = useParams();
-  const navigate = useNavigate();
-  const location = useLocation();
-
-  // --- STATE ---
-  const [activeServer, setActiveServer] = useState('vidfast'); 
-  const [isBengali, setIsBengali] = useState(false);
-  const [isIndian, setIsIndian] = useState(false); // Track Indian content
-  const [imdbId, setImdbId] = useState(null); // Store IMDb ID
-  
-  // Episode & Season State
-  const queryParams = new URLSearchParams(location.search);
-  const [season, setSeason] = useState(Number(queryParams.get('season')) || 1);
-  const [episode, setEpisode] = useState(Number(queryParams.get('episode')) || 1);
-  const [showEpisodes, setShowEpisodes] = useState(false);
-  const [seasonData, setSeasonData] = useState(null);
-  const [totalSeasons, setTotalSeasons] = useState(1);
-
-  // --- 1. FETCH METADATA & LANGUAGE DETECTION ---
-  useEffect(() => {
-    const fetchDetails = async () => {
-      try {
-        const res = await fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}`);
-        const data = await res.json();
-        
-        // 1. Store IDs
-        if (data.imdb_id) setImdbId(data.imdb_id); // TMDB to IMDB Logic
-        if (type === 'tv' && data.number_of_seasons) setTotalSeasons(data.number_of_seasons);
-
-        // 2. Detect Indian Content
-        // Checks Origin Country (IN) OR common Indian Languages
-        const indianLanguages = ['hi', 'ta', 'te', 'ml', 'kn', 'bn', 'pa', 'mr', 'gu', 'ur'];
-        const isIndianContent = 
-          (data.origin_country && data.origin_country.includes('IN')) || 
-          indianLanguages.includes(data.original_language);
-
-        setIsIndian(isIndianContent);
-
-        // 3. Auto-Switch Logic
-        if (isIndianContent) {
-          setActiveServer('slime'); // Switch to Slime for Indian
-        } else if (data.original_language === 'bn') {
-          setIsBengali(true);
-          setActiveServer('vidrock'); // Switch to VidRock for Bengali
-        } else {
-          setActiveServer('vidfast'); // Default
-        }
-
-      } catch (e) {
-        console.error("Error fetching details:", e);
-      }
-    };
-    fetchDetails();
-  }, [type, id]);
-
-  // --- 2. FETCH SEASONS (TV ONLY) ---
-  useEffect(() => {
-    if (type === 'tv') {
-      fetch(`${BASE_URL}/tv/${id}/season/${season}?api_key=${TMDB_API_KEY}`)
-        .then(res => res.json())
-        .then(data => setSeasonData(data));
-    }
-  }, [type, id, season]);
-
-  // --- 3. SOURCE GENERATOR ---
-  const getSourceUrl = () => {
-    // A. Slime (Indian Content - IMDb ID Required)
-    if (activeServer === 'slime') {
-      // Logic: Use IMDb ID if available, otherwise fallback to TMDB ID (though slime usually requires IMDb)
-      const identifier = imdbId; 
-      if (!identifier) return null; // Show error or fallback if no IMDb ID found
-      return `https://slime403heq.com/play/${identifier}`;
-    }
-
-    // B. VidRock (Bengali Only)
-    if (activeServer === 'vidrock') {
-      const identifier = imdbId || id;
-      if (type === 'tv') {
-        return `https://vidrock.net/tv/${identifier}/${season}/${episode}`;
-      } else {
-        return `https://vidrock.net/movie/${identifier}`;
-      }
-    }
-
-    // C. VidFast (Standard)
-    if (activeServer === 'vidfast') {
-      const themeParam = "theme=00A8E1";
-      if (type === 'tv') {
-        return `${VIDFAST_BASE}/tv/${id}/${season}/${episode}?autoPlay=true&${themeParam}&nextButton=true&autoNext=true`;
-      } else {
-        return `${VIDFAST_BASE}/movie/${id}?autoPlay=true&${themeParam}`;
-      }
-    }
-
-    // D. Zxcstream (Multi-Audio)
-    else {
-      if (type === 'tv') {
-        return `https://www.zxcstream.xyz/player/tv/${id}/${season}/${episode}?autoplay=false&back=true&server=0`;
-      } else {
-        return `https://www.zxcstream.xyz/player/movie/${id}?autoplay=false&back=true&server=0`;
-      }
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black z-[100] overflow-hidden flex flex-col" style={{ transform: 'translateZ(0)' }}>
-      {/* TOP CONTROLS LAYER */}
-      <div className="absolute top-0 left-0 w-full h-20 pointer-events-none z-[120] flex items-center justify-between px-6">
-        <button
-          onClick={() => navigate(-1)}
-          className="pointer-events-auto bg-black/50 hover:bg-[#00A8E1] text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all shadow-lg group"
-        >
-          <ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" />
-        </button>
-
-        {/* SERVER SWITCHER */}
-        <div className="pointer-events-auto flex flex-col items-center gap-1 bg-black/60 backdrop-blur-md border border-white/10 p-1.5 rounded-xl shadow-2xl transform translate-y-2">
-          <div className="flex bg-[#19222b] rounded-lg p-1 gap-1">
-            
-            {/* NEW SLIME BUTTON (Visible for Indian content or manually selectable) */}
-            {isIndian && (
-              <button
-                 onClick={() => setActiveServer('slime')}
-                 className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'slime' ? 'bg-[#E50914] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
-              >
-                Slime (Indian)
-              </button>
-            )}
-
-            {isBengali && !isIndian && (
-              <button
-                onClick={() => setActiveServer('vidrock')}
-                className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'vidrock' ? 'bg-[#E50914] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
-              >
-                VidRock
-              </button>
-            )}
-
-            <button
-              onClick={() => setActiveServer('vidfast')}
-              className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'vidfast' ? 'bg-[#00A8E1] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
-            >
-              VidFast
-            </button>
-            <button
-              onClick={() => setActiveServer('zxcstream')}
-              className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'zxcstream' ? 'bg-[#00A8E1] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
-            >
-              Multi-Audio
-            </button>
-          </div>
-        </div>
-
-        {/* EPISODE LIST TOGGLE (For TV) */}
-        {type === 'tv' ? (
-          <button
-            onClick={() => setShowEpisodes(!showEpisodes)}
-            className={`pointer-events-auto p-3 rounded-full backdrop-blur-md border border-white/10 transition-all ${showEpisodes ? 'bg-[#00A8E1] text-white' : 'bg-black/50 hover:bg-[#333c46] text-gray-200'}`}
-          >
-            <List size={24} />
-          </button>
-        ) : (
-          <div className="w-12"></div>
-        )}
-      </div>
-
-      {/* PLAYER FRAME */}
-      <div className="flex-1 relative w-full h-full bg-black">
-        {activeServer === 'slime' && !imdbId ? (
-           <div className="w-full h-full flex flex-col items-center justify-center text-white">
-             <Ban size={48} className="text-red-500 mb-4"/>
-             <h2 className="text-xl font-bold">Source Unavailable</h2>
-             <p className="text-gray-400 mt-2">This movie does not have a linked IMDb ID required for this server.</p>
-             <button onClick={() => setActiveServer('vidfast')} className="mt-6 px-6 py-2 bg-[#00A8E1] rounded-md font-bold">Try VidFast Server</button>
-           </div>
-        ) : (
-          <iframe
-            key={activeServer + season + episode}
-            src={getSourceUrl()}
-            className="w-full h-full border-none w-full aspect-video my-auto id-player-embedded-iframe"
-            allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-            title={activeServer === 'slime' ? "Slime Player" : "VidFast Player"}
-            loading="eager"
-            fetchPriority="high"
-          ></iframe>
-        )}
-      </div>
-
-      {/* EPISODE SIDEBAR (TV Only) */}
-      {type === 'tv' && (
-        <div className={`fixed right-0 top-0 h-full bg-[#00050D]/95 backdrop-blur-xl border-l border-white/10 transition-all duration-500 ease-in-out z-[110] flex flex-col ${showEpisodes ? 'w-[350px] translate-x-0 shadow-2xl' : 'w-[350px] translate-x-full shadow-none'}`}>
-          <div className="pt-24 px-6 pb-4 border-b border-white/10 flex items-center justify-between bg-[#1a242f]/50">
-            <h2 className="font-bold text-white text-lg">Episodes</h2>
-            <div className="relative">
-              <select value={season} onChange={(e) => setSeason(Number(e.target.value))} className="appearance-none bg-[#00A8E1] text-white font-bold py-1.5 pl-3 pr-8 rounded cursor-pointer text-sm outline-none hover:bg-[#008ebf] transition">
-                {Array.from({length: totalSeasons}, (_, i) => i + 1).map(s => (<option key={s} value={s} className="bg-[#1a242f]">Season {s}</option>))}
-              </select>
-              <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-white pointer-events-none" />
-            </div>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-hide">
-            {seasonData?.episodes ? (seasonData.episodes.map(ep => (
-              <div key={ep.id} onClick={() => setEpisode(ep.episode_number)} className={`flex gap-3 p-2 rounded-lg cursor-pointer transition-all group ${episode === ep.episode_number ? 'bg-[#333c46] border border-[#00A8E1]' : 'hover:bg-[#333c46] border border-transparent'}`}>
-                <div className="relative w-28 h-16 flex-shrink-0 bg-black rounded overflow-hidden">
-                  {ep.still_path ? (<img src={`${IMAGE_BASE_URL}${ep.still_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" />) : (<div className="w-full h-full flex items-center justify-center text-gray-600 text-xs">No Img</div>)}
-                  {episode === ep.episode_number && (<div className="absolute inset-0 bg-black/40 flex items-center justify-center"><Play size={16} fill="white" className="text-white" /></div>)}
-                </div>
-                <div className="flex flex-col justify-center min-w-0">
-                  <span className={`text-xs font-bold mb-0.5 ${episode === ep.episode_number ? 'text-[#00A8E1]' : 'text-gray-400'}`}>Episode {ep.episode_number}</span>
-                  <h4 className={`text-sm font-medium truncate leading-tight ${episode === ep.episode_number ? 'text-white' : 'text-gray-300 group-hover:text-white'}`}>{ep.name}</h4>
-                </div>
-              </div>
-            ))) : (<div className="text-center text-gray-500 mt-10 flex flex-col items-center"><Loader className="animate-spin mb-2" /><span>Loading Season {season}...</span></div>)}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
 // --- ROW COMPONENT ---
 const Row = ({ title, fetchUrl, data = null, variant = 'standard', itemType = 'movie', isPrimeOnly }) => {
   const [movies, setMovies] = useState([]);
@@ -1875,14 +1654,18 @@ const MovieDetail = () => {
   );
 };
 // --- PLAYER COMPONENT (UPDATED FOR RESUME) ---
+// --- PLAYER COMPONENT (UPDATED WITH SLIME SOURCE) ---
 const Player = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
 
   // --- STATE ---
-  const [activeServer, setActiveServer] = useState('vidfast'); // Default, will change if Bengali
-  const [isBengali, setIsBengali] = useState(false); // Track if content is Bengali
+  const [activeServer, setActiveServer] = useState('vidfast'); 
+  const [isBengali, setIsBengali] = useState(false);
+  const [isIndian, setIsIndian] = useState(false); // Track Indian content
+  const [imdbId, setImdbId] = useState(null); // Store IMDb ID
+  
   // Episode & Season State
   const queryParams = new URLSearchParams(location.search);
   const [season, setSeason] = useState(Number(queryParams.get('season')) || 1);
@@ -1890,7 +1673,6 @@ const Player = () => {
   const [showEpisodes, setShowEpisodes] = useState(false);
   const [seasonData, setSeasonData] = useState(null);
   const [totalSeasons, setTotalSeasons] = useState(1);
-  const [imdbId, setImdbId] = useState(null); // VidRock sometimes prefers IMDB ID
 
   // --- 1. FETCH METADATA & LANGUAGE DETECTION ---
   useEffect(() => {
@@ -1898,21 +1680,30 @@ const Player = () => {
       try {
         const res = await fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}`);
         const data = await res.json();
-        // CHECK LANGUAGE
-        if (data.original_language === 'bn') {
+        
+        // 1. Store IDs
+        if (data.imdb_id) setImdbId(data.imdb_id); // TMDB to IMDB Logic
+        if (type === 'tv' && data.number_of_seasons) setTotalSeasons(data.number_of_seasons);
+
+        // 2. Detect Indian Content
+        // Checks Origin Country (IN) OR common Indian Languages
+        const indianLanguages = ['hi', 'ta', 'te', 'ml', 'kn', 'bn', 'pa', 'mr', 'gu', 'ur'];
+        const isIndianContent = 
+          (data.origin_country && data.origin_country.includes('IN')) || 
+          indianLanguages.includes(data.original_language);
+
+        setIsIndian(isIndianContent);
+
+        // 3. Auto-Switch Logic
+        if (isIndianContent) {
+          setActiveServer('slime'); // Switch to Slime for Indian
+        } else if (data.original_language === 'bn') {
           setIsBengali(true);
-          setActiveServer('vidrock'); // Auto-switch to VidRock for Bengali
+          setActiveServer('vidrock'); // Switch to VidRock for Bengali
         } else {
-          setIsBengali(false);
-          setActiveServer('vidfast');
+          setActiveServer('vidfast'); // Default
         }
 
-        // Store IMDB ID for VidRock fallback
-        if (data.imdb_id) setImdbId(data.imdb_id);
-        // Set Total Seasons for TV
-        if (type === 'tv' && data.number_of_seasons) {
-          setTotalSeasons(data.number_of_seasons);
-        }
       } catch (e) {
         console.error("Error fetching details:", e);
       }
@@ -1931,9 +1722,16 @@ const Player = () => {
 
   // --- 3. SOURCE GENERATOR ---
   const getSourceUrl = () => {
-    // A. VidRock (Bengali Only)
+    // A. Slime (Indian Content - IMDb ID Required)
+    if (activeServer === 'slime') {
+      // Logic: Use IMDb ID if available, otherwise fallback to TMDB ID (though slime usually requires IMDb)
+      const identifier = imdbId; 
+      if (!identifier) return null; // Show error or fallback if no IMDb ID found
+      return `https://slime403heq.com/play/${identifier}`;
+    }
+
+    // B. VidRock (Bengali Only)
     if (activeServer === 'vidrock') {
-      // Use IMDB ID if available, otherwise TMDB ID
       const identifier = imdbId || id;
       if (type === 'tv') {
         return `https://vidrock.net/tv/${identifier}/${season}/${episode}`;
@@ -1941,7 +1739,8 @@ const Player = () => {
         return `https://vidrock.net/movie/${identifier}`;
       }
     }
-    // B. VidFast (Standard)
+
+    // C. VidFast (Standard)
     if (activeServer === 'vidfast') {
       const themeParam = "theme=00A8E1";
       if (type === 'tv') {
@@ -1950,7 +1749,8 @@ const Player = () => {
         return `${VIDFAST_BASE}/movie/${id}?autoPlay=true&${themeParam}`;
       }
     }
-    // C. Zxcstream (Multi-Audio)
+
+    // D. Zxcstream (Multi-Audio)
     else {
       if (type === 'tv') {
         return `https://www.zxcstream.xyz/player/tv/${id}/${season}/${episode}?autoplay=false&back=true&server=0`;
@@ -1974,13 +1774,23 @@ const Player = () => {
         {/* SERVER SWITCHER */}
         <div className="pointer-events-auto flex flex-col items-center gap-1 bg-black/60 backdrop-blur-md border border-white/10 p-1.5 rounded-xl shadow-2xl transform translate-y-2">
           <div className="flex bg-[#19222b] rounded-lg p-1 gap-1">
-            {/* SHOW VIDROCK ONLY IF BENGALI */}
-            {isBengali && (
+            
+            {/* NEW SLIME BUTTON (Visible for Indian content or manually selectable) */}
+            {isIndian && (
+              <button
+                 onClick={() => setActiveServer('slime')}
+                 className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'slime' ? 'bg-[#E50914] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
+              >
+                Slime (Indian)
+              </button>
+            )}
+
+            {isBengali && !isIndian && (
               <button
                 onClick={() => setActiveServer('vidrock')}
                 className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'vidrock' ? 'bg-[#E50914] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
               >
-                VidRock (Bengali)
+                VidRock
               </button>
             )}
 
@@ -1997,9 +1807,6 @@ const Player = () => {
               Multi-Audio
             </button>
           </div>
-          {activeServer === 'zxcstream' && (
-            <div className="text-[10px] text-[#00A8E1] font-bold animate-pulse">Select Audio Language in Player Settings</div>
-          )}
         </div>
 
         {/* EPISODE LIST TOGGLE (For TV) */}
@@ -2017,17 +1824,24 @@ const Player = () => {
 
       {/* PLAYER FRAME */}
       <div className="flex-1 relative w-full h-full bg-black">
-        <iframe
-          key={activeServer + season + episode}
-          src={getSourceUrl()}
-          className="w-full h-full border-none"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
-          loading="eager"
-          fetchPriority="high"
-          referrerPolicy="origin"
-          allowFullScreen
-          title="Player"
-        ></iframe>
+        {activeServer === 'slime' && !imdbId ? (
+           <div className="w-full h-full flex flex-col items-center justify-center text-white">
+             <Ban size={48} className="text-red-500 mb-4"/>
+             <h2 className="text-xl font-bold">Source Unavailable</h2>
+             <p className="text-gray-400 mt-2">This movie does not have a linked IMDb ID required for this server.</p>
+             <button onClick={() => setActiveServer('vidfast')} className="mt-6 px-6 py-2 bg-[#00A8E1] rounded-md font-bold">Try VidFast Server</button>
+           </div>
+        ) : (
+          <iframe
+            key={activeServer + season + episode}
+            src={getSourceUrl()}
+            className="w-full h-full border-none w-full aspect-video my-auto id-player-embedded-iframe"
+            allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+            title={activeServer === 'slime' ? "Slime Player" : "VidFast Player"}
+            loading="eager"
+            fetchPriority="high"
+          ></iframe>
+        )}
       </div>
 
       {/* EPISODE SIDEBAR (TV Only) */}
