@@ -325,16 +325,33 @@ const InfiniteScrollTrigger = ({ onIntersect }) => {
 
 // --- COMPONENTS ---
 
+// --- NAVBAR COMPONENT (ATTACHED FLOATING CURVE EFFECT) ---
 const Navbar = ({ isPrimeOnly }) => {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState({ text: [], visual: [] });
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isScrolled, setIsScrolled] = useState(false);
+
   const navigate = useNavigate();
   const location = useLocation();
   const searchRef = useRef(null);
   const dropdownRef = useRef(null);
   const theme = getTheme(isPrimeOnly);
+
+  // --- SCROLL LISTENER ---
+  useEffect(() => {
+    const handleScroll = () => {
+      // Threshold is 10px to trigger the effect
+      if (window.scrollY > 10) {
+        setIsScrolled(true);
+      } else {
+        setIsScrolled(false);
+      }
+    };
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -400,12 +417,21 @@ const Navbar = ({ isPrimeOnly }) => {
     return "text-[#c7cbd1] font-medium text-[15px] hover:text-white hover:bg-white/5 hover:backdrop-blur-sm rounded-lg px-4 py-2 transition-all duration-300 ease-in-out cursor-pointer hover:shadow-[0_0_10px_rgba(255,255,255,0.1)]";
   };
 
+  // --- DYNAMIC NAV CLASSES ---
+  // State 1 (Scrolled): 
+  // - Fixed at Top (0)
+  // - Rounded Bottom Corners (rounded-b-3xl) to create the "hanging" effect
+  // - Deep shadow + Inset highlight for "carved" glass look
+  const navClasses = isScrolled
+    ? "fixed top-0 left-0 w-full z-[1000] flex items-center px-[24px] transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] backdrop-blur-xl bg-[#0f171e]/90 rounded-b-[24px] shadow-[0_20px_40px_-10px_rgba(0,0,0,0.6),inset_0_-1px_0_rgba(255,255,255,0.1)] border-b border-white/5"
+    : "fixed top-0 left-0 w-full z-[1000] flex items-center px-[24px] transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] bg-transparent bg-gradient-to-b from-black/80 to-transparent rounded-none border-transparent";
+
   return (
     <nav
-      className="sticky top-0 w-full z-[1000] flex items-center px-[24px]"
-      style={{ height: '60px', background: 'linear-gradient(to bottom, #121a22 0%, #0f171e 100%)', fontFamily: '"Amazon Ember", "Inter", "Segoe UI", sans-serif', gap: '28px' }}
+      className={navClasses}
+      style={{ height: '64px', fontFamily: '"Amazon Ember", "Inter", "Segoe UI", sans-serif', gap: '28px' }}
     >
-      <Link to={isPrimeOnly ? "/" : "/everything"} className="text-[#ffffff] font-bold text-[21px] tracking-[-0.2px] no-underline leading-none">
+      <Link to={isPrimeOnly ? "/" : "/everything"} className="text-[#ffffff] font-bold text-[21px] tracking-[-0.2px] no-underline leading-none drop-shadow-md">
         {theme.logoText}
       </Link>
       <div className="flex items-center gap-[6px]">
@@ -418,13 +444,13 @@ const Navbar = ({ isPrimeOnly }) => {
       </div>
       <div className="ml-auto flex items-center gap-6">
         <div ref={searchRef} className="relative">
-          <form onSubmit={handleSearch} className="bg-[#19222b] border border-white/10 px-3 py-1.5 rounded-md flex items-center group focus-within:border-white/30 transition-all w-[300px] md:w-[400px]">
+          <form onSubmit={handleSearch} className={`px-3 py-1.5 rounded-md flex items-center group focus-within:border-white/30 transition-all w-[300px] md:w-[400px] ${isScrolled ? 'bg-[#19222b]/50 border border-white/10' : 'bg-[#19222b]/60 backdrop-blur-sm border border-white/20'}`}>
             <Search size={18} className="text-[#c7cbd1]" />
             <input className="bg-transparent border-none outline-none text-white text-sm font-medium ml-2 w-full placeholder-[#5a6069]" placeholder={isPrimeOnly ? "Search Prime..." : "Search Everything..."} value={query} onChange={(e) => setQuery(e.target.value)} onFocus={() => { if(query.length > 1) setShowSuggestions(true); }} />
             {query && <X size={16} className="text-[#c7cbd1] cursor-pointer hover:text-white" onClick={handleClear} />}
           </form>
           {showSuggestions && (suggestions.text.length > 0 || suggestions.visual.length > 0) && (
-            <div className="absolute top-12 right-0 w-full bg-[#19222b] border border-gray-700 rounded-lg shadow-2xl overflow-hidden animate-in z-[160]">
+            <div className="absolute top-12 right-0 w-full bg-[#19222b]/95 backdrop-blur-xl border border-gray-700 rounded-lg shadow-2xl overflow-hidden animate-in z-[160]">
               {suggestions.text.map((text, idx) => ( <div key={idx} onClick={() => { setQuery(text); handleSearch({preventDefault:()=>{}}); }} className="px-4 py-2 text-sm text-gray-300 hover:bg-[#333c46] hover:text-white cursor-pointer flex items-center gap-2 border-b border-white/5 last:border-0"><Search size={14} /> {text}</div> ))}
               {suggestions.visual.length > 0 && ( <div className="px-4 pt-3 pb-2 text-[11px] font-bold text-gray-500 uppercase tracking-wider">Top Results</div> )}
               <div className="flex gap-3 p-3 overflow-x-auto scrollbar-hide bg-[#00050D]/50">
@@ -438,22 +464,123 @@ const Navbar = ({ isPrimeOnly }) => {
             </div>
           )}
         </div>
+        
+        {/* --- WATCHLIST BUTTON --- */}
+        <Link to="/watchlist" className="relative group flex items-center justify-center">
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer border ${isScrolled ? 'border-transparent' : 'border-transparent'} hover:border-white/10`}>
+               <Bookmark size={24} className="text-[#c7cbd1] group-hover:text-white transition-colors" />
+            </div>
+            <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap border border-white/10">Watchlist</span>
+        </Link>
+
         <div className="relative" ref={dropdownRef}>
-          <div className={`w-9 h-9 rounded-full bg-[#3d464f] flex items-center justify-center border border-white/10 hover:border-white transition-all cursor-pointer`} onClick={() => setMenuOpen(!menuOpen)}><Grip size={20} className="text-[#c7cbd1]" /></div>
+          <div className={`w-9 h-9 rounded-full bg-[#3d464f]/80 backdrop-blur-sm flex items-center justify-center border border-white/10 hover:border-white transition-all cursor-pointer`} onClick={() => setMenuOpen(!menuOpen)}><Grip size={20} className="text-[#c7cbd1]" /></div>
           {menuOpen && (
-            <div className="absolute right-0 top-12 w-64 bg-[#19222b] border border-gray-700 rounded-lg shadow-2xl p-2 z-[150] animate-in">
+            <div className="absolute right-0 top-12 w-64 bg-[#19222b]/95 backdrop-blur-xl border border-gray-700 rounded-lg shadow-2xl p-2 z-[150] animate-in">
               <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2 pt-2">Switch Mode</div>
               <Link to="/" onClick={() => setMenuOpen(false)} className={`flex items-center gap-3 p-3 rounded-md transition-colors ${isPrimeOnly ? 'bg-[#00A8E1] text-white' : 'hover:bg-[#333c46] text-gray-300'}`}><CheckCircle2 size={18} className={isPrimeOnly ? "text-white" : "opacity-0"} /><div><div className="font-bold">Prime Video</div><div className="text-[10px] opacity-80">Included with Prime only</div></div></Link>
               <Link to="/everything" onClick={() => setMenuOpen(false)} className={`flex items-center gap-3 p-3 rounded-md transition-colors ${!isPrimeOnly ? 'bg-[#E50914] text-white' : 'hover:bg-[#333c46] text-gray-300'}`}><CheckCircle2 size={18} className={!isPrimeOnly ? "text-white" : "opacity-0"} /><div><div className="font-bold">Literally Everything!</div><div className="text-[10px] opacity-80">All streaming services</div></div></Link>
             </div>
           )}
         </div>
-        <div className={`w-9 h-9 rounded-full ${theme.bg} flex items-center justify-center text-white font-bold text-sm cursor-pointer border border-white/10`}>U</div>
+        <div className={`w-9 h-9 rounded-full ${theme.bg} flex items-center justify-center text-white font-bold text-sm cursor-pointer border border-white/10 shadow-lg`}>U</div>
       </div>
     </nav>
   );
 };
 
+// --- WATCHLIST PAGE COMPONENT ---
+const WatchlistPage = ({ isPrimeOnly }) => {
+  const [watchlistItems, setWatchlistItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const fetchWatchlist = async () => {
+      setLoading(true);
+      const savedList = JSON.parse(localStorage.getItem('watchlist')) || [];
+      
+      if (savedList.length === 0) {
+        setWatchlistItems([]);
+        setLoading(false);
+        return;
+      }
+
+      const promises = savedList.map(async (key) => {
+        // Key format: "type-id" (e.g., "movie-12345")
+        const [type, id] = key.split('-');
+        if (!type || !id) return null;
+        try {
+          const res = await fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}`);
+          const data = await res.json();
+          // Inject the type back into the object for the card component to use
+          return { ...data, media_type: type };
+        } catch (e) {
+          console.error("Failed to load watchlist item", e);
+          return null;
+        }
+      });
+
+      const results = await Promise.all(promises);
+      setWatchlistItems(results.filter(item => item !== null));
+      setLoading(false);
+    };
+
+    fetchWatchlist();
+  }, []);
+
+  return (
+    <div className="pt-10 px-6 md:px-12 min-h-screen pb-20">
+      <div className="flex items-center gap-3 mb-8">
+        <Bookmark className="text-[#00A8E1]" size={32} />
+        <h2 className="text-3xl font-bold text-white">Your Watchlist</h2>
+      </div>
+
+      {loading ? (
+        <div className="h-60 flex items-center justify-center">
+          <Loader className="animate-spin text-[#00A8E1]" size={40} />
+        </div>
+      ) : watchlistItems.length > 0 ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+          {watchlistItems.map((item) => (
+            <div 
+                key={item.id} 
+                onClick={() => navigate(`/detail/${item.media_type}/${item.id}`)}
+                className="relative group cursor-pointer transition-transform duration-300 hover:scale-105"
+            >
+                <div className="aspect-[2/3] rounded-lg overflow-hidden border border-white/10 group-hover:border-white/50 relative shadow-lg">
+                   {item.poster_path ? (
+                       <img src={`${IMAGE_BASE_URL}${item.poster_path}`} alt={item.title || item.name} className="w-full h-full object-cover" />
+                   ) : (
+                       <div className="w-full h-full bg-[#19222b] flex items-center justify-center text-gray-500">No Image</div>
+                   )}
+                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                       <Play fill="white" size={30} className="text-white drop-shadow-lg" />
+                   </div>
+                </div>
+                <div className="mt-3">
+                    <h4 className="text-white font-bold text-sm truncate">{item.title || item.name}</h4>
+                    <div className="text-xs text-gray-400 mt-1 flex items-center gap-2">
+                        <span className="uppercase border border-white/20 px-1 rounded text-[10px]">{item.media_type}</span>
+                        <span>{item.vote_average?.toFixed(1)} ★</span>
+                    </div>
+                </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="flex flex-col items-center justify-center h-[50vh] text-center">
+          <Bookmark size={64} className="text-gray-600 mb-4" />
+          <h3 className="text-xl font-bold text-gray-300 mb-2">Your watchlist is empty</h3>
+          <p className="text-gray-500 mb-6 max-w-md">Content you add to your watchlist will appear here.</p>
+          <button onClick={() => navigate('/')} className="px-6 py-3 bg-[#00A8E1] text-white font-bold rounded-md hover:bg-[#008ebf] transition">
+            Browse Movies
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
 // --- SPORTS / LIVE TV COMPONENTS ---
 const SportsPage = () => {
   const [channels, setChannels] = useState([]);
@@ -1750,6 +1877,7 @@ function App() {
           <Route path="/watch/sport/iptv" element={<SportsPlayer />} />
           <Route path="/live" element={<><Navbar isPrimeOnly={true} /><SportsPage /></>} />
           <Route path="/store" element={<><Navbar isPrimeOnly={true} /><StorePage /></>} />
+          <Route path="/watchlist" element={<><Navbar isPrimeOnly={true} /><WatchlistPage isPrimeOnly={true} /></>} />
         </Routes>
       </div>
     </BrowserRouter>
