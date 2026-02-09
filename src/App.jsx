@@ -23,6 +23,8 @@ const VIDFAST_ORIGINS = [
 ];
 
 // --- HELPER: GET PROGRESS ---
+// --- HELPER: GET PROGRESS ---
+// Retrieves the last watched timestamp for a specific movie or episode
 const getMediaProgress = (type, id) => {
   try {
     const allProgress = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
@@ -43,8 +45,7 @@ const useConnectionOptimizer = () => {
       "https://image.tmdb.org",
       "https://iptv-org.github.io",
       "https://a.111477.xyz",
-      "https://corsproxy.io",
-      "https://dlhd.link"
+      "https://corsproxy.io"
     ];
     domains.forEach(domain => {
       if (!document.querySelector(`link[rel="preconnect"][href="${domain}"]`)) {
@@ -327,7 +328,7 @@ const InfiniteScrollTrigger = ({ onIntersect }) => {
 
 // --- COMPONENTS ---
 
-// --- NAVBAR COMPONENT ---
+// --- NAVBAR COMPONENT (1500px WIDTH, 66px HEIGHT, 51px PADDING) ---
 const Navbar = ({ isPrimeOnly }) => {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState({ text: [], visual: [] });
@@ -341,8 +342,10 @@ const Navbar = ({ isPrimeOnly }) => {
   const dropdownRef = useRef(null);
   const theme = getTheme(isPrimeOnly);
 
+  // --- SCROLL LISTENER ---
   useEffect(() => {
     const handleScroll = () => {
+      // Threshold is 10px to trigger the effect
       if (window.scrollY > 10) {
         setIsScrolled(true);
       } else {
@@ -417,6 +420,8 @@ const Navbar = ({ isPrimeOnly }) => {
     return "text-[#c7cbd1] font-medium text-[15px] hover:text-white hover:bg-white/5 hover:backdrop-blur-sm rounded-lg px-4 py-2 transition-all duration-300 ease-in-out cursor-pointer hover:shadow-[0_0_10px_rgba(255,255,255,0.1)]";
   };
 
+  // --- DYNAMIC NAV CLASSES ---
+  // Scrolled State: Fixed Width (1500px), Fixed Height (66px), Padding (51px), Centered
   const navClasses = isScrolled
     ? "fixed top-0 left-1/2 -translate-x-1/2 w-[1500px] h-[66px] z-[1000] flex items-center px-[51px] transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] backdrop-blur-xl bg-[#0f171e]/90 rounded-b-[24px] shadow-[0_20px_40px_-10px_rgba(0,0,0,0.6),inset_0_-1px_0_rgba(255,255,255,0.1)] border-b border-white/5"
     : "fixed top-0 left-0 w-full h-[66px] z-[1000] flex items-center px-[51px] transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] bg-transparent bg-gradient-to-b from-black/80 to-transparent rounded-none border-transparent";
@@ -460,6 +465,7 @@ const Navbar = ({ isPrimeOnly }) => {
           )}
         </div>
         
+        {/* --- WATCHLIST BUTTON --- */}
         <Link to="/watchlist" className="relative group flex items-center justify-center">
             <div className={`w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer border ${isScrolled ? 'border-transparent' : 'border-transparent'} hover:border-white/10`}>
                <Bookmark size={24} className="text-[#c7cbd1] group-hover:text-white transition-colors" />
@@ -482,7 +488,6 @@ const Navbar = ({ isPrimeOnly }) => {
     </nav>
   );
 };
-
 // --- WATCHLIST PAGE COMPONENT ---
 const WatchlistPage = ({ isPrimeOnly }) => {
   const [watchlistItems, setWatchlistItems] = useState([]);
@@ -501,11 +506,13 @@ const WatchlistPage = ({ isPrimeOnly }) => {
       }
 
       const promises = savedList.map(async (key) => {
+        // Key format: "type-id" (e.g., "movie-12345")
         const [type, id] = key.split('-');
         if (!type || !id) return null;
         try {
           const res = await fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}`);
           const data = await res.json();
+          // Inject the type back into the object for the card component to use
           return { ...data, media_type: type };
         } catch (e) {
           console.error("Failed to load watchlist item", e);
@@ -579,196 +586,6 @@ const SportsPage = () => {
   const [channels, setChannels] = useState([]);
   const [displayedChannels, setDisplayedChannels] = useState([]);
   
-  // --- DLHD STATIC CHANNELS LIST ---
-  // List provided by user, mapped to object structure for integration
-  const DLHD_RAW_LIST = [
-    { n: "ABC USA", id: "51" }, { n: "AHC (American Heroes Channel)", id: "206" }, { n: "Antenna TV USA", id: "283" }, { n: "A&E USA", id: "302" }, { n: "AMC USA", id: "303" }, { n: "Animal Planet", id: "304" },
-    { n: "Astro SuperSport 1", id: "123" }, { n: "Astro SuperSport 2", id: "124" }, { n: "Astro SuperSport 3", id: "125" }, { n: "Astro SuperSport 4", id: "126" },
-    { n: "Arena Sport 1 Premium", id: "134" }, { n: "Arena Sport 2 Premium", id: "135" }, { n: "Arena Sport 3 Premium", id: "139" }, { n: "Arena Sport 1 Serbia", id: "429" },
-    { n: "Arena Sport 2 Serbia", id: "430" }, { n: "Arena Sport 3 Serbia", id: "431" }, { n: "Arena Sport 4 Serbia", id: "581" }, { n: "Arena Sport 1 Croatia", id: "432" },
-    { n: "Arena Sport 2 Croatia", id: "433" }, { n: "Arena Sport 3 Croatia", id: "434" }, { n: "Arena Sport 4 Croatia", id: "580" }, { n: "Alkass One", id: "781" },
-    { n: "Alkass Two", id: "782" }, { n: "Alkass Three", id: "783" }, { n: "Alkass Four", id: "784" }, { n: "Arena Sport 1 BiH", id: "579" },
-    { n: "Abu Dhabi Sports 1 UAE", id: "600" }, { n: "Abu Dhabi Sports 2 UAE", id: "601" }, { n: "Abu Dhabi Sports 1 Premium", id: "609" }, { n: "Abu Dhabi Sports 2 Premium", id: "610" },
-    { n: "Astro Cricket", id: "370" }, { n: "Antena 3 Spain", id: "531" }, { n: "Arena Sports Tenis Serbia", id: "612" }, { n: "ACC Network USA", id: "664" }, { n: "Adult Swim", id: "295" },
-    { n: "A Sport PK", id: "269" }, { n: "AXN Movies Portugal", id: "717" }, { n: "Arte DE", id: "725" }, { n: "AXS TV USA", id: "742" }, { n: "ABC NY USA", id: "766" },
-    { n: "Azteca 7 MX", id: "844" }, { n: "Altitude Sports", id: "923" }, { n: "Azteca Uno MX", id: "934" }, { n: "Arena Sport 5 Serbia", id: "940" }, { n: "Arena Sport 6 Serbia", id: "941" },
-    { n: "Arena Sport 7 Serbia", id: "942" }, { n: "Arena Sport 8 Serbia", id: "943" }, { n: "Arena Sport 9 Serbia", id: "944" }, { n: "Arena Sport 10 Serbia", id: "945" },
-    { n: "Arte France", id: "958" }, { n: "Automoto La chaîne", id: "961" }, { n: "ATV Turkey", id: "1000" }, { n: "A Spor Turkey", id: "1011" },
-    { n: "beIN Sports MENA English 1", id: "61" }, { n: "beIN Sports MENA English 2", id: "90" }, { n: "beIN Sports 1 Arabic", id: "91" }, { n: "beIN Sports 2 Arabic", id: "92" },
-    { n: "beIN Sports 3 Arabic", id: "93" }, { n: "beIN Sports 4 Arabic", id: "94" }, { n: "beIN Sports 5 Arabic", id: "95" }, { n: "beIN Sports 6 Arabic", id: "96" },
-    { n: "beIN Sports 7 Arabic", id: "97" }, { n: "beIN Sports 8 Arabic", id: "98" }, { n: "beIN Sports 9 Arabic", id: "99" }, { n: "beIN SPORTS XTRA 1", id: "100" },
-    { n: "beIN Sports MAX 4 France", id: "494" }, { n: "beIN Sports MAX 5 France", id: "495" }, { n: "beIN Sports MAX 6 France", id: "496" }, { n: "beIN Sports MAX 7 France", id: "497" },
-    { n: "beIN Sports MAX 8 France", id: "498" }, { n: "beIN Sports MAX 9 France", id: "499" }, { n: "beIN Sports MAX 10 France", id: "500" }, { n: "beIN SPORTS 1 France", id: "116" },
-    { n: "beIN SPORTS 2 France", id: "117" }, { n: "beIN SPORTS 3 France", id: "118" }, { n: "beIN SPORTS 1 Turkey", id: "62" }, { n: "beIN SPORTS 2 Turkey", id: "63" },
-    { n: "beIN SPORTS 3 Turkey", id: "64" }, { n: "beIN SPORTS 4 Turkey", id: "67" }, { n: "BeIN Sports HD Qatar", id: "578" }, { n: "BeIN SPORTS USA", id: "425" },
-    { n: "beIN SPORTS en Espa単ol", id: "372" }, { n: "beIN SPORTS Australia 1", id: "491" }, { n: "beIN SPORTS Australia 2", id: "492" }, { n: "beIN SPORTS Australia 3", id: "493" },
-    { n: "Barca TV Spain", id: "522" }, { n: "Benfica TV PT", id: "380" }, { n: "Boomerang", id: "648" }, { n: "BNT 1 Bulgaria", id: "476" }, { n: "BNT 2 Bulgaria", id: "477" },
-    { n: "BNT 3 Bulgaria", id: "478" }, { n: "BR Fernsehen DE", id: "737" }, { n: "bTV Bulgaria", id: "479" }, { n: "bTV Action Bulgaria", id: "481" }, { n: "bTV Lady Bulgaria", id: "484" },
-    { n: "BBC America (BBCA)", id: "305" }, { n: "BET USA", id: "306" }, { n: "Bravo USA", id: "307" }, { n: "BBC News Channel HD", id: "349" }, { n: "BBC One UK", id: "356" },
-    { n: "BBC Two UK", id: "357" }, { n: "BBC Three UK", id: "358" }, { n: "BBC Four UK", id: "359" }, { n: "BIG TEN Network (BTN USA)", id: "397" }, { n: "beIN Sports 1 Malaysia", id: "712" },
-    { n: "beIN Sports 2 Malaysia", id: "713" }, { n: "beIN Sports 3 Malaysia", id: "714" }, { n: "BFM TV France", id: "957" }, { n: "bein Sports 5 Turkey", id: "1010" }, { n: "Bandsports Brasil", id: "275" },
-    { n: "Canal+ MotoGP France", id: "271" }, { n: "Canal+ Formula 1", id: "273" }, { n: "CW PIX 11 USA", id: "280" }, { n: "CBS USA", id: "52" }, { n: "Court TV USA", id: "281" },
-    { n: "CW USA", id: "300" }, { n: "CNBC USA", id: "309" }, { n: "Comedy Central", id: "310" }, { n: "Cartoon Network", id: "339" }, { n: "CNN USA", id: "345" }, { n: "Cinemax USA", id: "374" },
-    { n: "Cuatro Spain", id: "535" }, { n: "Channel 4 UK", id: "354" }, { n: "Channel 5 UK", id: "355" }, { n: "CBS Sports Network (CBSSN)", id: "308" }, { n: "Canal+ France", id: "121" },
-    { n: "Canal+ Sport France", id: "122" }, { n: "Canal+ Foot France", id: "463" }, { n: "Canal+ Sport360", id: "464" }, { n: "Canal 11 Portugal", id: "540" }, { n: "Canal+ Sport Poland", id: "48" },
-    { n: "Canal+ Sport 2 Poland", id: "73" }, { n: "Canal+ Sport 3 Poland", id: "259" }, { n: "Canal+ Sport 5 Poland", id: "75" }, { n: "Canal+ Premium Poland", id: "566" },
-    { n: "Canal+ Family Poland", id: "567" }, { n: "Canal+ Seriale Poland", id: "570" }, { n: "Canal+ Sport 1 Afrique", id: "486" }, { n: "Canal+ Sport 2 Afrique", id: "487" },
-    { n: "Canal+ Sport 3 Afrique", id: "488" }, { n: "Canal+ Sport 4 Afrique", id: "489" }, { n: "Canal+ Sport 5 Afrique", id: "490" }, { n: "CANAL 9 Denmark", id: "805" },
-    { n: "Combate Brasil", id: "89" }, { n: "Cosmote Sport 1 HD", id: "622" }, { n: "Cosmote Sport 2 HD", id: "623" }, { n: "Cosmote Sport 3 HD", id: "624" }, { n: "Cosmote Sport 4 HD", id: "625" },
-    { n: "Cosmote Sport 5 HD", id: "626" }, { n: "Cosmote Sport 6 HD", id: "627" }, { n: "Cosmote Sport 7 HD", id: "628" }, { n: "Cosmote Sport 8 HD", id: "629" }, { n: "Cosmote Sport 9 HD", id: "630" },
-    { n: "Channel 9 Israel", id: "546" }, { n: "Channel 10 Israe", id: "547" }, { n: "Channel 11 Israel", id: "548" }, { n: "Channel 12 Israel", id: "549" }, { n: "Channel 13 Israel", id: "551" },
-    { n: "Channel 14 Israel", id: "552" }, { n: "C More First Sweden", id: "812" }, { n: "C More Hits Sweden", id: "813" }, { n: "C More Series Sweden", id: "814" }, { n: "COZI TV USA", id: "748" },
-    { n: "CMT USA", id: "647" }, { n: "CTV Canada", id: "602" }, { n: "CTV 2 Canada", id: "838" }, { n: "Crime+ Investigation USA", id: "669" }, { n: "Comet USA", id: "696" },
-    { n: "Cooking Channel USA", id: "697" }, { n: "Cleo TV", id: "715" }, { n: "C SPAN 1", id: "750" }, { n: "CBSNY USA", id: "767" }, { n: "Chicago Sports Network", id: "776" },
-    { n: "Citytv", id: "831" }, { n: "CBC CA", id: "832" }, { n: "Claro Sports MX", id: "933" }, { n: "Canal5 MX", id: "936" }, { n: "C8 France", id: "956" }, { n: "CNews France", id: "964" },
-    { n: "Canal+ Sport CZ", id: "1020" }, { n: "CT Sport CZ", id: "1033" }, { n: "Nova HD CZ", id: "1034" }, { n: "CT1 HD CZ", id: "1035" }, { n: "CT2 HD CZ", id: "1036" }, { n: "TN Live CZ", id: "1037" },
-    { n: "OnePlay Sport 4 CZ", id: "1038" }, { n: "OnePlay MD2 CZ", id: "1039" }, { n: "OnePlay MD3 CZ", id: "1040" }, { n: "OnePlay MD4 CZ", id: "1041" }, { n: "Sport 1 CZ", id: "1042" },
-    { n: "Canal+ Sport 2 CZ", id: "1043" }, { n: "Canal+ Sport 3 CZ", id: "1044" }, { n: "Canal+ Sport 4 CZ", id: "1045" }, { n: "Canal+ Sport 5 CZ", id: "1046" }, { n: "Canal+ Sport 6 CZ", id: "1047" },
-    { n: "Canal+ Sport 7 CZ", id: "1048" }, { n: "Canal+ Sport 8 CZ", id: "1049" }, { n: "JOJ SK", id: "1050" }, { n: "Dajto SK", id: "1051" }, { n: "JOJ Šport SK", id: "1052" },
-    { n: "Voyo Special 1 SK", id: "1053" }, { n: "Voyo Special 2 SK", id: "1054" }, { n: "Voyo Special 3 SK", id: "1055" }, { n: "Voyo Special 4 SK", id: "1056" }, { n: "Voyo Special 7 SK", id: "1057" },
-    { n: "Voyo Special 8 SK", id: "1058" }, { n: "Voyo Special 9 SK", id: "1059" }, { n: "Nova Sport 3 SK", id: "1060" }, { n: "Nova Sport 4 SK", id: "1061" }, { n: "Nova Sport 5 SK", id: "1062" },
-    { n: "Canal+ Sport SK", id: "1063" }, { n: "Canal+ Sport 2 SK", id: "1064" }, { n: "Canal+ Sport 3 SK", id: "1065" }, { n: "Canal+ Sport 4 SK", id: "1066" }, { n: "CBS Sports Golazo", id: "910" },
-    { n: "CMTV Portugal", id: "790" }, { n: "Cytavision Sports 1 Cyprus", id: "911" }, { n: "Cytavision Sports 2 Cyprus", id: "912" }, { n: "Cytavision Sports 3 Cyprus", id: "913" },
-    { n: "Cytavision Sports 4 Cyprus", id: "914" }, { n: "Cytavision Sports 5 Cyprus", id: "915" }, { n: "Cytavision Sports 6 Cyprus", id: "916" }, { n: "Cytavision Sports 7 Cyprus", id: "917" },
-    { n: "DAZN 1 UK", id: "230" }, { n: "Discovery Velocity CA", id: "285" }, { n: "DAZN 1 Bar DE", id: "426" }, { n: "DAZN 2 Bar DE", id: "427" }, { n: "DAZN 1 Spain", id: "445" },
-    { n: "DAZN 2 Spain", id: "446" }, { n: "DAZN 3 Spain", id: "447" }, { n: "DAZN 4 Spain", id: "448" }, { n: "DAZN F1 ES", id: "537" }, { n: "DAZN LaLiga", id: "538" },
-    { n: "DAZN Portugal FIFA Mundial de Clubes", id: "918" }, { n: "DR1 Denmark", id: "801" }, { n: "DR2 Denmark", id: "802" }, { n: "DAZN Ligue 1 France", id: "960" }, { n: "Digi Sport 1 Romania", id: "400" },
-    { n: "Digi Sport 2 Romania", id: "401" }, { n: "Digi Sport 3 Romania", id: "402" }, { n: "Digi Sport 4 Romania", id: "403" }, { n: "Diema Sport Bulgaria", id: "465" }, { n: "Diema Sport 2 Bulgaria", id: "466" },
-    { n: "Diema Sport 3 Bulgaria", id: "467" }, { n: "Diema Bulgaria", id: "482" }, { n: "Diema Family Bulgaria", id: "485" }, { n: "Dubai Sports 1 UAE", id: "604" }, { n: "Dubai Sports 2 UAE", id: "605" },
-    { n: "Dubai Sports 3 UAE", id: "606" }, { n: "Dubai Racing 2 UAE", id: "608" }, { n: "DSTV Mzansi Magic", id: "786" }, { n: "DSTV M-Net", id: "827" }, { n: "DSTV kykNET & kie", id: "828" },
-    { n: "DAZN ZONA Italy", id: "877" }, { n: "Discovery Life Channel", id: "311" }, { n: "Disney Channel", id: "312" }, { n: "Discovery Channel", id: "313" }, { n: "Discovery Family", id: "657" },
-    { n: "Disney XD", id: "314" }, { n: "Destination America", id: "651" }, { n: "Disney JR", id: "652" }, { n: "Dave", id: "348" }, { n: "ESPN USA", id: "44" }, { n: "ESPN2 USA", id: "45" },
-    { n: "ESPNU USA", id: "316" }, { n: "ESPN 1 NL", id: "379" }, { n: "ESPN 2 NL", id: "386" }, { n: "Eleven Sports 1 Poland", id: "71" }, { n: "Eleven Sports 2 Poland", id: "72" },
-    { n: "Eleven Sports 3 Poland", id: "428" }, { n: "Eleven Sports 1 Portugal", id: "455" }, { n: "Eleven Sports 2 Portugal", id: "456" }, { n: "Eleven Sports 3 Portugal", id: "457" },
-    { n: "Eleven Sports 4 Portugal", id: "458" }, { n: "Eleven Sports 5 Portugal", id: "459" }, { n: "EuroSport 1 Greece", id: "41" }, { n: "EuroSport 2 Greece", id: "42" },
-    { n: "EuroSport 1 Poland", id: "57" }, { n: "EuroSport 2 Poland", id: "58" }, { n: "Eurosport 1 SW", id: "231" }, { n: "Eurosport 2 SW", id: "232" }, { n: "Eurosport 1 NL", id: "233" },
-    { n: "Eurosport 2 NL", id: "234" }, { n: "EuroSport 1 Spain", id: "524" }, { n: "EuroSport 2 Spain", id: "525" }, { n: "EuroSport 1 Italy", id: "878" }, { n: "EuroSport 2 Italy", id: "879" },
-    { n: "ESPN Premium Argentina", id: "387" }, { n: "ESPN Brasil", id: "81" }, { n: "ESPN2 Brasil", id: "82" }, { n: "ESPN3 Brasil", id: "83" }, { n: "ESPN4 Brasil", id: "85" },
-    { n: "ESPN Argentina", id: "149" }, { n: "ESPN2 Argentina", id: "150" }, { n: "ESPN Deportes", id: "375" }, { n: "ESPNews", id: "288" }, { n: "E! Entertainment Television", id: "315" },
-    { n: "E4 Channel", id: "363" }, { n: "ESPN 3 NL", id: "888" }, { n: "ERT 1 Greece", id: "774" }, { n: "Eurosport 1 France", id: "772" }, { n: "Eurosport 2 France", id: "773" },
-    { n: "ESPN3 Argentina", id: "798" }, { n: "ESPN 1 MX", id: "925" }, { n: "ESPN 2 MX", id: "926" }, { n: "ESPN 3 MX", id: "927" }, { n: "ESPN 4 MX", id: "928" }, { n: "FUSE TV USA", id: "279" },
-    { n: "Fox Sports 1 USA", id: "39" }, { n: "Fox Sports 2 USA", id: "758" }, { n: "FOX Soccer Plus", id: "756" }, { n: "Fox Cricket", id: "369" }, { n: "FOX Deportes USA", id: "643" },
-    { n: "FOX Sports 502 AU", id: "820" }, { n: "FOX Sports 503 AU", id: "821" }, { n: "FOX Sports 504 AU", id: "822" }, { n: "FOX Sports 505 AU", id: "823" }, { n: "FOX Sports 506 AU", id: "824" },
-    { n: "FOX Sports 507 AU", id: "825" }, { n: "Fox Sports 1 MX", id: "929" }, { n: "Fox Sports 2 MX", id: "930" }, { n: "Fox Sports 3 MX", id: "931" }, { n: "Fox Sports Argentina", id: "787" },
-    { n: "Fox Sports 2 Argentina", id: "788" }, { n: "Fox Sports 3 Argentina", id: "789" }, { n: "Fox Sports Premium MX", id: "830" }, { n: "FilmBox Premium Poland", id: "568" },
-    { n: "Fight Network", id: "757" }, { n: "Fox Business", id: "297" }, { n: "FOX HD Bulgaria", id: "483" }, { n: "FOX USA", id: "54" }, { n: "FX USA", id: "317" }, { n: "FXX USA", id: "298" },
-    { n: "Freeform", id: "301" }, { n: "Fox News", id: "347" }, { n: "FX Movie Channel", id: "381" }, { n: "FYI", id: "665" }, { n: "Film4 UK", id: "688" }, { n: "Fashion TV", id: "744" },
-    { n: "FETV - Family Entertainment Television", id: "751" }, { n: "FOXNY USA", id: "768" }, { n: "Fox Weather Channel", id: "775" }, { n: "FanDuel Sports Network Arizona", id: "890" },
-    { n: "FanDuel Sports Network Detroit", id: "891" }, { n: "FanDuel Sports Network Florida", id: "892" }, { n: "FanDuel Sports Network Great Lakes", id: "893" },
-    { n: "FanDuel Sports Network Indiana", id: "894" }, { n: "FanDuel Sports Network Kansas City", id: "895" }, { n: "FanDuel Sports Network Midwest", id: "896" },
-    { n: "FanDuel Sports Network New Orleans", id: "897" }, { n: "FanDuel Sports Network North", id: "898" }, { n: "FanDuel Sports Network Ohio", id: "899" },
-    { n: "FanDuel Sports Network Oklahoma", id: "900" }, { n: "FanDuel Sports Network SoCal", id: "902" }, { n: "FanDuel Sports Network South", id: "903" },
-    { n: "FanDuel Sports Network Southeast", id: "904" }, { n: "FanDuel Sports Network Sun", id: "905" }, { n: "FanDuel Sports Network West", id: "906" },
-    { n: "FanDuel Sports Network Wisconsin", id: "907" }, { n: "France 2", id: "950" }, { n: "France 3", id: "951" }, { n: "France 4", id: "952" }, { n: "France 5", id: "953" },
-    { n: "GOL PLAY Spain", id: "530" }, { n: "GOLF Channel USA", id: "318" }, { n: "Game Show Network", id: "319" }, { n: "beIN SPORTS MAX AR", id: "597" }, { n: "Gold UK", id: "687" },
-    { n: "Great American Family Channel (GAC)", id: "699" }, { n: "Galavisi贸n USA", id: "743" }, { n: "Grit Channel", id: "752" }, { n: "Globo SP", id: "760" }, { n: "Globo RIO", id: "761" },
-    { n: "Global CA", id: "836" }, { n: "The Hallmark Channel", id: "320" }, { n: "Hallmark Movies & Mysterie", id: "296" }, { n: "Heroes & Icons (H&I) USA", id: "282" }, { n: "HBO USA", id: "321" },
-    { n: "HBO2 USA", id: "689" }, { n: "HBO Comedy USA", id: "690" }, { n: "HBO Family USA", id: "691" }, { n: "HBO Latino USA", id: "692" }, { n: "HBO Signature USA", id: "693" },
-    { n: "HBO Zone USA", id: "694" }, { n: "HBO Poland", id: "569" }, { n: "History USA", id: "322" }, { n: "Headline News", id: "323" }, { n: "HGTV", id: "382" }, { n: "Happy TV Serbia", id: "846" },
-    { n: "HOT3 Israel", id: "553" }, { n: "ITV 1 UK", id: "350" }, { n: "ITV 2 UK", id: "351" }, { n: "ITV 3 UK", id: "352" }, { n: "ITV 4 UK", id: "353" }, { n: "ITV Quiz", id: "876" },
-    { n: "Italia 1 Italy", id: "854" }, { n: "Investigation Discovery (ID USA)", id: "324" }, { n: "ION USA", id: "325" }, { n: "IFC TV USA", id: "656" }, { n: "Kanal 4 Denmark", id: "803" },
-    { n: "Kanal 5 Denmark", id: "804" }, { n: "Kabel Eins (Kabel 1) DE", id: "731" }, { n: "Kanal D Turkey", id: "1001" }, { n: "LaLigaTV UK", id: "276" }, { n: "Law & Crime Network", id: "278" },
-    { n: "LaLiga SmartBank TV", id: "539" }, { n: "L'Equipe France", id: "645" }, { n: "La Sexta Spain", id: "534" }, { n: "Liverpool TV (LFC TV)", id: "826" }, { n: "Logo TV USA", id: "849" },
-    { n: "Las Estrellas", id: "924" }, { n: "LCI France", id: "962" }, { n: "Lifetime Network", id: "326" }, { n: "Lifetime Movies Network", id: "389" }, { n: "La7 Italy", id: "855" },
-    { n: "LA7d HD+ Italy", id: "856" }, { n: "Match Football 1 Russia", id: "136" }, { n: "Match Football 2 Russia", id: "137" }, { n: "Match Football 3 Russia", id: "138" },
-    { n: "Match Premier Russia", id: "573" }, { n: "Match TV Russia", id: "127" }, { n: "МАТЧ! БОЕЦ Russia", id: "395" }, { n: "Movistar Laliga", id: "84" }, { n: "Movistar Liga de Campeones", id: "435" },
-    { n: "Movistar Deportes Spain", id: "436" }, { n: "Movistar Deportes 2 Spain", id: "438" }, { n: "Movistar Deportes 3 Spain", id: "526" }, { n: "Movistar Deportes 4 Spain", id: "527" },
-    { n: "Movistar Golf Spain", id: "528" }, { n: "Motowizja Poland", id: "563" }, { n: "MSG USA", id: "765" }, { n: "MSNBC", id: "327" }, { n: "Magnolia Network", id: "299" },
-    { n: "M4 Sports Hungary", id: "265" }, { n: "Movistar Supercopa de España", id: "437" }, { n: "MTV UK", id: "367" }, { n: "MTV USA", id: "371" }, { n: "MUTV UK", id: "377" },
-    { n: "M6 France", id: "470" }, { n: "Racer TV USA", id: "646" }, { n: "Max Sport 1 Croatia", id: "779" }, { n: "Max Sport 2 Croatia", id: "780" }, { n: "Marquee Sports Network", id: "770" },
-    { n: "Max Sport 1 Bulgaria", id: "472" }, { n: "Max Sport 2 Bulgaria", id: "473" }, { n: "Max Sport 3 Bulgaria", id: "474" }, { n: "Max Sport 4 Bulgaria", id: "475" },
-    { n: "MLB Network USA", id: "399" }, { n: "MASN USA", id: "829" }, { n: "MY9TV USA", id: "654" }, { n: "Discovery Turbo", id: "661" }, { n: "METV USA", id: "662" }, { n: "MDR DE", id: "733" },
-    { n: "Mundotoro TV Spain", id: "749" }, { n: "Monumental Sports Network", id: "778" }, { n: "MTV Denmark", id: "806" }, { n: "MGM+ USA / Epix", id: "791" }, { n: "NBC10 Philadelphia", id: "277" },
-    { n: "NHL Network USA", id: "663" }, { n: "NFL RedZone", id: "667" }, { n: "Nova Sport Bulgaria", id: "468" }, { n: "Nova Sport Serbia", id: "582" }, { n: "Nova Sports 1 Greece", id: "631" },
-    { n: "Nova Sports 2 Greece", id: "632" }, { n: "Nova Sports 3 Greece", id: "633" }, { n: "Nova Sports 4 Greece", id: "634" }, { n: "Nova Sports 5 Greece", id: "635" },
-    { n: "Nova Sports 6 Greece", id: "636" }, { n: "Nova Sports Premier League Greece", id: "599" }, { n: "Nova Sports Start Greece", id: "637" }, { n: "Nova Sports Prime Greece", id: "638" },
-    { n: "Nova Sports News Greece", id: "639" }, { n: "Nick Music", id: "666" }, { n: "NESN USA", id: "762" }, { n: "NBC USA", id: "53" }, { n: "NBA TV USA", id: "404" },
-    { n: "NBC Sports Philadelphia", id: "777" }, { n: "NFL Network", id: "405" }, { n: "NBC Sports Bay Area", id: "753" }, { n: "NBC Sports Boston", id: "754" }, { n: "NBC Sports California", id: "755" },
-    { n: "NBCNY USA", id: "769" }, { n: "Nova TV Bulgaria", id: "480" }, { n: "Nova S Serbia", id: "847" }, { n: "NewsNation USA", id: "292" }, { n: "National Geographic (NGC)", id: "328" },
-    { n: "NICK JR", id: "329" }, { n: "NICK", id: "330" }, { n: "Nicktoons", id: "649" }, { n: "NDR DE", id: "736" }, { n: "Newsmax USA", id: "613" }, { n: "Nat Geo Wild USA", id: "745" },
-    { n: "Noovo CA", id: "835" }, { n: "NBC Universo", id: "845" }, { n: "NOW TV Turkey", id: "1003" }, { n: "Nova Sport 1 CZ", id: "1021" }, { n: "Nova Sport 2 CZ", id: "1022" },
-    { n: "Nova Sport 3 CZ", id: "1023" }, { n: "Nova Sport 4 CZ", id: "1024" }, { n: "Nova Sport 5 CZ", id: "1025" }, { n: "Nova Sport 6 CZ", id: "1026" }, { n: "OnTime Sports", id: "611" },
-    { n: "ONE 1 HD Israel", id: "541" }, { n: "ONE 2 HD Israel", id: "542" }, { n: "Orange Sport 1 Romania", id: "439" }, { n: "Orange Sport 2 Romania", id: "440" },
-    { n: "Orange Sport 3 Romania", id: "441" }, { n: "Orange Sport 4 Romania", id: "442" }, { n: "Oprah Winfrey Network (OWN)", id: "331" }, { n: "Oxygen True Crime", id: "332" },
-    { n: "Outdoor Channel USA", id: "848" }, { n: "Oneplay Sport 1 CZ", id: "1027" }, { n: "Oneplay Sport 2 CZ", id: "1028" }, { n: "Oneplay Sport 3 CZ", id: "1029" },
-    { n: "Polsat Poland", id: "562" }, { n: "Polsat Sport Poland", id: "47" }, { n: "Polsat Sport 2 Poland", id: "50" }, { n: "Polsat Sport 3 Poland", id: "129" },
-    { n: "Polsat News Poland", id: "443" }, { n: "Polsat Film Poland", id: "564" }, { n: "Porto Canal Portugal", id: "718" }, { n: "ProSieben (PRO7) DE", id: "730" }, { n: "Premier Sports Ireland 1", id: "771" },
-    { n: "PTV Sports", id: "450" }, { n: "PDC TV", id: "43" }, { n: "Premier Brasil", id: "88" }, { n: "Prima Sport 1", id: "583" }, { n: "Prima Sport 2", id: "584" }, { n: "Prima Sport 3", id: "585" },
-    { n: "Prima Sport 4", id: "586" }, { n: "Paramount Network", id: "334" }, { n: "POP TV USA", id: "653" }, { n: "Premier Sports Ireland 2", id: "799" }, { n: "Prima TV RO", id: "843" },
-    { n: "Premier Sport 1 CZ", id: "1030" }, { n: "Premier Sport 2 CZ", id: "1031" }, { n: "Premier Sport 3 CZ", id: "1032" }, { n: "Pac-12 Network USA", id: "287" }, { n: "PBS USA", id: "210" },
-    { n: "Reelz Channel", id: "293" }, { n: "RTE 1", id: "364" }, { n: "RTE 2", id: "365" }, { n: "RMC Sport 1 France", id: "119" }, { n: "RMC Sport 2 France", id: "120" },
-    { n: "RMC Story France", id: "954" }, { n: "RTP 1 Portugal", id: "719" }, { n: "RTP 2 Portugal", id: "720" }, { n: "RTP 3 Portugal", id: "721" }, { n: "Rai 1 Italy", id: "850" },
-    { n: "Rai 2 Italy", id: "851" }, { n: "Rai 3 Italy", id: "852" }, { n: "Rai 4 Italy", id: "853" }, { n: "Rai Sport Italy", id: "882" }, { n: "Rai Premium Italy", id: "858" },
-    { n: "Real Madrid TV Spain", id: "523" }, { n: "RTL DE", id: "740" }, { n: "RDS CA", id: "839" }, { n: "RDS 2 CA", id: "840" }, { n: "RDS Info CA", id: "841" }, { n: "Ring Bulgaria", id: "471" },
-    { n: "RTL7 Netherland", id: "390" }, { n: "Racing Tv UK", id: "555" }, { n: "Rally Tv", id: "607" }, { n: "Root Sports Northwest", id: "920" }, { n: "Sky Sports Football UK", id: "35" },
-    { n: "Sky Sports+ Plus", id: "36" }, { n: "Sky Sports Action UK", id: "37" }, { n: "Sky Sports Main Event", id: "38" }, { n: "Sky Sports Tennis UK", id: "46" }, { n: "Sky sports Premier League", id: "130" },
-    { n: "Sky Sports F1 UK", id: "60" }, { n: "Sky Sports Cricket", id: "65" }, { n: "Sky Sports Golf UK", id: "70" }, { n: "Sky Sports 1 DE", id: "240" }, { n: "Sky Sports 2 DE", id: "241" },
-    { n: "Sky Sports Golf Italy", id: "574" }, { n: "Sky Sport MotoGP Italy", id: "575" }, { n: "Sky Sport Tennis Italy", id: "576" }, { n: "Sky Sport F1 Italy", id: "577" },
-    { n: "Sky Sports News UK", id: "366" }, { n: "Sky Sports MIX UK", id: "449" }, { n: "Sky Sport Top Event DE", id: "556" }, { n: "Sky Sport Mix DE", id: "557" }, { n: "Sky Sport Bundesliga 1 HD", id: "558" },
-    { n: "Sky Sport Austria 1 HD", id: "559" }, { n: "SportsNet New York (SNY)", id: "759" }, { n: "Sky Sport MAX Italy", id: "460" }, { n: "Sky Sport UNO Italy", id: "461" },
-    { n: "Sky Sport Arena Italy", id: "462" }, { n: "Sky Sports Racing UK", id: "554" }, { n: "Sky UNO Italy", id: "881" }, { n: "SONY TEN 1", id: "885" }, { n: "SONY TEN 2", id: "886" },
-    { n: "SONY TEN 3", id: "887" }, { n: "Sky Sport Bundesliga 2", id: "946" }, { n: "Sky Sport Bundesliga 3", id: "947" }, { n: "Sky Sport Bundesliga 4", id: "948" }, { n: "Sky Sport Bundesliga 5", id: "949" },
-    { n: "Sport en France", id: "965" }, { n: "Starz Cinema", id: "970" }, { n: "Starz Comedy", id: "971" }, { n: "Starz Edge", id: "972" }, { n: "Starz In Black", id: "973" },
-    { n: "Starz Kids & Family", id: "974" }, { n: "Starz Encore", id: "975" }, { n: "Starz Encore Action", id: "976" }, { n: "Starz Encore Black", id: "977" }, { n: "Starz Encore Classic", id: "978" },
-    { n: "Starz Encore Family", id: "979" }, { n: "Starz Encore Suspense", id: "980" }, { n: "Starz Encore Westerns", id: "981" }, { n: "Spectrum SportsNet USA", id: "982" },
-    { n: "Canal+ Extra 1 Poland", id: "983" }, { n: "Canal+ Extra 2 Poland", id: "984" }, { n: "Canal+ Extra 3 Poland", id: "985" }, { n: "Canal+ Extra 4 Poland", id: "986" },
-    { n: "Canal+ Extra 5 Poland", id: "987" }, { n: "Canal+ Extra 6 Poland", id: "988" }, { n: "Canal+ Extra 7 Poland", id: "989" }, { n: "MTV Poland", id: "990" },
-    { n: "Polsat Sport Premium 1 Super HD PL", id: "991" }, { n: "Polsat Sport Premium 2 Super HD PL", id: "992" }, { n: "Polsat Sport Extra 1 HD Poland", id: "993" },
-    { n: "Polsat Sport Extra 2 HD Poland", id: "994" }, { n: "Polsat Sport Extra 3 HD Poland", id: "995" }, { n: "Polsat Sport Extra 4 HD Poland", id: "996" },
-    { n: "Polsat Sport Fight HD Poland", id: "997" }, { n: "Polsat Sport NEWS HD Poland", id: "998" }, { n: "Eleven Sports 4 Poland", id: "999" }, { n: "Sky Sport 1 NZ", id: "588" },
-    { n: "Sky Sport 2 NZ", id: "589" }, { n: "Sky Sport 3 NZ", id: "590" }, { n: "Sky Sport 4 NZ", id: "591" }, { n: "Sky Sport 5 NZ", id: "592" }, { n: "Sky Sport 6 NZ", id: "593" },
-    { n: "Sky Sport 7 NZ", id: "594" }, { n: "Sky Sport 8 NZ", id: "595" }, { n: "Sky Sport 9 NZ", id: "596" }, { n: "Sky Sport Select NZ", id: "587" }, { n: "Sport TV1 Portugal", id: "49" },
-    { n: "Sport TV2 Portugal", id: "74" }, { n: "Sport TV4 Portugal", id: "289" }, { n: "Sport TV3 Portugal", id: "454" }, { n: "Sport TV5 Portugal", id: "290" }, { n: "Sport TV6 Portugal", id: "291" },
-    { n: "SIC Portugal", id: "722" }, { n: "SEC Network USA", id: "385" }, { n: "SporTV Brasil", id: "78" }, { n: "SporTV2 Brasil", id: "79" }, { n: "SporTV3 Brasil", id: "80" },
-    { n: "Sport Klub 1 Croatia", id: "101" }, { n: "Sport Klub 2 Croatia", id: "102" }, { n: "Sport Klub 3 Croatia", id: "103" }, { n: "Sport Klub 4 Croatia", id: "104" },
-    { n: "Sport Klub HD Croatia", id: "453" }, { n: "Sportsnet Ontario", id: "406" }, { n: "Sportsnet One", id: "411" }, { n: "Sportsnet West", id: "407" }, { n: "Sportsnet East", id: "408" },
-    { n: "Sportsnet 360", id: "409" }, { n: "Sportsnet World", id: "410" }, { n: "SuperSport Grandstand", id: "412" }, { n: "SuperSport PSL", id: "413" }, { n: "SuperSport Premier league", id: "414" },
-    { n: "SuperSport LaLiga", id: "415" }, { n: "SuperSport Variety 1", id: "416" }, { n: "SuperSport Variety 2", id: "417" }, { n: "SuperSport Variety 3", id: "418" },
-    { n: "SuperSport Variety 4", id: "419" }, { n: "SuperSport Action", id: "420" }, { n: "SuperSport Rugby", id: "421" }, { n: "SuperSport Golf", id: "422" }, { n: "SuperSport Tennis", id: "423" },
-    { n: "SuperSport Motorsport", id: "424" }, { n: "Supersport Football", id: "56" }, { n: "SuperSport Cricket", id: "368" }, { n: "SuperSport MaXimo 1", id: "572" },
-    { n: "Sporting TV Portugal", id: "716" }, { n: "SportDigital Fussball", id: "571" }, { n: "Spectrum Sportsnet LA", id: "764" }, { n: "Sportdigital1+ Germany", id: "640" },
-    { n: "Sport1 Germany", id: "641" }, { n: "S4C UK", id: "670" }, { n: "Sport KLUB Golf Croatia", id: "710" }, { n: "SAT.1 DE", id: "729" }, { n: "Sky Cinema Premiere UK", id: "671" },
-    { n: "Sky Cinema Select UK", id: "672" }, { n: "Sky Cinema Hits UK", id: "673" }, { n: "Sky Cinema Greats UK", id: "674" }, { n: "Sky Cinema Animation UK", id: "675" },
-    { n: "Sky Cinema Family UK", id: "676" }, { n: "Sky Cinema Action UK", id: "677" }, { n: "Sky Cinema Comedy UK", id: "678" }, { n: "Sky Cinema Thriller UK", id: "679" },
-    { n: "Sky Cinema Drama UK", id: "680" }, { n: "Sky Cinema Sci-Fi Horror UK", id: "681" }, { n: "Showtime SHOxBET USA", id: "695" }, { n: "SEE Denmark", id: "811" },
-    { n: "Sky Cinema Collection Italy", id: "859" }, { n: "Sky Cinema Uno Italy", id: "860" }, { n: "Sky Cinema Action Italy", id: "861" }, { n: "Sky Cinema Comedy Italy", id: "862" },
-    { n: "Sky Cinema Uno +24 Italy", id: "863" }, { n: "Sky Cinema Romance Italy", id: "864" }, { n: "Sky Cinema Family Italy", id: "865" }, { n: "CW Philly", id: "866" },
-    { n: "Sky Cinema Drama Italy", id: "867" }, { n: "8Sky Cinema Suspense Italy", id: "868" }, { n: "Sky Sport 24 Italy", id: "869" }, { n: "Sky Sport Calcio Italy", id: "870" },
-    { n: "Sky Calcio 1 (251) Italy", id: "871" }, { n: "Sky Calcio 2 (252) Italy", id: "872" }, { n: "Sky Calcio 3 (253) Italy", id: "873" }, { n: "Sky Calcio 4 (254) Italy", id: "874" },
-    { n: "Sky Sport Basket Italy", id: "875" }, { n: "Sky Serie Italy", id: "880" }, { n: "StarzPlay CricLife 1 HD", id: "284" }, { n: "Sky Showcase UK", id: "682" }, { n: "Sky Arts UK", id: "683" },
-    { n: "Sky Comedy UK", id: "684" }, { n: "Sky Crime", id: "685" }, { n: "Sky History", id: "686" }, { n: "Sky MAX UK", id: "708" }, { n: "SSC Sport 1", id: "614" }, { n: "SSC Sport 2", id: "615" },
-    { n: "SSC Sport 3", id: "616" }, { n: "SSC Sport 4", id: "617" }, { n: "SSC Sport 5", id: "618" }, { n: "SSC Sport Extra 1", id: "619" }, { n: "SSC Sport Extra 2", id: "620" },
-    { n: "SSC Sport Extra 3", id: "621" }, { n: "Sport 1 Israel", id: "140" }, { n: "Sport 2 Israel", id: "141" }, { n: "Sport 3 Israel", id: "142" }, { n: "Sport 4 Israel", id: "143" },
-    { n: "Sport 5 Israel", id: "144" }, { n: "Sport 5 PLUS Israel", id: "145" }, { n: "Sport 5 Live Israel", id: "146" }, { n: "Sport 5 Star Israel", id: "147" }, { n: "Sport 5 Gold Israel", id: "148" },
-    { n: "Science Channel", id: "294" }, { n: "Showtime USA", id: "333" }, { n: "Starz", id: "335" }, { n: "Sky Witness HD", id: "361" }, { n: "Sixx DE", id: "732" }, { n: "Sky Atlantic", id: "362" },
-    { n: "SYFY USA", id: "373" }, { n: "Sundance TV", id: "658" }, { n: "SWR DE", id: "735" }, { n: "SUPER RTL DE", id: "738" }, { n: "SR Fernsehen DE", id: "739" }, { n: "Sky Sports Golf DE", id: "785" },
-    { n: "Smithsonian Channel", id: "603" }, { n: "Sky Sports F1 DE", id: "274" }, { n: "Sky Sports Tennis DE", id: "884" }, { n: "SBS6 NL", id: "883" }, { n: "Star Sports 1 IN", id: "267" },
-    { n: "Star Sports Hindi IN", id: "268" }, { n: "Showtime 2 USA (SHO2) USA", id: "792" }, { n: "Showtime Showcase USA", id: "793" }, { n: "Showtime Extreme USA", id: "794" },
-    { n: "Showtime Family Zone (SHO Family Zone) USA", id: "795" }, { n: "Showtime Next (SHO Next) USA", id: "796" }, { n: "Showtime Women USA", id: "797" },
-    { n: "Space City Home Network", id: "921" }, { n: "SportsNet Pittsburgh", id: "922" }, { n: "Show TV Turkey", id: "1002" }, { n: "Star TV Turkey", id: "1004" },
-    { n: "TNT Sports 1 UK", id: "31" }, { n: "TNT Sports 2 UK", id: "32" }, { n: "TNT Sports 3 UK", id: "33" }, { n: "TNT Sports 4 UK", id: "34" }, { n: "TSN1", id: "111" },
-    { n: "TSN2", id: "112" }, { n: "TSN3", id: "113" }, { n: "TSN4", id: "114" }, { n: "TSN5", id: "115" }, { n: "TVN HD Poland", id: "565" }, { n: "TVN24 Poland", id: "444" },
-    { n: "TVP1 Poland", id: "560" }, { n: "TVP2 Poland", id: "561" }, { n: "Telecinco Spain", id: "532" }, { n: "TVE La 1 Spain", id: "533" }, { n: "TVE La 2 Spain", id: "536" },
-    { n: "TVI Portugal", id: "723" }, { n: "TVI Reality Portugal", id: "724" }, { n: "Teledeporte Spain (TDP)", id: "529" }, { n: "TYC Sports Argentina", id: "746" }, { n: "TVP Sport Poland", id: "128" },
-    { n: "TNT Brasil", id: "87" }, { n: "TNT Sports Argentina", id: "388" }, { n: "TNT Sports HD Chile", id: "642" }, { n: "Tennis Channel", id: "40" }, { n: "Ten Sports PK", id: "741" },
-    { n: "TUDN USA", id: "66" }, { n: "Telemundo", id: "131" }, { n: "TBS USA", id: "336" }, { n: "TLC", id: "337" }, { n: "TNT USA", id: "338" }, { n: "TF1 France", id: "469" },
-    { n: "TVA Sports", id: "833" }, { n: "TVA Sports 2", id: "834" }, { n: "TVC Deportes MX", id: "932" }, { n: "TUDN MX", id: "935" }, { n: "TMC France", id: "955" }, { n: "Travel Channel", id: "340" },
-    { n: "TruTV USA", id: "341" }, { n: "TVLAND", id: "342" }, { n: "TCM USA", id: "644" }, { n: "TMC Channel USA", id: "698" }, { n: "The Food Network", id: "384" }, { n: "The Weather Channel", id: "394" },
-    { n: "TVP INFO", id: "452" }, { n: "TeenNick", id: "650" }, { n: "TV ONE USA", id: "660" }, { n: "TV2 Bornholm Denmark", id: "807" }, { n: "TV2 Sport X Denmark", id: "808" },
-    { n: "TV3 Sport Denmark", id: "809" }, { n: "TV2 Sport Denmark", id: "810" }, { n: "TV2 Denmark", id: "817" }, { n: "TV2 Zulu", id: "818" }, { n: "TV3+ Denmark", id: "819" },
-    { n: "TVO CA", id: "842" }, { n: "TV8 Turkey", id: "1005" }, { n: "TV4 Hockey", id: "700" }, { n: "TV3 Max Denmark", id: "223" }, { n: "T Sports BD", id: "270" }, { n: "TV4 Tennis", id: "701" },
-    { n: "TV4 Motor", id: "702" }, { n: "TV4 Sport Live 1", id: "703" }, { n: "TV4 Sport Live 2", id: "704" }, { n: "TV4 Sport Live 3", id: "705" }, { n: "TV4 Sport Live 4", id: "706" },
-    { n: "TV4 Sportkanalen", id: "707" }, { n: "TV4 Football Sweden", id: "747" }, { n: "Tennis+ 10", id: "709" }, { n: "Tennis+ 12", id: "711" }, { n: "TRT Spor TR", id: "889" },
-    { n: "USA Network", id: "343" }, { n: "Universal Kids USA", id: "668" }, { n: "Univision", id: "132" }, { n: "Unimas", id: "133" }, { n: "Viaplay Sports 1 UK", id: "451" },
-    { n: "Viaplay Sports 2 UK", id: "550" }, { n: "#Vamos Spain", id: "521" }, { n: "V Film Premiere", id: "815" }, { n: "V Film Family", id: "816" }, { n: "Vodafone Sport", id: "260" },
-    { n: "V Sport Motor Sweden", id: "272" }, { n: "VH1 USA", id: "344" }, { n: "Veronica NL Netherland", id: "378" }, { n: "VTV+ Uruguay", id: "391" }, { n: "VICE TV", id: "659" },
-    { n: "Willow Cricket", id: "346" }, { n: "Willow 2 Cricket", id: "598" }, { n: "WWE Network", id: "376" }, { n: "Win Sports+ Columbia", id: "392" }, { n: "WETV USA", id: "655" },
-    { n: "WDR DE", id: "734" }, { n: "W9 France", id: "959" }, { n: "YTV CA", id: "286" }, { n: "YES Network USA", id: "763" }, { n: "Yes Movies Action Israel", id: "543" },
-    { n: "Yes Movies Kids Israel", id: "544" }, { n: "Yes Movies Comedy Israel", id: "545" }, { n: "Yes TV CA", id: "837" }, { n: "Ziggo Sport NL", id: "393" }, { n: "Ziggo Sport 2 NL", id: "398" },
-    { n: "Ziggo Sport 3 NL", id: "919" }, { n: "Ziggo Sport 4 NL", id: "396" }, { n: "Ziggo Sport 5 NL", id: "383" }, { n: "Ziggo Sport 6 NL", id: "901" }, { n: "ZDF DE", id: "727" },
-    { n: "ZDF Info DE", id: "728" }, { n: "6ter France", id: "963" }, { n: "20 Mediaset Italy", id: "857" }, { n: "6'eren Denmark", id: "800" }, { n: "5 USA", id: "360" }, { n: "3sat DE", id: "726" }
-  ];
-  
   // --- MANUAL STREAM CONFIGURATION (Updated with New Embed) ---
   const SPECIAL_STREAM = {
     name: "T20 WC: Zimbabwe vs Oman",
@@ -776,12 +593,11 @@ const SportsPage = () => {
     group: "Cricket",
     parentGroup: "Sports",
     url: "https://embedsports.top/embed/echo/mens-t20-world-cup-zimbabwe-vs-oman-cricket-hundred-1/1?autoplay=1",
-    isEmbed: true
+    isEmbed: true // Flag to tell player this is an iframe
   };
 
   const CATEGORIES_TREE = {
     'All': [],
-    'Literally Every Channels': [], // Added new main category
     'General Entertainment': ['Entertainment', 'GEC (General Entertainment Channels)', 'Lifestyle', 'Music', 'Comedy'],
     'News': ['News', 'News (International)', 'News (National)', 'News (Regional)', 'Business News', 'Political News'],
     'Sports': ['Sports', 'Live Sports', 'Cricket', 'Football (Soccer)', 'Basketball', 'Tennis', 'Motorsports', 'Wrestling (WWE / AEW / UFC)', 'Sports Events (PPV)']
@@ -835,16 +651,6 @@ const SportsPage = () => {
     setLoading(true);
     setError(null);
 
-    // Prepare "Literally Every Channels" data
-    const dlhdChannels = DLHD_RAW_LIST.map(item => ({
-      name: item.n,
-      logo: null,
-      group: 'Literally Every Channels',
-      parentGroup: 'Literally Every Channels',
-      url: `https://dlhd.link/stream/stream-${item.id}.php`,
-      isEmbed: true
-    }));
-
     fetch(PLAYLIST_URL)
       .then(res => {
         if (!res.ok) throw new Error("Failed to load playlist");
@@ -872,7 +678,7 @@ const SportsPage = () => {
               logo: logoMatch ? logoMatch[1] : null,
               group: normalizedGroup,
               parentGroup: getParentCategory(normalizedGroup),
-              isEmbed: false 
+              isEmbed: false // Standard streams are not embeds
             };
           } else if (line.startsWith('http') && current.name) {
             current.url = line;
@@ -880,20 +686,17 @@ const SportsPage = () => {
             current = {};
           }
         }
-        
-        // --- MERGE DLHD CHANNELS ---
-        const finalChannels = [...parsed, ...dlhdChannels];
 
-        if (finalChannels.length === 0) {
+        if (parsed.length === 0) {
           throw new Error("No channels found in playlist.");
         }
-        setChannels(finalChannels);
+        setChannels(parsed);
         setLoading(false);
       })
       .catch(e => {
         console.error("Playlist Error:", e);
-        // Fallback to special stream AND dlhd channels if playlist fails
-        setChannels([SPECIAL_STREAM, ...dlhdChannels]);
+        // Fallback to special stream if playlist fails
+        setChannels([SPECIAL_STREAM]);
         setLoading(false);
       });
   }, []);
@@ -990,7 +793,7 @@ const SportsPage = () => {
             ))}
           </div>
 
-          {activeMainCategory !== 'All' && CATEGORIES_TREE[activeMainCategory] && CATEGORIES_TREE[activeMainCategory].length > 0 && (
+          {activeMainCategory !== 'All' && CATEGORIES_TREE[activeMainCategory] && (
             <div className="flex items-center gap-3 overflow-x-auto scrollbar-hide pb-2 px-2 animate-in fade-in slide-in-from-top-2">
               <button
                 onClick={() => setActiveSubCategory('All')}
