@@ -581,11 +581,11 @@ const WatchlistPage = ({ isPrimeOnly }) => {
   );
 };
 
-// --- UPDATED SPORTS / LIVE TV PAGE (WITH DLHD CHANNELS) ---
+// --- UPDATED SPORTS / LIVE TV PAGE (FIXED) ---
 const SportsPage = () => {
   const [channels, setChannels] = useState([]);
   const [displayedChannels, setDisplayedChannels] = useState([]);
-  const navigate = useNavigate();
+  const navigate = useNavigate(); // Kept this one, removed the duplicate below
 
   // --- 1. MANUAL STREAM CONFIGURATION ---
   const SPECIAL_STREAM = {
