@@ -582,17 +582,19 @@ const WatchlistPage = ({ isPrimeOnly }) => {
 };
 
 // --- SPORTS / LIVE TV COMPONENTS ---
+// --- UPDATED SPORTS / LIVE TV PAGE ---
 const SportsPage = () => {
   const [channels, setChannels] = useState([]);
   const [displayedChannels, setDisplayedChannels] = useState([]);
-  // --- MANUAL STREAM CONFIGURATION ---
+  
+  // --- MANUAL STREAM CONFIGURATION (Updated with New Embed) ---
   const SPECIAL_STREAM = {
-    name: "ICC T20 WC Live (Bengali)",
-    logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR-sN5te7jsC9YTazKRH6RgQCxTAqs60oWZMw&s",
+    name: "T20 WC: Zimbabwe vs Oman",
+    logo: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/69/ICC_Men%27s_T20_World_Cup_2024.svg/1200px-ICC_Men%27s_T20_World_Cup_2024.svg.png",
     group: "Cricket",
     parentGroup: "Sports",
-    // ADDED PROXY HERE
-    url: "https://corsproxy.io/?" + encodeURIComponent("https://live15p.hotstar.com/hls/live/2116748/inallow-icct20wc-2026/ben/1540062322/15mindvrm0118ba48ab59034e4b9dbc9285e29e083507february2026/master_apmf_360_1.m3u8")
+    url: "https://embedsports.top/embed/echo/mens-t20-world-cup-zimbabwe-vs-oman-cricket-hundred-1/1?autoplay=1",
+    isEmbed: true // Flag to tell player this is an iframe
   };
 
   const CATEGORIES_TREE = {
@@ -612,6 +614,7 @@ const SportsPage = () => {
   const navigate = useNavigate();
 
   const PLAYLIST_URL = 'https://iptv-org.github.io/iptv/index.m3u';
+  
   const normalizeCategory = (groupName) => {
     if (!groupName) return 'Entertainment';
     const lower = groupName.toLowerCase();
@@ -659,7 +662,7 @@ const SportsPage = () => {
         const parsed = [];
         let current = {};
 
-        // --- 1. INJECT YOUR MANUAL STREAM FIRST ---
+        // --- 1. INJECT SPECIAL STREAM FIRST ---
         parsed.push(SPECIAL_STREAM);
 
         for (let i = 0; i < lines.length; i++) {
@@ -675,7 +678,8 @@ const SportsPage = () => {
               name,
               logo: logoMatch ? logoMatch[1] : null,
               group: normalizedGroup,
-              parentGroup: getParentCategory(normalizedGroup)
+              parentGroup: getParentCategory(normalizedGroup),
+              isEmbed: false // Standard streams are not embeds
             };
           } else if (line.startsWith('http') && current.name) {
             current.url = line;
@@ -692,7 +696,7 @@ const SportsPage = () => {
       })
       .catch(e => {
         console.error("Playlist Error:", e);
-        // Even if playlist fails, show your manual stream
+        // Fallback to special stream if playlist fails
         setChannels([SPECIAL_STREAM]);
         setLoading(false);
       });
@@ -840,7 +844,8 @@ const SportsPage = () => {
             {displayedChannels.map((channel, idx) => (
               <div
                 key={idx}
-                onClick={() => navigate('/watch/sport/iptv', { state: { streamUrl: channel.url, title: channel.name, logo: channel.logo, group: channel.group } })}
+                /* UPDATED CLICK HANDLER: Pass isEmbed flag */
+                onClick={() => navigate('/watch/sport/iptv', { state: { streamUrl: channel.url, title: channel.name, logo: channel.logo, group: channel.group, isEmbed: channel.isEmbed } })}
                 className="bg-[#19222b] hover:bg-[#232d38] rounded-xl overflow-hidden cursor-pointer group hover:-translate-y-2 transition-all duration-300 shadow-lg hover:shadow-[0_0_30px_rgba(0,168,225,0.3)] relative glow-card border border-white/5"
               >
                 <div className="aspect-video bg-black/40 flex items-center justify-center p-4 relative group-hover:bg-black/20 transition-colors">
@@ -909,15 +914,19 @@ const SportsPage = () => {
     </div>
   );
 };
+
+// --- UPDATED SPORTS PLAYER (SUPPORTS EMBED IFRAMES) ---
 const SportsPlayer = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const videoRef = useRef(null);
-  const { streamUrl, title, logo, group } = location.state || {};
+  const { streamUrl, title, logo, group, isEmbed } = location.state || {}; // Extract isEmbed
   const [isMuted, setIsMuted] = useState(false);
 
   useEffect(() => {
-    if (!streamUrl) return;
+    // If it's an embed, we don't need HLS logic
+    if (!streamUrl || isEmbed) return;
+
     let hls;
     if (Hls && Hls.isSupported()) {
       hls = new Hls(); hls.loadSource(streamUrl); hls.attachMedia(videoRef.current);
@@ -926,7 +935,7 @@ const SportsPlayer = () => {
       videoRef.current.src = streamUrl; videoRef.current.addEventListener('loadedmetadata', () => { videoRef.current.play(); });
     }
     return () => { if (hls) hls.destroy(); };
-  }, [streamUrl]);
+  }, [streamUrl, isEmbed]);
 
   if (!streamUrl) return <div className="text-white pt-20 text-center">No stream selected. <button onClick={() => navigate(-1)} className="text-[#00A8E1] ml-2 hover:underline">Go Back</button></div>;
 
@@ -940,16 +949,33 @@ const SportsPlayer = () => {
             <div className="flex items-center gap-2 mt-1"><span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_red]"></span><span className="text-[#00A8E1] text-xs font-bold tracking-widest uppercase">{group || "LIVE BROADCAST"}</span></div>
           </div>
         </div>
-        <div className="pointer-events-auto"><button onClick={() => { setIsMuted(!isMuted); videoRef.current.muted = !isMuted; }} className="w-12 h-12 rounded-full bg-black/40 hover:bg-white/20 backdrop-blur-md flex items-center justify-center text-white transition border border-white/10 hover:shadow-[0_0_15px_rgba(255,255,255,0.2)]">{isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}</button></div>
+        {/* Only show Mute for Video tag, iframe controls its own audio usually, but we can keep it purely UI or hide it */}
+        {!isEmbed && (
+          <div className="pointer-events-auto"><button onClick={() => { setIsMuted(!isMuted); videoRef.current.muted = !isMuted; }} className="w-12 h-12 rounded-full bg-black/40 hover:bg-white/20 backdrop-blur-md flex items-center justify-center text-white transition border border-white/10 hover:shadow-[0_0_15px_rgba(255,255,255,0.2)]">{isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}</button></div>
+        )}
       </div>
+      
       <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden group">
-        <video ref={videoRef} className="w-full h-full object-contain" controls autoPlay playsInline preload="auto"></video>
-        <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-black/90 to-transparent pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end px-8 pb-8"><div className="text-white/80 text-sm font-medium">Streaming via secure HLS protocol • {new Date().toLocaleTimeString()}</div></div>
+        {/* --- CONDITIONAL RENDERING: IFRAME OR VIDEO --- */}
+        {isEmbed ? (
+           <iframe 
+             src={streamUrl} 
+             className="w-full h-full border-none" 
+             allow="autoplay; fullscreen; encrypted-media; picture-in-picture" 
+             allowFullScreen
+             title={title}
+           ></iframe>
+        ) : (
+           <video ref={videoRef} className="w-full h-full object-contain" controls autoPlay playsInline preload="auto"></video>
+        )}
+        
+        {!isEmbed && (
+           <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-black/90 to-transparent pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end px-8 pb-8"><div className="text-white/80 text-sm font-medium">Streaming via secure HLS protocol • {new Date().toLocaleTimeString()}</div></div>
+        )}
       </div>
     </div>
   );
 };
-
 const Hero = ({ isPrimeOnly }) => {
   const [movies, setMovies] = useState([]);
   const [currentSlide, setCurrentSlide] = useState(0);
