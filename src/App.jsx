@@ -1138,194 +1138,227 @@ const SportsPage = () => {
   );
 };
 
-const SportsPlayer = () => {
+// --- PLAYER COMPONENT (UPDATED WITH SLIME SOURCE) ---
+const Player = () => {
+  const { type, id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const videoRef = useRef(null);
-  const { streamUrl, title, logo, group, type } = location.state || {}; // Extract 'type'
-  const [isMuted, setIsMuted] = useState(false);
 
-  // --- HLS LOGIC (Only runs if NOT DLHD) ---
+  // --- STATE ---
+  const [activeServer, setActiveServer] = useState('vidfast'); 
+  const [isBengali, setIsBengali] = useState(false);
+  const [isIndian, setIsIndian] = useState(false); // Track Indian content
+  const [imdbId, setImdbId] = useState(null); // Store IMDb ID
+  
+  // Episode & Season State
+  const queryParams = new URLSearchParams(location.search);
+  const [season, setSeason] = useState(Number(queryParams.get('season')) || 1);
+  const [episode, setEpisode] = useState(Number(queryParams.get('episode')) || 1);
+  const [showEpisodes, setShowEpisodes] = useState(false);
+  const [seasonData, setSeasonData] = useState(null);
+  const [totalSeasons, setTotalSeasons] = useState(1);
+
+  // --- 1. FETCH METADATA & LANGUAGE DETECTION ---
   useEffect(() => {
-    if (!streamUrl || type === 'dlhd') return; // Skip HLS setup for DLHD
-    
-    let hls;
-    if (Hls && Hls.isSupported()) {
-      hls = new Hls(); 
-      hls.loadSource(streamUrl); 
-      hls.attachMedia(videoRef.current);
-      hls.on(Hls.Events.MANIFEST_PARSED, () => { videoRef.current.play().catch(e => console.log("Auto-play prevented", e)); });
-    } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-      videoRef.current.src = streamUrl; 
-      videoRef.current.addEventListener('loadedmetadata', () => { videoRef.current.play(); });
-    }
-    return () => { if (hls) hls.destroy(); };
-  }, [streamUrl, type]);
+    const fetchDetails = async () => {
+      try {
+        const res = await fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}`);
+        const data = await res.json();
+        
+        // 1. Store IDs
+        if (data.imdb_id) setImdbId(data.imdb_id); // TMDB to IMDB Logic
+        if (type === 'tv' && data.number_of_seasons) setTotalSeasons(data.number_of_seasons);
 
-  if (!streamUrl) return <div className="text-white pt-20 text-center">No stream selected. <button onClick={() => navigate(-1)} className="text-[#00A8E1] ml-2 hover:underline">Go Back</button></div>;
+        // 2. Detect Indian Content
+        // Checks Origin Country (IN) OR common Indian Languages
+        const indianLanguages = ['hi', 'ta', 'te', 'ml', 'kn', 'bn', 'pa', 'mr', 'gu', 'ur'];
+        const isIndianContent = 
+          (data.origin_country && data.origin_country.includes('IN')) || 
+          indianLanguages.includes(data.original_language);
+
+        setIsIndian(isIndianContent);
+
+        // 3. Auto-Switch Logic
+        if (isIndianContent) {
+          setActiveServer('slime'); // Switch to Slime for Indian
+        } else if (data.original_language === 'bn') {
+          setIsBengali(true);
+          setActiveServer('vidrock'); // Switch to VidRock for Bengali
+        } else {
+          setActiveServer('vidfast'); // Default
+        }
+
+      } catch (e) {
+        console.error("Error fetching details:", e);
+      }
+    };
+    fetchDetails();
+  }, [type, id]);
+
+  // --- 2. FETCH SEASONS (TV ONLY) ---
+  useEffect(() => {
+    if (type === 'tv') {
+      fetch(`${BASE_URL}/tv/${id}/season/${season}?api_key=${TMDB_API_KEY}`)
+        .then(res => res.json())
+        .then(data => setSeasonData(data));
+    }
+  }, [type, id, season]);
+
+  // --- 3. SOURCE GENERATOR ---
+  const getSourceUrl = () => {
+    // A. Slime (Indian Content - IMDb ID Required)
+    if (activeServer === 'slime') {
+      // Logic: Use IMDb ID if available, otherwise fallback to TMDB ID (though slime usually requires IMDb)
+      const identifier = imdbId; 
+      if (!identifier) return null; // Show error or fallback if no IMDb ID found
+      return `https://slime403heq.com/play/${identifier}`;
+    }
+
+    // B. VidRock (Bengali Only)
+    if (activeServer === 'vidrock') {
+      const identifier = imdbId || id;
+      if (type === 'tv') {
+        return `https://vidrock.net/tv/${identifier}/${season}/${episode}`;
+      } else {
+        return `https://vidrock.net/movie/${identifier}`;
+      }
+    }
+
+    // C. VidFast (Standard)
+    if (activeServer === 'vidfast') {
+      const themeParam = "theme=00A8E1";
+      if (type === 'tv') {
+        return `${VIDFAST_BASE}/tv/${id}/${season}/${episode}?autoPlay=true&${themeParam}&nextButton=true&autoNext=true`;
+      } else {
+        return `${VIDFAST_BASE}/movie/${id}?autoPlay=true&${themeParam}`;
+      }
+    }
+
+    // D. Zxcstream (Multi-Audio)
+    else {
+      if (type === 'tv') {
+        return `https://www.zxcstream.xyz/player/tv/${id}/${season}/${episode}?autoplay=false&back=true&server=0`;
+      } else {
+        return `https://www.zxcstream.xyz/player/movie/${id}?autoplay=false&back=true&server=0`;
+      }
+    }
+  };
 
   return (
-    <div className="fixed inset-0 bg-[#0f171e] z-[200] flex flex-col">
-      {/* HEADER */}
-      <div className="absolute top-0 left-0 w-full h-24 bg-gradient-to-b from-black/80 to-transparent z-50 flex items-center px-6 justify-between pointer-events-none">
-        <div className="flex items-center gap-4 pointer-events-auto">
-          <button onClick={() => navigate(-1)} className="w-12 h-12 rounded-full bg-black/40 hover:bg-[#00A8E1] backdrop-blur-md flex items-center justify-center text-white transition border border-white/10 group">
-             <ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" />
-          </button>
-          <div>
-            <div className="flex items-center gap-3">
-               {logo && <img src={logo} className="h-8 w-auto object-contain bg-white/10 rounded px-1" alt="" onError={(e) => e.target.style.display = 'none'} />}
-               <h1 className="text-white font-bold text-xl leading-tight drop-shadow-md">{title || "Live Stream"}</h1>
-            </div>
-            <div className="flex items-center gap-2 mt-1">
-               <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_red]"></span>
-               <span className="text-[#00A8E1] text-xs font-bold tracking-widest uppercase">{group || "LIVE BROADCAST"}</span>
-            </div>
+    <div className="fixed inset-0 bg-black z-[100] overflow-hidden flex flex-col" style={{ transform: 'translateZ(0)' }}>
+      {/* TOP CONTROLS LAYER */}
+      <div className="absolute top-0 left-0 w-full h-20 pointer-events-none z-[120] flex items-center justify-between px-6">
+        <button
+          onClick={() => navigate(-1)}
+          className="pointer-events-auto bg-black/50 hover:bg-[#00A8E1] text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all shadow-lg group"
+        >
+          <ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" />
+        </button>
+
+        {/* SERVER SWITCHER */}
+        <div className="pointer-events-auto flex flex-col items-center gap-1 bg-black/60 backdrop-blur-md border border-white/10 p-1.5 rounded-xl shadow-2xl transform translate-y-2">
+          <div className="flex bg-[#19222b] rounded-lg p-1 gap-1">
+            
+            {/* NEW SLIME BUTTON (Visible for Indian content or manually selectable) */}
+            {isIndian && (
+              <button
+                 onClick={() => setActiveServer('slime')}
+                 className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'slime' ? 'bg-[#E50914] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
+              >
+                Slime (Indian)
+              </button>
+            )}
+
+            {isBengali && !isIndian && (
+              <button
+                onClick={() => setActiveServer('vidrock')}
+                className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'vidrock' ? 'bg-[#E50914] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
+              >
+                VidRock
+              </button>
+            )}
+
+            <button
+              onClick={() => setActiveServer('vidfast')}
+              className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'vidfast' ? 'bg-[#00A8E1] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
+            >
+              VidFast
+            </button>
+            <button
+              onClick={() => setActiveServer('zxcstream')}
+              className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'zxcstream' ? 'bg-[#00A8E1] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
+            >
+              Multi-Audio
+            </button>
           </div>
         </div>
-      </div>
 
-      {/* PLAYER CONTAINER */}
-      <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden group">
-        
-        {/* --- IFRAME PLAYER FOR "LITERALLY EVERY CHANNELS" --- */}
-        {type === 'dlhd' ? (
-           <iframe 
-             src={`https://dlhd.link/stream/stream-${streamUrl}.php`} // Uses ID passed as streamUrl
-             width="100%" 
-             height="100%" 
-             style={{ border: 0 }} 
-             allowFullScreen 
-             allow="encrypted-media"
-             title="DLHD Player"
-           ></iframe>
+        {/* EPISODE LIST TOGGLE (For TV) */}
+        {type === 'tv' ? (
+          <button
+            onClick={() => setShowEpisodes(!showEpisodes)}
+            className={`pointer-events-auto p-3 rounded-full backdrop-blur-md border border-white/10 transition-all ${showEpisodes ? 'bg-[#00A8E1] text-white' : 'bg-black/50 hover:bg-[#333c46] text-gray-200'}`}
+          >
+            <List size={24} />
+          </button>
         ) : (
-        /* --- STANDARD HLS PLAYER --- */
-           <video ref={videoRef} className="w-full h-full object-contain" controls autoPlay playsInline preload="auto"></video>
+          <div className="w-12"></div>
         )}
-
       </div>
-    </div>
-  );
-};
 
-const Hero = ({ isPrimeOnly }) => {
-  const [movies, setMovies] = useState([]);
-  const [currentSlide, setCurrentSlide] = useState(0);
-  const [trailerKey, setTrailerKey] = useState(null);
-  const [showVideo, setShowVideo] = useState(false);
-  const [isMuted, setIsMuted] = useState(true);
-  const playTimeout = useRef(null);
-  const stopTimeout = useRef(null);
-  const isHovering = useRef(false);
-  const navigate = useNavigate();
-  const theme = getTheme(isPrimeOnly);
-
-  useEffect(() => {
-    const endpoint = isPrimeOnly
-      ? `/discover/movie?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc`
-      : `/trending/all/day?api_key=${TMDB_API_KEY}`;
-    fetch(`${BASE_URL}${endpoint}`).then(res => res.json()).then(data => setMovies(data.results.slice(0, 5)));
-  }, [isPrimeOnly]);
-
-  useEffect(() => {
-    if (movies.length === 0) return;
-    setShowVideo(false); setTrailerKey(null); clearTimeout(playTimeout.current); clearTimeout(stopTimeout.current);
-    const movie = movies[currentSlide];
-    const mediaType = movie.media_type || 'movie';
-    fetch(`${BASE_URL}/${mediaType}/${movie.id}/videos?api_key=${TMDB_API_KEY}`).then(res => res.json()).then(data => {
-      const trailer = data.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube') || data.results?.find(v => v.site === 'YouTube');
-      if (trailer) { setTrailerKey(trailer.key); if (isHovering.current) { playTimeout.current = setTimeout(() => setShowVideo(true), 4000); } }
-    });
-  }, [currentSlide, movies]);
-
-  const handleMouseEnter = () => { isHovering.current = true; clearTimeout(stopTimeout.current); clearTimeout(playTimeout.current); playTimeout.current = setTimeout(() => setShowVideo(true), 4000); };
-  const handleMouseLeave = () => { isHovering.current = false; clearTimeout(playTimeout.current); clearTimeout(stopTimeout.current); stopTimeout.current = setTimeout(() => setShowVideo(false), 1000); };
-  const nextSlide = () => setCurrentSlide((prev) => (prev + 1) % movies.length);
-  const prevSlide = () => setCurrentSlide((prev) => (prev - 1 + movies.length) % movies.length);
-
-  if (movies.length === 0) return <div className="h-[85vh] w-full bg-[#00050D]" />;
-  const movie = movies[currentSlide];
-
-  return (
-    <div className="relative w-full h-[85vh] overflow-hidden group" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
-      <div className={`absolute inset-0 transition-opacity duration-700 ${showVideo ? 'opacity-0' : 'opacity-100'}`}><img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover" alt="" /></div>
-      {/* --- FIXED YOUTUBE EMBED --- */}
-      {showVideo && trailerKey && (
-        <div className="absolute inset-0 animate-in pointer-events-none">
-          <iframe 
-            src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&enablejsapi=1&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} 
-            className="w-full h-full scale-[1.3]" 
-            allow="autoplay; encrypted-media" 
-            frameBorder="0" 
-            referrerPolicy="strict-origin-when-cross-origin"
-            title="Hero Trailer"
+      {/* PLAYER FRAME */}
+      <div className="flex-1 relative w-full h-full bg-black">
+        {activeServer === 'slime' && !imdbId ? (
+           <div className="w-full h-full flex flex-col items-center justify-center text-white">
+             <Ban size={48} className="text-red-500 mb-4"/>
+             <h2 className="text-xl font-bold">Source Unavailable</h2>
+             <p className="text-gray-400 mt-2">This movie does not have a linked IMDb ID required for this server.</p>
+             <button onClick={() => setActiveServer('vidfast')} className="mt-6 px-6 py-2 bg-[#00A8E1] rounded-md font-bold">Try VidFast Server</button>
+           </div>
+        ) : (
+          <iframe
+            key={activeServer + season + episode}
+            src={getSourceUrl()}
+            className="w-full h-full border-none w-full aspect-video my-auto id-player-embedded-iframe"
+            allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+            title={activeServer === 'slime' ? "Slime Player" : "VidFast Player"}
+            loading="eager"
+            fetchPriority="high"
           ></iframe>
+        )}
+      </div>
+
+      {/* EPISODE SIDEBAR (TV Only) */}
+      {type === 'tv' && (
+        <div className={`fixed right-0 top-0 h-full bg-[#00050D]/95 backdrop-blur-xl border-l border-white/10 transition-all duration-500 ease-in-out z-[110] flex flex-col ${showEpisodes ? 'w-[350px] translate-x-0 shadow-2xl' : 'w-[350px] translate-x-full shadow-none'}`}>
+          <div className="pt-24 px-6 pb-4 border-b border-white/10 flex items-center justify-between bg-[#1a242f]/50">
+            <h2 className="font-bold text-white text-lg">Episodes</h2>
+            <div className="relative">
+              <select value={season} onChange={(e) => setSeason(Number(e.target.value))} className="appearance-none bg-[#00A8E1] text-white font-bold py-1.5 pl-3 pr-8 rounded cursor-pointer text-sm outline-none hover:bg-[#008ebf] transition">
+                {Array.from({length: totalSeasons}, (_, i) => i + 1).map(s => (<option key={s} value={s} className="bg-[#1a242f]">Season {s}</option>))}
+              </select>
+              <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-white pointer-events-none" />
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-hide">
+            {seasonData?.episodes ? (seasonData.episodes.map(ep => (
+              <div key={ep.id} onClick={() => setEpisode(ep.episode_number)} className={`flex gap-3 p-2 rounded-lg cursor-pointer transition-all group ${episode === ep.episode_number ? 'bg-[#333c46] border border-[#00A8E1]' : 'hover:bg-[#333c46] border border-transparent'}`}>
+                <div className="relative w-28 h-16 flex-shrink-0 bg-black rounded overflow-hidden">
+                  {ep.still_path ? (<img src={`${IMAGE_BASE_URL}${ep.still_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" />) : (<div className="w-full h-full flex items-center justify-center text-gray-600 text-xs">No Img</div>)}
+                  {episode === ep.episode_number && (<div className="absolute inset-0 bg-black/40 flex items-center justify-center"><Play size={16} fill="white" className="text-white" /></div>)}
+                </div>
+                <div className="flex flex-col justify-center min-w-0">
+                  <span className={`text-xs font-bold mb-0.5 ${episode === ep.episode_number ? 'text-[#00A8E1]' : 'text-gray-400'}`}>Episode {ep.episode_number}</span>
+                  <h4 className={`text-sm font-medium truncate leading-tight ${episode === ep.episode_number ? 'text-white' : 'text-gray-300 group-hover:text-white'}`}>{ep.name}</h4>
+                </div>
+              </div>
+            ))) : (<div className="text-center text-gray-500 mt-10 flex flex-col items-center"><Loader className="animate-spin mb-2" /><span>Loading Season {season}...</span></div>)}
+          </div>
         </div>
       )}
-      <div className="absolute inset-0 bg-gradient-to-r from-[#00050D] via-[#00050D]/40 to-transparent" /><div className="absolute inset-0 bg-gradient-to-t from-[#00050D] via-transparent to-transparent" />
-      <div className="absolute top-[25%] left-[4%] max-w-[600px] z-30 animate-row-enter">
-        <h1 className="text-5xl md:text-7xl font-extrabold text-white mb-4 drop-shadow-[0_4px_10px_rgba(0,0,0,0.8)] tracking-tight leading-tight">{movie.title || movie.name}</h1>
-        <div className="flex items-center gap-3 text-[#a9b7c1] font-bold text-sm mb-6">{isPrimeOnly && <span className={`${theme.color} tracking-wide`}>Included with Prime</span>}<span className="bg-[#33373d]/80 text-white px-1.5 py-0.5 rounded text-xs border border-gray-600 backdrop-blur-md">UHD</span><span className="bg-[#33373d]/80 text-white px-1.5 py-0.5 rounded text-xs border border-gray-600 backdrop-blur-md">16+</span></div>
-        <p className="text-lg text-white font-medium line-clamp-3 mb-8 opacity-90 drop-shadow-md text-shadow-sm">{movie.overview}</p>
-        <div className="flex items-center gap-4">
-          <button onClick={() => navigate(`/watch/${movie.media_type || 'movie'}/${movie.id}`)} className={`${theme.bg} ${theme.hoverBg} text-white h-14 pl-8 pr-8 rounded-md font-bold text-lg flex items-center gap-3 transition transform hover:scale-105 ${theme.shadow}`}><Play fill="white" size={24} /> {isPrimeOnly ? "Play" : "Rent or Play"}</button>
-          <button className="w-14 h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm group"><Plus size={28} className="text-gray-200 group-hover:text-white" /></button>
-          <button onClick={() => navigate(`/detail/${movie.media_type || 'movie'}/${movie.id}`)} className="w-14 h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm group"><Info size={28} className="text-gray-200 group-hover:text-white" /></button>
-        </div>
-      </div>
-      <div className="absolute top-32 right-[4%] z-40"><button onClick={() => setIsMuted(!isMuted)} className="w-12 h-12 rounded-full border-2 border-white/20 bg-black/20 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/10 hover:border-white transition">{isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}</button></div>
-      <button onClick={prevSlide} className="absolute left-4 top-1/2 -translate-y-1/2 z-40 p-2 rounded-full bg-black/20 hover:bg-black/50 text-white/50 hover:text-white transition backdrop-blur-sm border border-transparent hover:border-white/30"><ChevronLeft size={40} /></button>
-      <button onClick={nextSlide} className="absolute right-4 top-1/2 -translate-y-1/2 z-40 p-2 rounded-full bg-black/20 hover:bg-black/50 text-white/50 hover:text-white transition backdrop-blur-sm border border-transparent hover:border-white/30"><ChevronRight size={40} /></button>
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-40">{movies.map((_, idx) => (<div key={idx} className={`w-2 h-2 rounded-full transition-all ${idx === currentSlide ? 'bg-white w-4' : 'bg-gray-500'}`} />))}</div>
     </div>
   );
 };
-
-// --- UPDATED MOVIE CARD (WITH PROGRESS BAR) ---
-const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank, isPrimeOnly, isFirst, isLast }) => {
-  const navigate = useNavigate();
-  const type = movie.media_type || itemType || 'movie';
-  const id = movie.id;
-
-  // PROGRESS LOGIC
-  const progressData = getMediaProgress(type, id);
-  const percent = progressData?.progress?.watched && progressData?.progress?.duration
-    ? (progressData.progress.watched / progressData.progress.duration) * 100
-    : 0;
-
-  const imageUrl = movie.poster_path || movie.backdrop_path;
-  const baseWidth = 'w-[160px] md:w-[200px]';
-  const aspectRatio = 'aspect-[360/440]';
-  const cardMargin = variant === 'ranked' ? 'ml-[110px]' : '';
-  const originClass = isFirst ? 'origin-left' : isLast ? 'origin-right' : 'origin-center';
-
-  const rating = movie.vote_average ? Math.round(movie.vote_average * 10) + "%" : "98%";
-  const year = movie.release_date?.split('-')[0] || "2024";
-  const duration = movie.media_type === 'tv' ? '1 Season' : '2h 15m';
-
-  return (
-    <div className={`relative flex-shrink-0 ${baseWidth} ${aspectRatio} ${cardMargin} group transition-all duration-300`} onMouseEnter={() => onHover(movie.id)} onMouseLeave={onLeave} onClick={() => navigate(`/detail/${type}/${id}`)} style={{ zIndex: isHovered ? 100 : 10 }}>
-      {variant === 'ranked' && <span className="rank-number animate-neon-pulse">{rank}</span>}
-      <div className={`relative w-full h-full rounded-xl overflow-hidden cursor-pointer bg-[#19222b] shadow-xl transform transition-all duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1) border border-white/5 ring-1 ring-white/5 glow-card ${originClass}`} style={{ transform: isHovered ? 'scale(1.8)' : 'scale(1)', boxShadow: isHovered ? '0 25px 50px rgba(0,0,0,0.8)' : '0 4px 6px rgba(0,0,0,0.1)' }}>
-        <div className={`w-full h-full relative bg-black transition-transform duration-[400ms] cubic-bezier(0.2, 0.8, 0.2, 1) ${isHovered ? 'scale-[1.02]' : 'scale-100'}`}>
-          <img src={`${IMAGE_BASE_URL}${imageUrl}`} alt={movie.title} className="w-full h-full object-cover" loading="lazy" />
-          {percent > 0 && percent < 95 && (<div className="absolute bottom-0 left-0 w-full h-1 bg-gray-700 z-20"><div className="h-full bg-[#00A8E1]" style={{ width: `${percent}%` }} /></div>)}
-        </div>
-        <div className={`absolute inset-0 flex flex-col justify-end px-4 py-5 text-white bg-gradient-to-t from-[#0f171e] via-[#0f171e]/95 to-transparent transition-all duration-300 ease-out z-30 ${isHovered ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-          <div className="mb-2 opacity-90"><span className="text-[5px] font-black tracking-[0.2em] text-[#00A8E1] uppercase bg-[#00A8E1]/10 px-1 py-0.5 rounded-sm">Prime</span></div>
-          <h3 className="font-extrabold text-[10px] leading-[1.2] text-white drop-shadow-md line-clamp-2 mb-2 w-[90%]">{movie.title || movie.name}</h3>
-          {percent > 0 && percent < 95 && (<div className="text-[6px] text-[#00A8E1] font-bold mb-1">Resume {type === 'tv' && progressData.last_season_watched ? `S${progressData.last_season_watched} E${progressData.last_episode_watched}` : ''}</div>)}
-          <div className="flex items-center gap-2 mb-3"><button className="bg-white hover:bg-[#d6d6d6] text-black text-[6px] font-bold h-6 px-3 rounded-[3px] transition-colors flex items-center justify-center gap-1 uppercase tracking-wider"><Play fill="black" size={6} /> Play</button><button className="w-6 h-6 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white transition flex items-center justify-center"><Plus size={8} className="text-white" /></button></div>
-          <div className="flex items-center gap-1.5 text-[6px] font-medium text-gray-300 mb-1"><span className="text-[#46d369] font-bold">{rating} Match</span><span className="text-gray-600 text-[5px]">•</span><span className="text-white">{year}</span><span className="text-gray-600 text-[5px]">•</span><span>{duration}</span><span className="ml-auto border border-white/20 px-1 rounded-[2px] text-[5px] text-gray-400">U/A 13+</span></div>
-          <div className="flex items-center gap-1 mb-2 opacity-80"><span className="bg-white/10 text-[4.5px] font-bold px-1 py-0.5 rounded-[2px] text-gray-200">4K UHD</span><span className="bg-white/10 text-[4.5px] font-bold px-1 py-0.5 rounded-[2px] text-gray-200">HDR10</span><span className="bg-white/10 text-[4.5px] font-bold px-1 py-0.5 rounded-[2px] text-gray-200">Dolby Atmos</span></div>
-          <p className="text-[5.5px] text-gray-400 line-clamp-2 leading-relaxed font-medium">{movie.overview || "Stream this title now on Prime Video."}</p>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 // --- ROW COMPONENT ---
 const Row = ({ title, fetchUrl, data = null, variant = 'standard', itemType = 'movie', isPrimeOnly }) => {
   const [movies, setMovies] = useState([]);
