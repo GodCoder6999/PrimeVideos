@@ -1138,6 +1138,148 @@ const SportsPage = () => {
   );
 };
 
+// --- MISSING COMPONENTS (Hero, MovieCard, SportsPlayer) ---
+
+const Hero = ({ isPrimeOnly }) => {
+  const [movie, setMovie] = useState(null);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const fetchHero = async () => {
+      // Fetch trending or Prime specific content for the big hero banner
+      const endpoint = isPrimeOnly
+        ? `/discover/tv?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc`
+        : `/trending/all/day?api_key=${TMDB_API_KEY}`;
+      
+      try {
+        const res = await fetch(`${BASE_URL}${endpoint}`);
+        const data = await res.json();
+        const valid = (data.results || []).filter(m => m.backdrop_path && m.overview);
+        // Pick a random one from top 5
+        setMovie(valid[Math.floor(Math.random() * Math.min(valid.length, 5))]);
+      } catch (e) { console.error(e); }
+    };
+    fetchHero();
+  }, [isPrimeOnly]);
+
+  if (!movie) return <div className="h-[85vh] w-full bg-[#0f171e]" />;
+
+  return (
+    <div className="relative h-[85vh] w-full group">
+      <div className="absolute inset-0">
+         <img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover object-top opacity-80 group-hover:opacity-100 transition-opacity duration-700" alt="" />
+         <div className="absolute inset-0 bg-gradient-to-r from-[#0f171e] via-[#0f171e]/40 to-transparent" />
+         <div className="absolute inset-0 bg-gradient-to-t from-[#0f171e] via-transparent to-transparent" />
+      </div>
+      <div className="absolute inset-0 flex flex-col justify-center px-8 md:px-16 lg:px-20 pt-20 items-start max-w-2xl">
+         <h1 className={`text-5xl md:text-7xl font-bold mb-4 text-white drop-shadow-lg line-clamp-2 leading-tight`}>{movie.title || movie.name}</h1>
+         <p className="text-lg text-gray-200 line-clamp-3 mb-8 font-medium drop-shadow-md">{movie.overview}</p>
+         <div className="flex gap-4">
+           <button onClick={() => navigate(`/watch/${movie.media_type || 'movie'}/${movie.id}`)} className={`px-8 py-4 rounded-[4px] font-bold text-lg flex items-center gap-2 bg-white text-black hover:bg-gray-200 transition`}>
+             <Play fill="black" size={24} /> Play
+           </button>
+           <button onClick={() => navigate(`/detail/${movie.media_type || 'movie'}/${movie.id}`)} className="px-8 py-4 rounded-[4px] font-bold text-lg flex items-center gap-2 bg-[#33373d]/80 text-white hover:bg-[#33373d] transition backdrop-blur-sm">
+             <Info size={24} /> More Info
+           </button>
+         </div>
+      </div>
+    </div>
+  );
+};
+
+const MovieCard = ({ movie, variant, rank, isHovered, onHover, onLeave, isPrimeOnly, isFirst, isLast }) => {
+  const navigate = useNavigate();
+  const theme = getTheme(isPrimeOnly);
+  const isRanked = variant === 'ranked';
+  const isVertical = variant === 'vertical';
+
+  return (
+    <div 
+      className={`relative flex-shrink-0 cursor-pointer transition-all duration-300 ease-out z-20 ${isRanked ? 'w-[200px] ml-16' : isVertical ? 'w-[160px]' : 'w-[240px]'} ${isHovered ? 'scale-110 z-50' : 'scale-100'}`}
+      onMouseEnter={() => onHover(movie.id)}
+      onMouseLeave={onLeave}
+      onClick={() => navigate(`/detail/${movie.media_type || 'movie'}/${movie.id}`)}
+      style={{ transformOrigin: isFirst ? 'left center' : isLast ? 'right center' : 'center center' }}
+    >
+      {isRanked && (
+         <div className={`rank-number ${isHovered ? 'text-[#00A8E1] scale-110' : 'text-[#19222b]'} transition-colors duration-300`}>{rank}</div>
+      )}
+      
+      <div className={`rounded-lg overflow-hidden relative shadow-lg bg-[#19222b] ${isVertical ? 'aspect-[2/3]' : 'aspect-video'} transition-all duration-300 ${isHovered ? `border-2 ${theme.border} shadow-[0_0_20px_rgba(0,168,225,0.4)]` : 'border border-transparent'}`}>
+        <img src={`${IMAGE_BASE_URL}${isVertical ? movie.poster_path : movie.backdrop_path || movie.poster_path}`} className="w-full h-full object-cover" alt="" loading="lazy" />
+        
+        {/* HOVER OVERLAY */}
+        <div className={`absolute inset-0 bg-black/60 flex flex-col justify-end p-4 transition-opacity duration-300 ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
+           <h4 className="font-bold text-white text-sm line-clamp-2 mb-1">{movie.title || movie.name}</h4>
+           <div className="flex items-center gap-2 text-[10px] text-gray-300 font-bold uppercase tracking-wider">
+             <Play size={10} fill="currentColor" /> Play Now
+           </div>
+           {isRanked && <div className="absolute top-2 right-2 text-[#00A8E1] font-bold text-xs bg-white/10 px-2 py-0.5 rounded backdrop-blur-md">#{rank}</div>}
+        </div>
+
+        {/* PRIME TAG */}
+        <div className="absolute top-2 left-2 w-6 h-6 rounded-full bg-[#00A8E1] text-white flex items-center justify-center shadow-md">
+           <CheckCircle2 size={14} />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const SportsPlayer = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const videoRef = useRef(null);
+  const { streamUrl, title, logo, group, type } = location.state || {}; 
+
+  useEffect(() => {
+    if (!streamUrl || type === 'dlhd') return;
+    let hls;
+    if (Hls && Hls.isSupported()) {
+      hls = new Hls(); 
+      hls.loadSource(streamUrl); 
+      hls.attachMedia(videoRef.current);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => { videoRef.current?.play().catch(() => {}); });
+    } else if (videoRef.current?.canPlayType('application/vnd.apple.mpegurl')) {
+      videoRef.current.src = streamUrl; 
+      videoRef.current.addEventListener('loadedmetadata', () => { videoRef.current?.play(); });
+    }
+    return () => { if (hls) hls.destroy(); };
+  }, [streamUrl, type]);
+
+  if (!streamUrl) return <div className="text-white pt-20 text-center">No stream selected. <button onClick={() => navigate(-1)} className="text-[#00A8E1] ml-2 hover:underline">Go Back</button></div>;
+
+  return (
+    <div className="fixed inset-0 bg-[#0f171e] z-[200] flex flex-col">
+      <div className="absolute top-0 left-0 w-full h-24 bg-gradient-to-b from-black/80 to-transparent z-50 flex items-center px-6 justify-between pointer-events-none">
+        <div className="flex items-center gap-4 pointer-events-auto">
+          <button onClick={() => navigate(-1)} className="w-12 h-12 rounded-full bg-black/40 hover:bg-[#00A8E1] backdrop-blur-md flex items-center justify-center text-white transition border border-white/10 group">
+             <ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" />
+          </button>
+          <div>
+            <div className="flex items-center gap-3">
+               {logo && <img src={logo} className="h-8 w-auto object-contain bg-white/10 rounded px-1" alt="" onError={(e) => e.target.style.display = 'none'} />}
+               <h1 className="text-white font-bold text-xl leading-tight drop-shadow-md">{title || "Live Stream"}</h1>
+            </div>
+            <div className="flex items-center gap-2 mt-1">
+               <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_red]"></span>
+               <span className="text-[#00A8E1] text-xs font-bold tracking-widest uppercase">{group || "LIVE BROADCAST"}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden group">
+        {type === 'dlhd' ? (
+           <iframe src={`https://dlhd.link/stream/stream-${streamUrl}.php`} width="100%" height="100%" style={{ border: 0 }} allowFullScreen allow="encrypted-media" title="DLHD Player"></iframe>
+        ) : (
+           <video ref={videoRef} className="w-full h-full object-contain" controls autoPlay playsInline preload="auto"></video>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // --- ROW COMPONENT ---
 const Row = ({ title, fetchUrl, data = null, variant = 'standard', itemType = 'movie', isPrimeOnly }) => {
   const [movies, setMovies] = useState([]);
