@@ -1142,43 +1142,72 @@ const SportsPlayer = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const videoRef = useRef(null);
-  const { streamUrl, title, logo, group } = location.state || {};
+  const { streamUrl, title, logo, group, type } = location.state || {}; // Extract 'type'
   const [isMuted, setIsMuted] = useState(false);
 
+  // --- HLS LOGIC (Only runs if NOT DLHD) ---
   useEffect(() => {
-    if (!streamUrl) return;
+    if (!streamUrl || type === 'dlhd') return; // Skip HLS setup for DLHD
+    
     let hls;
     if (Hls && Hls.isSupported()) {
-      hls = new Hls(); hls.loadSource(streamUrl); hls.attachMedia(videoRef.current);
+      hls = new Hls(); 
+      hls.loadSource(streamUrl); 
+      hls.attachMedia(videoRef.current);
       hls.on(Hls.Events.MANIFEST_PARSED, () => { videoRef.current.play().catch(e => console.log("Auto-play prevented", e)); });
     } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-      videoRef.current.src = streamUrl; videoRef.current.addEventListener('loadedmetadata', () => { videoRef.current.play(); });
+      videoRef.current.src = streamUrl; 
+      videoRef.current.addEventListener('loadedmetadata', () => { videoRef.current.play(); });
     }
     return () => { if (hls) hls.destroy(); };
-  }, [streamUrl]);
+  }, [streamUrl, type]);
 
   if (!streamUrl) return <div className="text-white pt-20 text-center">No stream selected. <button onClick={() => navigate(-1)} className="text-[#00A8E1] ml-2 hover:underline">Go Back</button></div>;
 
   return (
     <div className="fixed inset-0 bg-[#0f171e] z-[200] flex flex-col">
+      {/* HEADER */}
       <div className="absolute top-0 left-0 w-full h-24 bg-gradient-to-b from-black/80 to-transparent z-50 flex items-center px-6 justify-between pointer-events-none">
         <div className="flex items-center gap-4 pointer-events-auto">
-          <button onClick={() => navigate(-1)} className="w-12 h-12 rounded-full bg-black/40 hover:bg-[#00A8E1] backdrop-blur-md flex items-center justify-center text-white transition border border-white/10 group"><ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" /></button>
+          <button onClick={() => navigate(-1)} className="w-12 h-12 rounded-full bg-black/40 hover:bg-[#00A8E1] backdrop-blur-md flex items-center justify-center text-white transition border border-white/10 group">
+             <ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" />
+          </button>
           <div>
-            <div className="flex items-center gap-3">{logo && <img src={logo} className="h-8 w-auto object-contain bg-white/10 rounded px-1" alt="" onError={(e) => e.target.style.display = 'none'} />}<h1 className="text-white font-bold text-xl leading-tight drop-shadow-md">{title || "Live Stream"}</h1></div>
-            <div className="flex items-center gap-2 mt-1"><span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_red]"></span><span className="text-[#00A8E1] text-xs font-bold tracking-widest uppercase">{group || "LIVE BROADCAST"}</span></div>
+            <div className="flex items-center gap-3">
+               {logo && <img src={logo} className="h-8 w-auto object-contain bg-white/10 rounded px-1" alt="" onError={(e) => e.target.style.display = 'none'} />}
+               <h1 className="text-white font-bold text-xl leading-tight drop-shadow-md">{title || "Live Stream"}</h1>
+            </div>
+            <div className="flex items-center gap-2 mt-1">
+               <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_red]"></span>
+               <span className="text-[#00A8E1] text-xs font-bold tracking-widest uppercase">{group || "LIVE BROADCAST"}</span>
+            </div>
           </div>
         </div>
-        <div className="pointer-events-auto"><button onClick={() => { setIsMuted(!isMuted); videoRef.current.muted = !isMuted; }} className="w-12 h-12 rounded-full bg-black/40 hover:bg-white/20 backdrop-blur-md flex items-center justify-center text-white transition border border-white/10 hover:shadow-[0_0_15px_rgba(255,255,255,0.2)]">{isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}</button></div>
       </div>
+
+      {/* PLAYER CONTAINER */}
       <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden group">
-        <video ref={videoRef} className="w-full h-full object-contain" controls autoPlay playsInline preload="auto"></video>
-        <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-black/90 to-transparent pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end px-8 pb-8"><div className="text-white/80 text-sm font-medium">Streaming via secure HLS protocol • {new Date().toLocaleTimeString()}</div></div>
+        
+        {/* --- IFRAME PLAYER FOR "LITERALLY EVERY CHANNELS" --- */}
+        {type === 'dlhd' ? (
+           <iframe 
+             src={`https://dlhd.link/stream/stream-${streamUrl}.php`} // Uses ID passed as streamUrl
+             width="100%" 
+             height="100%" 
+             style={{ border: 0 }} 
+             allowFullScreen 
+             allow="encrypted-media"
+             title="DLHD Player"
+           ></iframe>
+        ) : (
+        /* --- STANDARD HLS PLAYER --- */
+           <video ref={videoRef} className="w-full h-full object-contain" controls autoPlay playsInline preload="auto"></video>
+        )}
+
       </div>
     </div>
   );
 };
-
 const Hero = ({ isPrimeOnly }) => {
   const [movies, setMovies] = useState([]);
   const [currentSlide, setCurrentSlide] = useState(0);
