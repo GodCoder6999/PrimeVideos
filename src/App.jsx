@@ -1848,9 +1848,9 @@ const Player = () => {
   const location = useLocation();
 
   // --- STATE ---
-  const [activeServer, setActiveServer] = useState('vidfast'); 
+  const [activeServer, setActiveServer] = useState('fastest'); 
+  const [showServers, setShowServers] = useState(false); // Dropdown toggle
   const [isIndian, setIsIndian] = useState(false); // Track if content is Indian
-  const [imdbId, setImdbId] = useState(null); // Required for Slime player
   
   // Episode & Season State
   const queryParams = new URLSearchParams(location.search);
@@ -1883,7 +1883,7 @@ const Player = () => {
         if (isIndianContent) {
           setActiveServer('slime'); // Switch to new Bollywood server
         } else {
-          setActiveServer('vidfast'); // Default for others
+          setActiveServer('fastest'); // Default to Fastest server
         }
 
         // 4. Set Total Seasons (TV Only)
@@ -1908,7 +1908,17 @@ const Player = () => {
 
   // --- 3. SOURCE GENERATOR ---
   const getSourceUrl = () => {
-    // A. Slime (Bollywood/Indian) - Uses IMDb ID
+    // A. Fastest (CineSrc)
+    if (activeServer === 'fastest') {
+      const colorParam = "color=%2300A8E1"; // Prime Blue
+      if (type === 'tv') {
+        return `https://cinesrc.st/embed/tv/${id}?s=${season}&e=${episode}&autoplay=true&autonext=true&${colorParam}`;
+      } else {
+        return `https://cinesrc.st/embed/movie/${id}?autoplay=true&${colorParam}`;
+      }
+    }
+
+    // B. Slime (Bollywood/Indian) - Uses IMDb ID
     if (activeServer === 'slime') {
       const targetId = imdbId || id; // Fallback to TMDB ID if IMDb missing (rarely works for this source but safe fallback)
       if (type === 'tv') {
@@ -1961,33 +1971,51 @@ const Player = () => {
         </button>
 
         {/* SERVER SWITCHER */}
-        <div className="pointer-events-auto flex flex-col items-center gap-1 bg-black/60 backdrop-blur-md border border-white/10 p-1.5 rounded-xl shadow-2xl transform translate-y-2">
-          <div className="flex bg-[#19222b] rounded-lg p-1 gap-1">
-            
-            {/* NEW BOLLYWOOD SERVER BUTTON */}
-            <button
-              onClick={() => setActiveServer('slime')}
-              className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${activeServer === 'slime' ? 'bg-[#E50914] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
-            >
-              {isIndian && <CheckCircle2 size={12} />} Bollywood / Indian
-            </button>
+        <div className="pointer-events-auto relative flex flex-col items-center">
+          {/* FLOATING BUTTON */}
+          <button
+            onClick={() => setShowServers(!showServers)}
+            className="flex items-center gap-2 bg-black/50 hover:bg-[#00A8E1] text-white px-4 py-2.5 rounded-full backdrop-blur-md border border-white/10 transition-all shadow-lg font-bold text-xs uppercase tracking-wider group"
+          >
+            <Signal size={16} className={`${activeServer === 'fastest' ? 'text-[#00A8E1]' : 'text-gray-400'} group-hover:text-white transition-colors`} />
+            <span className="hidden sm:inline">Server: </span> {activeServer}
+            <ChevronDown size={16} className={`transition-transform duration-300 ${showServers ? 'rotate-180' : ''}`} />
+          </button>
 
-            <button
-              onClick={() => setActiveServer('vidfast')}
-              className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'vidfast' ? 'bg-[#00A8E1] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
-            >
-              VidFast
-            </button>
-            
-            <button
-              onClick={() => setActiveServer('zxcstream')}
-              className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeServer === 'zxcstream' ? 'bg-[#00A8E1] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
-            >
-              Multi-Audio
-            </button>
-          </div>
-          {activeServer === 'zxcstream' && (
-            <div className="text-[10px] text-[#00A8E1] font-bold animate-pulse">Select Audio Language in Player Settings</div>
+          {/* DROPDOWN MENU */}
+          {showServers && (
+            <div className="absolute top-full mt-3 w-48 bg-[#19222b]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl flex flex-col overflow-hidden z-[150] animate-in fade-in slide-in-from-top-2">
+              <button
+                onClick={() => { setActiveServer('fastest'); setShowServers(false); }}
+                className={`px-4 py-3 text-left text-xs font-bold transition-all border-b border-white/5 last:border-0 ${activeServer === 'fastest' ? 'bg-[#00A8E1] text-white' : 'text-gray-300 hover:bg-white/10 hover:text-white'}`}
+              >
+                Fastest (CineSrc)
+              </button>
+              <button
+                onClick={() => { setActiveServer('slime'); setShowServers(false); }}
+                className={`px-4 py-3 text-left text-xs font-bold transition-all flex items-center justify-between border-b border-white/5 last:border-0 ${activeServer === 'slime' ? 'bg-[#E50914] text-white' : 'text-gray-300 hover:bg-white/10 hover:text-white'}`}
+              >
+                <span>Bollywood / Indian</span>
+                {isIndian && activeServer !== 'slime' && <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>}
+              </button>
+              <button
+                onClick={() => { setActiveServer('vidfast'); setShowServers(false); }}
+                className={`px-4 py-3 text-left text-xs font-bold transition-all border-b border-white/5 last:border-0 ${activeServer === 'vidfast' ? 'bg-[#00A8E1] text-white' : 'text-gray-300 hover:bg-white/10 hover:text-white'}`}
+              >
+                VidFast
+              </button>
+              <button
+                onClick={() => { setActiveServer('zxcstream'); setShowServers(false); }}
+                className={`px-4 py-3 text-left text-xs font-bold transition-all ${activeServer === 'zxcstream' ? 'bg-[#00A8E1] text-white' : 'text-gray-300 hover:bg-white/10 hover:text-white'}`}
+              >
+                Multi-Audio
+              </button>
+              {activeServer === 'zxcstream' && (
+                <div className="bg-[#0f171e] text-[9px] text-[#00A8E1] font-bold text-center py-2 px-1 border-t border-white/5">
+                  Select Audio in Settings
+                </div>
+              )}
+            </div>
           )}
         </div>
 
