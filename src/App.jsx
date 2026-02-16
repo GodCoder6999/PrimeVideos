@@ -1858,7 +1858,12 @@ const Player = () => {
   const [episode, setEpisode] = useState(Number(queryParams.get('episode')) || 1);
   const [showEpisodes, setShowEpisodes] = useState(false);
   const [seasonData, setSeasonData] = useState(null);
-  const [totalSeasons, setTotalSeasons] = useState(1);
+
+  // --- NEW STATES FOR BETTER SEASON HANDLING ---
+  const [imdbId, setImdbId] = useState(null);
+  const [availableSeasons, setAvailableSeasons] = useState([]);
+  const [isSeasonDropdownOpen, setIsSeasonDropdownOpen] = useState(false);
+
 
   // --- 1. FETCH METADATA & LANGUAGE DETECTION ---
   useEffect(() => {
@@ -1886,9 +1891,11 @@ const Player = () => {
           setActiveServer('fastest'); // Default to Fastest server
         }
 
-        // 4. Set Total Seasons (TV Only)
-        if (type === 'tv' && data.number_of_seasons) {
-          setTotalSeasons(data.number_of_seasons);
+        // 4. Set Total Seasons from the actual array (TV Only)
+        if (type === 'tv' && data.seasons) {
+            // Filter out Season 0 (Specials) to keep the list clean
+            const validSeasons = data.seasons.filter(s => s.season_number > 0);
+            setAvailableSeasons(validSeasons);
         }
       } catch (e) {
         console.error("Error fetching details:", e);
@@ -2053,25 +2060,100 @@ const Player = () => {
           <div className="pt-24 px-6 pb-4 border-b border-white/10 flex items-center justify-between bg-[#1a242f]/50">
             <h2 className="font-bold text-white text-lg">Episodes</h2>
             <div className="relative">
-              <select value={season} onChange={(e) => setSeason(Number(e.target.value))} className="appearance-none bg-[#00A8E1] text-white font-bold py-1.5 pl-3 pr-8 rounded cursor-pointer text-sm outline-none hover:bg-[#008ebf] transition">
-                {Array.from({length: totalSeasons}, (_, i) => i + 1).map(s => (<option key={s} value={s} className="bg-[#1a242f]">Season {s}</option>))}
-              </select>
-              <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-white pointer-events-none" />
+              <button 
+                onClick={() => setIsSeasonDropdownOpen(!isSeasonDropdownOpen)}
+                className="flex items-center gap-2 bg-[#1a242f] hover:bg-[#232d38] border border-white/10 text-white font-bold py-2 px-4 rounded-lg transition-all shadow-md"
+              >
+                <span>Season {season}</span>
+                <ChevronDown size={16} className={`transition-transform duration-300 ${isSeasonDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {isSeasonDropdownOpen && (
+                <div className="absolute right-0 top-full mt-2 w-56 bg-[#0f171e]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl overflow-hidden z-[200] animate-in fade-in slide-in-from-top-2 max-h-64 overflow-y-auto scrollbar-hide">
+                  {availableSeasons.map((s) => (
+                    <button
+                      key={s.season_number}
+                      onClick={() => {
+                        setSeason(s.season_number);
+                        setIsSeasonDropdownOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between text-left px-4 py-3 text-sm font-bold transition-all border-b border-white/5 last:border-0 ${
+                        season === s.season_number 
+                          ? 'bg-[#00A8E1] text-white' 
+                          : 'text-gray-300 hover:bg-white/10 hover:text-white'
+                      }`}
+                    >
+                      <span>{s.name || `Season ${s.season_number}`}</span>
+                      {s.episode_count && <span className="text-[10px] text-gray-400 font-normal bg-black/30 px-1.5 py-0.5 rounded">{s.episode_count} Eps</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-hide">
-            {seasonData?.episodes ? (seasonData.episodes.map(ep => (
-              <div key={ep.id} onClick={() => setEpisode(ep.episode_number)} className={`flex gap-3 p-2 rounded-lg cursor-pointer transition-all group ${episode === ep.episode_number ? 'bg-[#333c46] border border-[#00A8E1]' : 'hover:bg-[#333c46] border border-transparent'}`}>
-                <div className="relative w-28 h-16 flex-shrink-0 bg-black rounded overflow-hidden">
-                  {ep.still_path ? (<img src={`${IMAGE_BASE_URL}${ep.still_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" />) : (<div className="w-full h-full flex items-center justify-center text-gray-600 text-xs">No Img</div>)}
-                  {episode === ep.episode_number && (<div className="absolute inset-0 bg-black/40 flex items-center justify-center"><Play size={16} fill="white" className="text-white" /></div>)}
+          
+          <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-hide relative">
+            {seasonData?.episodes ? (
+              seasonData.episodes.map(ep => (
+                <div 
+                  key={ep.id} 
+                  onClick={() => setEpisode(ep.episode_number)} 
+                  className={`flex flex-col gap-2 p-3 rounded-xl cursor-pointer transition-all duration-300 group ${
+                    episode === ep.episode_number 
+                      ? 'bg-[#19222b] border border-[#00A8E1] shadow-[0_0_15px_rgba(0,168,225,0.15)]' 
+                      : 'bg-[#0f171e]/50 hover:bg-[#19222b] border border-white/5 hover:border-white/20'
+                  }`}
+                >
+                  <div className="flex gap-3">
+                    <div className="relative w-32 h-20 flex-shrink-0 bg-[#0a0f14] rounded-lg overflow-hidden border border-white/5">
+                      {ep.still_path ? (
+                        <img src={`${IMAGE_BASE_URL}${ep.still_path}`} className={`w-full h-full object-cover transition-all duration-500 ${episode === ep.episode_number ? 'opacity-100 scale-105' : 'opacity-70 group-hover:opacity-100 group-hover:scale-105'}`} alt={ep.name} />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-600 text-xs font-medium">No Image</div>
+                      )}
+                      
+                      {/* Play Button Overlay */}
+                      <div className={`absolute inset-0 bg-black/40 flex items-center justify-center transition-opacity duration-300 ${episode === ep.episode_number ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                        <div className="w-8 h-8 rounded-full bg-[#00A8E1] flex items-center justify-center shadow-[0_0_10px_#00A8E1]">
+                           <Play size={14} fill="white" className="text-white ml-0.5" />
+                        </div>
+                      </div>
+
+                      {/* Runtime Badge */}
+                      {ep.runtime && (
+                        <div className="absolute bottom-1 right-1 bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] font-bold text-white border border-white/10">
+                          {ep.runtime}m
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="flex flex-col justify-center min-w-0 flex-1">
+                      <div className="flex items-center justify-between mb-0.5">
+                         <span className={`text-[10px] font-black uppercase tracking-wider ${episode === ep.episode_number ? 'text-[#00A8E1]' : 'text-gray-400'}`}>
+                           Episode {ep.episode_number}
+                         </span>
+                         {ep.air_date && <span className="text-[9px] text-gray-500 font-medium">{new Date(ep.air_date).getFullYear()}</span>}
+                      </div>
+                      <h4 className={`text-sm font-bold truncate leading-tight mb-1 ${episode === ep.episode_number ? 'text-white' : 'text-gray-200 group-hover:text-white'}`}>
+                        {ep.name}
+                      </h4>
+                    </div>
+                  </div>
+
+                  {/* Collapsible Overview */}
+                  {ep.overview && (
+                    <p className={`text-xs mt-1 line-clamp-2 leading-relaxed transition-all ${episode === ep.episode_number ? 'text-gray-300' : 'text-gray-500 group-hover:text-gray-400'}`}>
+                      {ep.overview}
+                    </p>
+                  )}
                 </div>
-                <div className="flex flex-col justify-center min-w-0">
-                  <span className={`text-xs font-bold mb-0.5 ${episode === ep.episode_number ? 'text-[#00A8E1]' : 'text-gray-400'}`}>Episode {ep.episode_number}</span>
-                  <h4 className={`text-sm font-medium truncate leading-tight ${episode === ep.episode_number ? 'text-white' : 'text-gray-300 group-hover:text-white'}`}>{ep.name}</h4>
-                </div>
+              ))
+            ) : (
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-500">
+                <Loader className="animate-spin mb-3 text-[#00A8E1]" size={32} />
+                <span className="text-sm font-medium animate-pulse">Loading Season {season}...</span>
               </div>
-            ))) : (<div className="text-center text-gray-500 mt-10 flex flex-col items-center"><Loader className="animate-spin mb-2" /><span>Loading Season {season}...</span></div>)}
+            )}
           </div>
         </div>
       )}
