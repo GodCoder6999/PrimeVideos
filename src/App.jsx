@@ -1863,6 +1863,9 @@ const Player = () => {
   const [imdbId, setImdbId] = useState(null);
   const [availableSeasons, setAvailableSeasons] = useState([]);
   const [isSeasonDropdownOpen, setIsSeasonDropdownOpen] = useState(false);
+  
+  // --- MEDIA METADATA FOR HISTORY ---
+  const [mediaDetails, setMediaDetails] = useState(null);
 
 
   // --- 1. FETCH METADATA & LANGUAGE DETECTION ---
@@ -1873,6 +1876,8 @@ const Player = () => {
         const res = await fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`);
         const data = await res.json();
         
+        setMediaDetails(data); // Save details for history
+
         // 1. Get IMDB ID
         // For movies, it's often at root level or inside external_ids
         // For TV, it's usually in external_ids
@@ -1913,7 +1918,63 @@ const Player = () => {
     }
   }, [type, id, season]);
 
-  // --- 3. SOURCE GENERATOR ---
+  // --- 3. SAVE PROGRESS (CONTINUE WATCHING) ---
+  useEffect(() => {
+    if (!mediaDetails) return;
+
+    const saveProgress = (currentTime = 0, duration = 0) => {
+      const history = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
+      const key = `${type === 'tv' ? 't' : 'm'}${id}`;
+      
+      const previousData = history[key] || {};
+      
+      const newData = {
+        ...previousData,
+        id: Number(id),
+        type,
+        title: mediaDetails.title || mediaDetails.name,
+        poster_path: mediaDetails.poster_path,
+        backdrop_path: mediaDetails.backdrop_path,
+        last_updated: Date.now(),
+        // Keep existing progress if available, otherwise 0
+        progress: (currentTime > 0 && duration > 0) 
+          ? { watched: currentTime, duration } 
+          : (previousData.progress || { watched: 0, duration: 0 }),
+      };
+
+      // Specific TV Logic
+      if (type === 'tv') {
+        newData.last_season_watched = season;
+        newData.last_episode_watched = episode;
+      }
+
+      localStorage.setItem('vidFastProgress', JSON.stringify({ ...history, [key]: newData }));
+    };
+
+    // A. Save immediately on load/change (So it appears in "Continue Watching" list)
+    saveProgress();
+
+    // B. Listen for PostMessages (For sources that support progress updates like VidFast)
+    const handleMessage = (event) => {
+      try {
+        const data = event.data;
+        // Standard HLS/HTML5 player format
+        if (data && data.type === 'timeupdate' && data.currentTime && data.duration) {
+           saveProgress(data.currentTime, data.duration);
+        }
+        // Specific VidFast/Embed formats
+        if (data && data.event === 'timeupdate' && data.data) {
+           saveProgress(data.data.currentTime, data.data.duration);
+        }
+      } catch(e) {}
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+
+  }, [mediaDetails, season, episode, type, id]);
+
+  // --- 4. SOURCE GENERATOR ---
   const getSourceUrl = () => {
     // A. Fastest (CineSrc)
     if (activeServer === 'fastest') {
