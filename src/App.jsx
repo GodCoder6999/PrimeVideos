@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useLocation, useParams, Link } from 'react-router-dom';
-import { Search, Play, Info, Plus, ChevronRight, ChevronLeft, Download, Share2, CheckCircle2, ThumbsUp, ChevronDown, Grip, Loader, List, ArrowLeft, X, Volume2, VolumeX, Trophy, Signal, Clock, Ban, Eye, Bookmark, TrendingUp, Monitor, Menu, Film } from 'lucide-react';
+import { Search, Play, Info, Plus, ChevronRight, ChevronLeft, Download, Share2, CheckCircle2, ThumbsUp, ChevronDown, Grip, Loader, List, ArrowLeft, X, Volume2, VolumeX, Trophy, Signal, Clock, Ban, Eye, Bookmark, TrendingUp, Monitor } from 'lucide-react';
 
 // --- GLOBAL HLS REFERENCE ---
 // Note: Ensure <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script> is in your index.html
@@ -326,13 +326,11 @@ const InfiniteScrollTrigger = ({ onIntersect }) => {
 // --- COMPONENTS ---
 
 // --- NAVBAR COMPONENT (ATTACHED FLOATING CURVE EFFECT) ---
-// --- NAVBAR COMPONENT (MOBILE RESPONSIVE) ---
 const Navbar = ({ isPrimeOnly }) => {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState({ text: [], visual: [] });
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [mobileNavOpen, setMobileNavOpen] = useState(false); // Mobile Menu State
   const [isScrolled, setIsScrolled] = useState(false);
 
   const navigate = useNavigate();
@@ -341,8 +339,16 @@ const Navbar = ({ isPrimeOnly }) => {
   const dropdownRef = useRef(null);
   const theme = getTheme(isPrimeOnly);
 
+  // --- SCROLL LISTENER ---
   useEffect(() => {
-    const handleScroll = () => setIsScrolled(window.scrollY > 10);
+    const handleScroll = () => {
+      // Threshold is 10px to trigger the effect
+      if (window.scrollY > 10) {
+        setIsScrolled(true);
+      } else {
+        setIsScrolled(false);
+      }
+    };
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
@@ -358,14 +364,35 @@ const Navbar = ({ isPrimeOnly }) => {
 
   useEffect(() => {
     const fetchSuggestions = async () => {
-      if (query.trim().length < 2) { setSuggestions({ text: [], visual: [] }); return; }
+      if (query.trim().length < 2) {
+        setSuggestions({ text: [], visual: [] });
+        return;
+      }
       try {
         const res = await fetch(`${BASE_URL}/search/multi?api_key=${TMDB_API_KEY}&query=${query}&page=1`);
         const data = await res.json();
-        let results = (data.results || []).filter(i => i.media_type === 'movie' || i.media_type === 'tv');
-        setSuggestions({ text: results.map(i => i.title || i.name).slice(0, 3), visual: results.slice(0, 4) });
+        let results = data.results || [];
+        results = results.filter(i => i.media_type === 'movie' || i.media_type === 'tv');
+
+        if (isPrimeOnly) {
+          const filtered = [];
+          for (const item of results) {
+            if (filtered.length >= 4) break;
+            try {
+              const pRes = await fetch(`${BASE_URL}/${item.media_type}/${item.id}/watch/providers?api_key=${TMDB_API_KEY}`);
+              const pData = await pRes.json();
+              const providers = pData.results?.[PRIME_REGION]?.flatrate || [];
+              if (providers.some(p => p.provider_id.toString() === "9" || p.provider_id.toString() === "119")) {
+                filtered.push(item);
+              }
+            } catch(e) {}
+          }
+          setSuggestions({ text: filtered.map(i => i.title || i.name).slice(0, 3), visual: filtered });
+        } else {
+          setSuggestions({ text: results.map(i => i.title || i.name).slice(0, 3), visual: results.slice(0, 4) });
+        }
         setShowSuggestions(true);
-      } catch (e) {}
+      } catch (e) { console.error("Search Error", e); }
     };
     const timeoutId = setTimeout(() => { if (query) fetchSuggestions(); else setShowSuggestions(false); }, 300);
     return () => clearTimeout(timeoutId);
@@ -374,92 +401,94 @@ const Navbar = ({ isPrimeOnly }) => {
   const handleSearch = (e) => {
     e.preventDefault();
     setShowSuggestions(false);
-    if (query.trim()) navigate(`${isPrimeOnly ? '/search' : '/everything/search'}?q=${encodeURIComponent(query)}`);
+    if (query.trim()) {
+      const searchPath = isPrimeOnly ? '/search' : '/everything/search';
+      navigate(`${searchPath}?q=${encodeURIComponent(query)}`);
+    }
   };
 
-  const getNavLinkClass = (path) => location.pathname === path 
-    ? "text-white font-bold bg-white/10 backdrop-blur-md border border-white/10 rounded-lg px-5 py-2 text-[15px] shadow-[0_0_15px_rgba(0,168,225,0.4)]"
-    : "text-[#c7cbd1] font-medium text-[15px] hover:text-white hover:bg-white/5 rounded-lg px-4 py-2 transition-all cursor-pointer";
+  const handleClear = () => { setQuery(""); setShowSuggestions(false); };
 
+  const getNavLinkClass = (path) => {
+    const isActive = location.pathname === path;
+    if (isActive) {
+      return "text-white font-bold bg-white/10 backdrop-blur-md border border-white/10 rounded-lg px-5 py-2 text-[15px] transition-all duration-300 ease-in-out shadow-[0_0_15px_rgba(0,168,225,0.4)]";
+    }
+    return "text-[#c7cbd1] font-medium text-[15px] hover:text-white hover:bg-white/5 hover:backdrop-blur-sm rounded-lg px-4 py-2 transition-all duration-300 ease-in-out cursor-pointer hover:shadow-[0_0_10px_rgba(255,255,255,0.1)]";
+  };
+
+  // --- DYNAMIC NAV CLASSES ---
+  // State 1 (Scrolled): 
+  // - Fixed at Top (0)
+  // - Rounded Bottom Corners (rounded-b-3xl) to create the "hanging" effect
+  // - Deep shadow + Inset highlight for "carved" glass look
   const navClasses = isScrolled
-    ? "fixed top-0 left-0 w-full z-[1000] flex items-center px-4 md:px-[24px] transition-all duration-500 backdrop-blur-xl bg-[#0f171e]/90 rounded-b-[24px] shadow-[0_20px_40px_-10px_rgba(0,0,0,0.6)] border-b border-white/5"
-    : "fixed top-0 left-0 w-full z-[1000] flex items-center px-4 md:px-[24px] transition-all duration-500 bg-gradient-to-b from-black/80 to-transparent";
+    ? "fixed top-0 left-0 w-full z-[1000] flex items-center px-[24px] transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] backdrop-blur-xl bg-[#0f171e]/90 rounded-b-[24px] shadow-[0_20px_40px_-10px_rgba(0,0,0,0.6),inset_0_-1px_0_rgba(255,255,255,0.1)] border-b border-white/5"
+    : "fixed top-0 left-0 w-full z-[1000] flex items-center px-[24px] transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] bg-transparent bg-gradient-to-b from-black/80 to-transparent rounded-none border-transparent";
 
   return (
-    <>
-      <nav className={navClasses} style={{ height: '64px', gap: '16px' }}>
-        {/* Mobile Hamburger Icon */}
-        <button onClick={() => setMobileNavOpen(true)} className="md:hidden text-white p-1">
-          <Menu size={28} />
-        </button>
-
-        <Link to={isPrimeOnly ? "/" : "/everything"} className="text-[#ffffff] font-bold text-lg md:text-[21px] tracking-tight no-underline drop-shadow-md flex-shrink-0">
-          {theme.logoText}
+    <nav
+      className={navClasses}
+      style={{ height: '64px', fontFamily: '"Amazon Ember", "Inter", "Segoe UI", sans-serif', gap: '28px' }}
+    >
+      <Link to={isPrimeOnly ? "/" : "/everything"} className="text-[#ffffff] font-bold text-[21px] tracking-[-0.2px] no-underline leading-none drop-shadow-md">
+        {theme.logoText}
+      </Link>
+      <div className="flex items-center gap-[6px]">
+        <Link to={isPrimeOnly ? "/" : "/everything"} className={getNavLinkClass(isPrimeOnly ? "/" : "/everything")}>Home</Link>
+        <Link to={isPrimeOnly ? "/movies" : "/everything/movies"} className={getNavLinkClass(isPrimeOnly ? "/movies" : "/everything/movies")}>Movies</Link>
+        <Link to={isPrimeOnly ? "/tv" : "/everything/tv"} className={getNavLinkClass(isPrimeOnly ? "/tv" : "/everything/tv")}>TV Shows</Link>
+        <Link to="/sports" className={`${getNavLinkClass("/sports")} flex items-center gap-2`}>
+          <Trophy size={16} className={location.pathname === "/sports" ? "text-[#00A8E1]" : "opacity-80"} />Live TV
         </Link>
-        
-        {/* Desktop Links - Hidden on Mobile */}
-        <div className="hidden md:flex items-center gap-[6px] ml-4">
-          <Link to={isPrimeOnly ? "/" : "/everything"} className={getNavLinkClass(isPrimeOnly ? "/" : "/everything")}>Home</Link>
-          <Link to={isPrimeOnly ? "/movies" : "/everything/movies"} className={getNavLinkClass(isPrimeOnly ? "/movies" : "/everything/movies")}>Movies</Link>
-          <Link to={isPrimeOnly ? "/tv" : "/everything/tv"} className={getNavLinkClass(isPrimeOnly ? "/tv" : "/everything/tv")}>TV Shows</Link>
-          <Link to="/sports" className={`${getNavLinkClass("/sports")} flex items-center gap-2`}><Trophy size={16} className="text-[#00A8E1]" />Live TV</Link>
-        </div>
-
-        <div className="ml-auto flex items-center gap-3 md:gap-6">
-          <div ref={searchRef} className="relative">
-            <form onSubmit={handleSearch} className={`px-2 md:px-3 py-1.5 rounded-md flex items-center group transition-all w-[130px] sm:w-[200px] md:w-[400px] ${isScrolled ? 'bg-[#19222b]/50 border border-white/10' : 'bg-[#19222b]/60 border border-white/20'}`}>
-              <Search size={16} className="text-[#c7cbd1]" />
-              <input className="bg-transparent border-none outline-none text-white text-xs md:text-sm font-medium ml-2 w-full placeholder-[#5a6069]" placeholder="Search..." value={query} onChange={(e) => setQuery(e.target.value)} onFocus={() => { if(query.length > 1) setShowSuggestions(true); }} />
-              {query && <X size={14} className="text-[#c7cbd1] cursor-pointer" onClick={() => setQuery("")} />}
-            </form>
-            {/* Suggestions Dropdown */}
-            {showSuggestions && (suggestions.text.length > 0) && (
-              <div className="absolute top-12 right-0 w-[250px] md:w-full bg-[#19222b]/95 backdrop-blur-xl border border-gray-700 rounded-lg shadow-2xl overflow-hidden z-[160]">
-                {suggestions.text.map((text, idx) => ( <div key={idx} onClick={() => { setQuery(text); handleSearch({preventDefault:()=>{}}); }} className="px-4 py-2 text-sm text-gray-300 hover:bg-[#333c46] hover:text-white cursor-pointer border-b border-white/5">{text}</div> ))}
+      </div>
+      <div className="ml-auto flex items-center gap-6">
+        <div ref={searchRef} className="relative">
+          <form onSubmit={handleSearch} className={`px-3 py-1.5 rounded-md flex items-center group focus-within:border-white/30 transition-all w-[300px] md:w-[400px] ${isScrolled ? 'bg-[#19222b]/50 border border-white/10' : 'bg-[#19222b]/60 backdrop-blur-sm border border-white/20'}`}>
+            <Search size={18} className="text-[#c7cbd1]" />
+            <input className="bg-transparent border-none outline-none text-white text-sm font-medium ml-2 w-full placeholder-[#5a6069]" placeholder={isPrimeOnly ? "Search Prime..." : "Search Everything..."} value={query} onChange={(e) => setQuery(e.target.value)} onFocus={() => { if(query.length > 1) setShowSuggestions(true); }} />
+            {query && <X size={16} className="text-[#c7cbd1] cursor-pointer hover:text-white" onClick={handleClear} />}
+          </form>
+          {showSuggestions && (suggestions.text.length > 0 || suggestions.visual.length > 0) && (
+            <div className="absolute top-12 right-0 w-full bg-[#19222b]/95 backdrop-blur-xl border border-gray-700 rounded-lg shadow-2xl overflow-hidden animate-in z-[160]">
+              {suggestions.text.map((text, idx) => ( <div key={idx} onClick={() => { setQuery(text); handleSearch({preventDefault:()=>{}}); }} className="px-4 py-2 text-sm text-gray-300 hover:bg-[#333c46] hover:text-white cursor-pointer flex items-center gap-2 border-b border-white/5 last:border-0"><Search size={14} /> {text}</div> ))}
+              {suggestions.visual.length > 0 && ( <div className="px-4 pt-3 pb-2 text-[11px] font-bold text-gray-500 uppercase tracking-wider">Top Results</div> )}
+              <div className="flex gap-3 p-3 overflow-x-auto scrollbar-hide bg-[#00050D]/50">
+                {suggestions.visual.map((item) => (
+                  <div key={item.id} onClick={() => { setShowSuggestions(false); navigate(`/detail/${item.media_type}/${item.id}`); }} className="w-[100px] flex-shrink-0 cursor-pointer group">
+                    <div className="aspect-video rounded-md overflow-hidden bg-gray-800 relative"><img src={`${IMAGE_BASE_URL}${item.backdrop_path || item.poster_path}`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" alt="" /></div>
+                    <div className="text-[11px] font-bold text-gray-400 mt-1 truncate group-hover:text-white">{item.title || item.name}</div>
+                  </div>
+                ))}
               </div>
-            )}
-          </div>
-          
-          <Link to="/watchlist" className="hidden md:flex relative group items-center justify-center">
-              <div className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/10 cursor-pointer">
-                 <Bookmark size={24} className="text-[#c7cbd1] hover:text-white transition-colors" />
-              </div>
-          </Link>
-
-          <div className="relative" ref={dropdownRef}>
-            <div className={`w-8 h-8 md:w-9 md:h-9 rounded-full bg-[#3d464f]/80 flex items-center justify-center border border-white/10 cursor-pointer`} onClick={() => setMenuOpen(!menuOpen)}><Grip size={18} className="text-[#c7cbd1]" /></div>
-            {menuOpen && (
-              <div className="absolute right-0 top-12 w-64 bg-[#19222b]/95 backdrop-blur-xl border border-gray-700 rounded-lg shadow-2xl p-2 z-[150] animate-in">
-                <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2 pt-2">Switch Mode</div>
-                <Link to="/" onClick={() => setMenuOpen(false)} className={`flex items-center gap-3 p-3 rounded-md ${isPrimeOnly ? 'bg-[#00A8E1] text-white' : 'hover:bg-[#333c46] text-gray-300'}`}><CheckCircle2 size={18} className={isPrimeOnly ? "text-white" : "opacity-0"} /><div><div className="font-bold">Prime Video</div><div className="text-[10px] opacity-80">Included with Prime</div></div></Link>
-                <Link to="/everything" onClick={() => setMenuOpen(false)} className={`flex items-center gap-3 p-3 rounded-md ${!isPrimeOnly ? 'bg-[#E50914] text-white' : 'hover:bg-[#333c46] text-gray-300'}`}><CheckCircle2 size={18} className={!isPrimeOnly ? "text-white" : "opacity-0"} /><div><div className="font-bold">Literally Everything!</div><div className="text-[10px] opacity-80">All streaming services</div></div></Link>
-              </div>
-            )}
-          </div>
-        </div>
-      </nav>
-
-      {/* --- MOBILE SIDEBAR MENU --- */}
-      {mobileNavOpen && (
-        <div className="fixed inset-0 z-[2000] flex md:hidden">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setMobileNavOpen(false)} />
-          <div className="relative w-[70%] max-w-[300px] h-full bg-[#0f171e] shadow-2xl p-6 flex flex-col animate-in slide-in-from-left">
-            <button className="absolute top-4 right-4 text-gray-400" onClick={() => setMobileNavOpen(false)}><X size={28} /></button>
-            <div className="text-xl font-bold text-white mb-8 mt-2">{theme.logoText}</div>
-            <div className="flex flex-col gap-4">
-              <Link to={isPrimeOnly ? "/" : "/everything"} onClick={() => setMobileNavOpen(false)} className="flex items-center gap-4 text-lg font-medium text-white"><HomeIcon size={24}/> Home</Link>
-              <Link to={isPrimeOnly ? "/movies" : "/everything/movies"} onClick={() => setMobileNavOpen(false)} className="flex items-center gap-4 text-lg font-medium text-gray-300"><Film size={24}/> Movies</Link>
-              <Link to={isPrimeOnly ? "/tv" : "/everything/tv"} onClick={() => setMobileNavOpen(false)} className="flex items-center gap-4 text-lg font-medium text-gray-300"><Tv size={24}/> TV Shows</Link>
-              <Link to="/sports" onClick={() => setMobileNavOpen(false)} className="flex items-center gap-4 text-lg font-medium text-gray-300"><Trophy size={24}/> Live TV</Link>
-              <div className="h-px bg-white/10 my-2" />
-              <Link to="/watchlist" onClick={() => setMobileNavOpen(false)} className="flex items-center gap-4 text-lg font-medium text-gray-300"><Bookmark size={24}/> Watchlist</Link>
             </div>
-          </div>
+          )}
         </div>
-      )}
-    </>
+        
+        {/* --- WATCHLIST BUTTON --- */}
+        <Link to="/watchlist" className="relative group flex items-center justify-center">
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer border ${isScrolled ? 'border-transparent' : 'border-transparent'} hover:border-white/10`}>
+               <Bookmark size={24} className="text-[#c7cbd1] group-hover:text-white transition-colors" />
+            </div>
+            <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap border border-white/10">Watchlist</span>
+        </Link>
+
+        <div className="relative" ref={dropdownRef}>
+          <div className={`w-9 h-9 rounded-full bg-[#3d464f]/80 backdrop-blur-sm flex items-center justify-center border border-white/10 hover:border-white transition-all cursor-pointer`} onClick={() => setMenuOpen(!menuOpen)}><Grip size={20} className="text-[#c7cbd1]" /></div>
+          {menuOpen && (
+            <div className="absolute right-0 top-12 w-64 bg-[#19222b]/95 backdrop-blur-xl border border-gray-700 rounded-lg shadow-2xl p-2 z-[150] animate-in">
+              <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2 pt-2">Switch Mode</div>
+              <Link to="/" onClick={() => setMenuOpen(false)} className={`flex items-center gap-3 p-3 rounded-md transition-colors ${isPrimeOnly ? 'bg-[#00A8E1] text-white' : 'hover:bg-[#333c46] text-gray-300'}`}><CheckCircle2 size={18} className={isPrimeOnly ? "text-white" : "opacity-0"} /><div><div className="font-bold">Prime Video</div><div className="text-[10px] opacity-80">Included with Prime only</div></div></Link>
+              <Link to="/everything" onClick={() => setMenuOpen(false)} className={`flex items-center gap-3 p-3 rounded-md transition-colors ${!isPrimeOnly ? 'bg-[#E50914] text-white' : 'hover:bg-[#333c46] text-gray-300'}`}><CheckCircle2 size={18} className={!isPrimeOnly ? "text-white" : "opacity-0"} /><div><div className="font-bold">Literally Everything!</div><div className="text-[10px] opacity-80">All streaming services</div></div></Link>
+            </div>
+          )}
+        </div>
+        <div className={`w-9 h-9 rounded-full ${theme.bg} flex items-center justify-center text-white font-bold text-sm cursor-pointer border border-white/10 shadow-lg`}>U</div>
+      </div>
+    </nav>
   );
 };
+
 // --- WATCHLIST PAGE COMPONENT ---
 const WatchlistPage = ({ isPrimeOnly }) => {
   const [watchlistItems, setWatchlistItems] = useState([]);
@@ -1179,7 +1208,6 @@ const SportsPlayer = () => {
     </div>
   );
 };
-// --- HERO COMPONENT (MOBILE RESPONSIVE) ---
 const Hero = ({ isPrimeOnly }) => {
   const [movies, setMovies] = useState([]);
   const [currentSlide, setCurrentSlide] = useState(0);
@@ -1215,36 +1243,44 @@ const Hero = ({ isPrimeOnly }) => {
   const nextSlide = () => setCurrentSlide((prev) => (prev + 1) % movies.length);
   const prevSlide = () => setCurrentSlide((prev) => (prev - 1 + movies.length) % movies.length);
 
-  if (movies.length === 0) return <div className="h-[75vh] md:h-[85vh] w-full bg-[#00050D]" />;
+  if (movies.length === 0) return <div className="h-[85vh] w-full bg-[#00050D]" />;
   const movie = movies[currentSlide];
 
   return (
-    <div className="relative w-full h-[75vh] md:h-[85vh] overflow-hidden group" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+    <div className="relative w-full h-[85vh] overflow-hidden group" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
       <div className={`absolute inset-0 transition-opacity duration-700 ${showVideo ? 'opacity-0' : 'opacity-100'}`}><img src={`${IMAGE_ORIGINAL_URL}${movie.backdrop_path}`} className="w-full h-full object-cover" alt="" /></div>
+      {/* --- FIXED YOUTUBE EMBED --- */}
       {showVideo && trailerKey && (
-        <div className="absolute inset-0 animate-in pointer-events-none hidden md:block">
-          <iframe src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&enablejsapi=1&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} className="w-full h-full scale-[1.3]" allow="autoplay; encrypted-media" frameBorder="0" title="Hero Trailer"></iframe>
+        <div className="absolute inset-0 animate-in pointer-events-none">
+          <iframe 
+            src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&enablejsapi=1&loop=1&playlist=${trailerKey}&origin=${window.location.origin}`} 
+            className="w-full h-full scale-[1.3]" 
+            allow="autoplay; encrypted-media" 
+            frameBorder="0" 
+            referrerPolicy="strict-origin-when-cross-origin"
+            title="Hero Trailer"
+          ></iframe>
         </div>
       )}
-      <div className="absolute inset-0 bg-gradient-to-r from-[#00050D] via-[#00050D]/60 md:via-[#00050D]/40 to-transparent" />
-      <div className="absolute inset-0 bg-gradient-to-t from-[#00050D] via-transparent to-transparent" />
-      
-      <div className="absolute bottom-[10%] md:top-[25%] left-[4%] md:left-[4%] w-[90%] md:max-w-[600px] z-30 animate-row-enter flex flex-col justify-end md:justify-start">
-        <h1 className="text-4xl sm:text-5xl md:text-7xl font-extrabold text-white mb-3 md:mb-4 drop-shadow-[0_4px_10px_rgba(0,0,0,0.8)] tracking-tight leading-tight">{movie.title || movie.name}</h1>
-        <div className="flex items-center gap-2 md:gap-3 text-[#a9b7c1] font-bold text-xs md:text-sm mb-4 md:mb-6 flex-wrap">{isPrimeOnly && <span className={`${theme.color} tracking-wide`}>Included with Prime</span>}<span className="bg-[#33373d]/80 text-white px-1.5 py-0.5 rounded text-xs border border-gray-600 backdrop-blur-md">UHD</span><span className="bg-[#33373d]/80 text-white px-1.5 py-0.5 rounded text-xs border border-gray-600 backdrop-blur-md">16+</span></div>
-        <p className="text-sm md:text-lg text-white font-medium line-clamp-2 md:line-clamp-3 mb-6 md:mb-8 opacity-90 drop-shadow-md">{movie.overview}</p>
-        <div className="flex items-center gap-3 md:gap-4">
-          <button onClick={() => navigate(`/watch/${movie.media_type || 'movie'}/${movie.id}`)} className={`${theme.bg} ${theme.hoverBg} text-white h-12 md:h-14 px-6 md:px-8 rounded-md font-bold text-base md:text-lg flex items-center gap-2 md:gap-3 transition transform hover:scale-105 ${theme.shadow}`}><Play fill="white" size={20} className="md:w-6 md:h-6" /> {isPrimeOnly ? "Play" : "Rent or Play"}</button>
-          <button className="w-12 h-12 md:w-14 md:h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm"><Plus size={24} className="text-gray-200" /></button>
-          <button onClick={() => navigate(`/detail/${movie.media_type || 'movie'}/${movie.id}`)} className="w-12 h-12 md:w-14 md:h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm"><Info size={24} className="text-gray-200" /></button>
+      <div className="absolute inset-0 bg-gradient-to-r from-[#00050D] via-[#00050D]/40 to-transparent" /><div className="absolute inset-0 bg-gradient-to-t from-[#00050D] via-transparent to-transparent" />
+      <div className="absolute top-[25%] left-[4%] max-w-[600px] z-30 animate-row-enter">
+        <h1 className="text-5xl md:text-7xl font-extrabold text-white mb-4 drop-shadow-[0_4px_10px_rgba(0,0,0,0.8)] tracking-tight leading-tight">{movie.title || movie.name}</h1>
+        <div className="flex items-center gap-3 text-[#a9b7c1] font-bold text-sm mb-6">{isPrimeOnly && <span className={`${theme.color} tracking-wide`}>Included with Prime</span>}<span className="bg-[#33373d]/80 text-white px-1.5 py-0.5 rounded text-xs border border-gray-600 backdrop-blur-md">UHD</span><span className="bg-[#33373d]/80 text-white px-1.5 py-0.5 rounded text-xs border border-gray-600 backdrop-blur-md">16+</span></div>
+        <p className="text-lg text-white font-medium line-clamp-3 mb-8 opacity-90 drop-shadow-md text-shadow-sm">{movie.overview}</p>
+        <div className="flex items-center gap-4">
+          <button onClick={() => navigate(`/watch/${movie.media_type || 'movie'}/${movie.id}`)} className={`${theme.bg} ${theme.hoverBg} text-white h-14 pl-8 pr-8 rounded-md font-bold text-lg flex items-center gap-3 transition transform hover:scale-105 ${theme.shadow}`}><Play fill="white" size={24} /> {isPrimeOnly ? "Play" : "Rent or Play"}</button>
+          <button className="w-14 h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm group"><Plus size={28} className="text-gray-200 group-hover:text-white" /></button>
+          <button onClick={() => navigate(`/detail/${movie.media_type || 'movie'}/${movie.id}`)} className="w-14 h-14 rounded-full bg-[#42474d]/60 border border-gray-400/50 flex items-center justify-center hover:bg-[#42474d] hover:border-white transition backdrop-blur-sm group"><Info size={28} className="text-gray-200 group-hover:text-white" /></button>
         </div>
       </div>
-      
-      <div className="hidden md:block absolute top-32 right-[4%] z-40"><button onClick={() => setIsMuted(!isMuted)} className="w-12 h-12 rounded-full border-2 border-white/20 bg-black/20 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/10 hover:border-white transition">{isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}</button></div>
-      <div className="absolute bottom-2 md:bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-40">{movies.map((_, idx) => (<div key={idx} className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full transition-all ${idx === currentSlide ? 'bg-white w-3 md:w-4' : 'bg-gray-500'}`} />))}</div>
+      <div className="absolute top-32 right-[4%] z-40"><button onClick={() => setIsMuted(!isMuted)} className="w-12 h-12 rounded-full border-2 border-white/20 bg-black/20 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/10 hover:border-white transition">{isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}</button></div>
+      <button onClick={prevSlide} className="absolute left-4 top-1/2 -translate-y-1/2 z-40 p-2 rounded-full bg-black/20 hover:bg-black/50 text-white/50 hover:text-white transition backdrop-blur-sm border border-transparent hover:border-white/30"><ChevronLeft size={40} /></button>
+      <button onClick={nextSlide} className="absolute right-4 top-1/2 -translate-y-1/2 z-40 p-2 rounded-full bg-black/20 hover:bg-black/50 text-white/50 hover:text-white transition backdrop-blur-sm border border-transparent hover:border-white/30"><ChevronRight size={40} /></button>
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-40">{movies.map((_, idx) => (<div key={idx} className={`w-2 h-2 rounded-full transition-all ${idx === currentSlide ? 'bg-white w-4' : 'bg-gray-500'}`} />))}</div>
     </div>
   );
 };
+
 // --- UPDATED MOVIE CARD (WITH PROGRESS BAR) ---
 const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank, isPrimeOnly, isFirst, isLast }) => {
   const navigate = useNavigate();
@@ -1290,7 +1326,6 @@ const MovieCard = ({ movie, variant, itemType, onHover, onLeave, isHovered, rank
 };
 
 // --- ROW COMPONENT ---
-// --- ROW COMPONENT (MOBILE RESPONSIVE) ---
 const Row = ({ title, fetchUrl, data = null, variant = 'standard', itemType = 'movie', isPrimeOnly }) => {
   const [movies, setMovies] = useState([]);
   const [hoveredId, setHoveredId] = useState(null);
@@ -1305,23 +1340,19 @@ const Row = ({ title, fetchUrl, data = null, variant = 'standard', itemType = 'm
 
   const handleHover = (id) => { if (timeoutRef.current) clearTimeout(timeoutRef.current); timeoutRef.current = setTimeout(() => setHoveredId(id), 400); };
   const handleLeave = () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); setHoveredId(null); };
-  const slideLeft = () => { if (rowRef.current) rowRef.current.scrollBy({ left: -window.innerWidth * 0.7, behavior: 'smooth' }); };
-  const slideRight = () => { if (rowRef.current) rowRef.current.scrollBy({ left: window.innerWidth * 0.7, behavior: 'smooth' }); };
+  const slideLeft = () => { if (rowRef.current) rowRef.current.scrollBy({ left: -800, behavior: 'smooth' }); };
+  const slideRight = () => { if (rowRef.current) rowRef.current.scrollBy({ left: 800, behavior: 'smooth' }); };
   const displayMovies = variant === 'ranked' ? movies.slice(0, 10) : movies;
 
   return (
     <div className="mb-6 pl-4 md:pl-12 relative z-20 group/row animate-row-enter hover:z-30 transition-all duration-300">
-      <h3 className="text-[16px] md:text-[19px] font-bold text-white mb-2 flex items-center gap-2">{variant === 'ranked' ? <span className={theme.color}>Top 10</span> : <span className={theme.color}>{theme.name}</span>} {title}<ChevronRight size={18} className="text-[#8197a4] opacity-0 group-hover/row:opacity-100 transition-opacity hidden md:block"/></h3>
+      <h3 className="text-[19px] font-bold text-white mb-2 flex items-center gap-2">{variant === 'ranked' ? <span className={theme.color}>Top 10</span> : <span className={theme.color}>{theme.name}</span>} {title}<ChevronRight size={18} className="text-[#8197a4] opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer"/></h3>
       <div className="relative">
-        {/* Hidden on mobile, rely on touch swiping */}
-        <button onClick={slideLeft} className="hidden md:flex absolute left-0 top-[40%] -translate-y-1/2 z-[60] w-12 h-full bg-gradient-to-r from-black/80 to-transparent opacity-0 group-hover/row:opacity-100 transition-opacity duration-300 items-center justify-start pl-3 hover:w-16 cursor-pointer"><ChevronLeft size={40} className="text-white hover:scale-125 transition-transform" /></button>
-        
+        <button onClick={slideLeft} className="absolute left-0 top-[40%] -translate-y-1/2 z-[60] w-12 h-full bg-gradient-to-r from-black/80 to-transparent opacity-0 group-hover/row:opacity-100 transition-opacity duration-300 flex items-center justify-start pl-3 hover:w-16 cursor-pointer"><ChevronLeft size={40} className="text-white hover:scale-125 transition-transform" /></button>
         <div ref={rowRef} className={`row-container ${variant === 'vertical' ? 'vertical' : ''} scrollbar-hide`}>
           {displayMovies.map((movie, index) => ( <MovieCard key={movie.id} movie={movie} variant={variant} itemType={itemType} rank={index + 1} isHovered={hoveredId === movie.id} onHover={handleHover} onLeave={handleLeave} isPrimeOnly={isPrimeOnly} isFirst={index === 0} isLast={index === displayMovies.length - 1} /> ))}
         </div>
-
-        {/* Hidden on mobile, rely on touch swiping */}
-        <button onClick={slideRight} className="hidden md:flex absolute right-0 top-[40%] -translate-y-1/2 z-[60] w-12 h-full bg-gradient-to-l from-black/80 to-transparent opacity-0 group-hover/row:opacity-100 transition-opacity duration-300 items-center justify-end pr-3 hover:w-16 cursor-pointer"><ChevronRight size={40} className="text-white hover:scale-125 transition-transform" /></button>
+        <button onClick={slideRight} className="absolute right-0 top-[40%] -translate-y-1/2 z-[60] w-12 h-full bg-gradient-to-l from-black/80 to-transparent opacity-0 group-hover/row:opacity-100 transition-opacity duration-300 flex items-center justify-end pr-3 hover:w-16 cursor-pointer"><ChevronRight size={40} className="text-white hover:scale-125 transition-transform" /></button>
       </div>
     </div>
   );
