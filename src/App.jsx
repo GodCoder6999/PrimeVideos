@@ -2054,7 +2054,7 @@ const Player = () => {
       }
     }
 
-    / E. Rare Streams (RiveStream)
+    // E. Rare Streams (RiveStream)
     if (activeServer === 'rare') {
       if (type === 'tv') {
         return `https://rivestream.net/embed?type=tv&id=${id}&season=${season}&episode=${episode}`;
