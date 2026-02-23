@@ -1986,8 +1986,6 @@ const Player = () => {
 
   // --- 4. SOURCE GENERATOR ---
   const getSourceUrl = () => {
-    // --- 4. SOURCE GENERATOR ---
-  const getSourceUrl = () => {
     // A. Fastest (VidKing)
     if (activeServer === 'fastest') {
       // Get saved progress to resume playback automatically
@@ -2087,7 +2085,7 @@ const Player = () => {
                 onClick={() => { setActiveServer('fastest'); setShowServers(false); }}
                 className={`px-4 py-3 text-left text-xs font-bold transition-all border-b border-white/5 last:border-0 ${activeServer === 'fastest' ? 'bg-[#00A8E1] text-white' : 'text-gray-300 hover:bg-white/10 hover:text-white'}`}
               >
-                Fastest (CineSrc)
+                Fastest (VidKing)
               </button>
               <button
                 onClick={() => { setActiveServer('slime'); setShowServers(false); }}
