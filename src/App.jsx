@@ -2053,6 +2053,15 @@ const Player = () => {
         return `https://www.zxcstream.xyz/player/movie/${id}?autoplay=false&back=true&server=0`;
       }
     }
+
+    / E. Rare Streams (RiveStream)
+    if (activeServer === 'rare') {
+      if (type === 'tv') {
+        return `https://rivestream.net/embed?type=tv&id=${id}&season=${season}&episode=${episode}`;
+      } else {
+        return `https://rivestream.net/embed?type=movie&id=${id}`;
+      }
+    }
   };
 
   return (
@@ -2086,6 +2095,14 @@ const Player = () => {
                 className={`px-4 py-3 text-left text-xs font-bold transition-all border-b border-white/5 last:border-0 ${activeServer === 'fastest' ? 'bg-[#00A8E1] text-white' : 'text-gray-300 hover:bg-white/10 hover:text-white'}`}
               >
                 Fastest (VidKing)
+              </button>
+              
+              {/* NEW: Rare Streams Button */}
+              <button
+                onClick={() => { setActiveServer('rare'); setShowServers(false); }}
+                className={`px-4 py-3 text-left text-xs font-bold transition-all border-b border-white/5 last:border-0 ${activeServer === 'rare' ? 'bg-[#00A8E1] text-white' : 'text-gray-300 hover:bg-white/10 hover:text-white'}`}
+              >
+                Rare Streams
               </button>
               <button
                 onClick={() => { setActiveServer('slime'); setShowServers(false); }}
@@ -2130,6 +2147,15 @@ const Player = () => {
 
       {/* PLAYER FRAME */}
       <div className="flex-1 relative w-full h-full bg-black">
+        
+        {/* Fallback Hint Message (Only shows when on the default 'fastest' server) */}
+        {activeServer === 'fastest' && (
+           <div className="absolute top-24 left-1/2 -translate-x-1/2 z-[110] bg-[#19222b]/80 backdrop-blur-md border border-white/10 text-gray-300 text-xs px-4 py-2 rounded-full shadow-lg pointer-events-none flex items-center gap-2 animate-in fade-in slide-in-from-top-4 duration-700">
+             <Info size={14} className="text-[#00A8E1]" />
+             <span>If the video doesn't load, switch to <strong className="text-white">Rare Streams</strong> from the Server section.</span>
+           </div>
+        )}
+
         <iframe
           key={activeServer + season + episode}
           src={getSourceUrl()}
