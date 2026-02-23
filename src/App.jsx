@@ -1986,7 +1986,8 @@ const Player = () => {
 
   // --- 4. SOURCE GENERATOR ---
   const getSourceUrl = () => {
-    // A. Fastest (VidKing)
+    
+    // A. Fastest (VidKing - Absolute Priority)
     if (activeServer === 'fastest') {
       // Get saved progress to resume playback automatically
       const history = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
@@ -2004,7 +2005,16 @@ const Player = () => {
       }
     }
 
-    // A. Fastest (CineSrc)
+    // B. Rare Streams (RiveStream - Fallback Priority)
+    if (activeServer === 'rare') {
+      if (type === 'tv') {
+        return `https://rivestream.net/embed?type=tv&id=${id}&season=${season}&episode=${episode}`;
+      } else {
+        return `https://rivestream.net/embed?type=movie&id=${id}`;
+      }
+    }
+
+    // C. Fastest (CineSrc)
     if (activeServer === 'fast2') {
       const colorParam = "color=%2300A8E1"; // Prime Blue
       if (type === 'tv') {
@@ -2014,9 +2024,9 @@ const Player = () => {
       }
     }
 
-    // B. Slime (Bollywood/Indian) - Uses IMDb ID
+    // D. Slime (Bollywood/Indian) - Uses IMDb ID
     if (activeServer === 'slime') {
-      const targetId = imdbId || id; // Fallback to TMDB ID if IMDb missing (rarely works for this source but safe fallback)
+      const targetId = imdbId || id; // Fallback to TMDB ID if IMDb missing
       if (type === 'tv') {
          // Assuming standard query param format for TV on this player
          return `https://slime403heq.com/play/${targetId}?season=${season}&episode=${episode}`;
@@ -2025,7 +2035,7 @@ const Player = () => {
       }
     }
     
-    // B. VidRock (Bengali Fallback / Older Logic)
+    // E. VidRock (Bengali Fallback)
     if (activeServer === 'vidrock') {
       const identifier = imdbId || id;
       if (type === 'tv') {
@@ -2035,7 +2045,7 @@ const Player = () => {
       }
     }
 
-    // C. VidFast (Standard Global)
+    // F. VidFast (Standard Global)
     if (activeServer === 'vidfast') {
       const themeParam = "theme=00A8E1";
       if (type === 'tv') {
@@ -2045,22 +2055,11 @@ const Player = () => {
       }
     }
 
-    // D. Multi-Audio (Zxcstream)
-    else {
-      if (type === 'tv') {
-        return `https://www.zxcstream.xyz/player/tv/${id}/${season}/${episode}?autoplay=false&back=true&server=0`;
-      } else {
-        return `https://www.zxcstream.xyz/player/movie/${id}?autoplay=false&back=true&server=0`;
-      }
-    }
-
-    // E. Rare Streams (RiveStream)
-    if (activeServer === 'rare') {
-      if (type === 'tv') {
-        return `https://rivestream.net/embed?type=tv&id=${id}&season=${season}&episode=${episode}`;
-      } else {
-        return `https://rivestream.net/embed?type=movie&id=${id}`;
-      }
+    // G. Multi-Audio (Zxcstream) - Default Fallback for all other cases
+    if (type === 'tv') {
+      return `https://www.zxcstream.xyz/player/tv/${id}/${season}/${episode}?autoplay=false&back=true&server=0`;
+    } else {
+      return `https://www.zxcstream.xyz/player/movie/${id}?autoplay=false&back=true&server=0`;
     }
   };
 
