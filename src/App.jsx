@@ -1954,16 +1954,26 @@ const Player = () => {
     // A. Save immediately on load/change (So it appears in "Continue Watching" list)
     saveProgress();
 
-    // B. Listen for PostMessages (For sources that support progress updates like VidFast)
+    // B. Listen for PostMessages (For sources that support progress updates like VidFast & VidKing)
     const handleMessage = (event) => {
       try {
-        const data = event.data;
+        let data = event.data;
+        
+        // Parse stringified JSON from VidKing player
+        if (typeof data === 'string') {
+          try { data = JSON.parse(data); } catch (e) {}
+        }
+
         // Standard HLS/HTML5 player format
         if (data && data.type === 'timeupdate' && data.currentTime && data.duration) {
            saveProgress(data.currentTime, data.duration);
         }
         // Specific VidFast/Embed formats
         if (data && data.event === 'timeupdate' && data.data) {
+           saveProgress(data.data.currentTime, data.data.duration);
+        }
+        // NEW VidKing Format
+        if (data && data.type === 'PLAYER_EVENT' && data.data && data.data.event === 'timeupdate') {
            saveProgress(data.data.currentTime, data.data.duration);
         }
       } catch(e) {}
@@ -1976,8 +1986,28 @@ const Player = () => {
 
   // --- 4. SOURCE GENERATOR ---
   const getSourceUrl = () => {
-    // A. Fastest (CineSrc)
+    // --- 4. SOURCE GENERATOR ---
+  const getSourceUrl = () => {
+    // A. Fastest (VidKing)
     if (activeServer === 'fastest') {
+      // Get saved progress to resume playback automatically
+      const history = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
+      const key = `${type === 'tv' ? 't' : 'm'}${id}`;
+      const savedProgress = history[key]?.progress?.watched || 0;
+      
+      // Only append progress if there is a valid history
+      const progressParam = savedProgress > 0 ? `&progress=${Math.floor(savedProgress)}` : '';
+      const colorParam = "color=00A8E1"; // Prime Blue
+
+      if (type === 'tv') {
+        return `https://www.vidking.net/embed/tv/${id}/${season}/${episode}?${colorParam}&autoPlay=true&nextEpisode=true&episodeSelector=true${progressParam}`;
+      } else {
+        return `https://www.vidking.net/embed/movie/${id}?${colorParam}&autoPlay=true${progressParam}`;
+      }
+    }
+
+    // A. Fastest (CineSrc)
+    if (activeServer === 'fast2') {
       const colorParam = "color=%2300A8E1"; // Prime Blue
       if (type === 'tv') {
         return `https://cinesrc.st/embed/tv/${id}?s=${season}&e=${episode}&autoplay=true&autonext=true&${colorParam}`;
