@@ -3,7 +3,6 @@ import { BrowserRouter, Routes, Route, useNavigate, useLocation, useParams, Link
 import { Search, Play, Info, Plus, ChevronRight, ChevronLeft, Download, Share2, CheckCircle2, ThumbsUp, ChevronDown, Grip, Loader, List, ArrowLeft, X, Volume2, VolumeX, Trophy, Signal, Clock, Ban, Eye, Bookmark, TrendingUp, Monitor } from 'lucide-react';
 
 // --- GLOBAL HLS REFERENCE ---
-// Note: Ensure <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script> is in your index.html
 const Hls = window.Hls;
 
 // --- CONFIGURATION ---
@@ -125,12 +124,6 @@ const GlobalStyles = () => (
     .animate-in { animation: fadeIn 0.3s ease-out forwards; }
     @keyframes modal-pop { 0% { opacity: 0; transform: scale(0.95); } 100% { opacity: 1; transform: scale(1); } }
     .animate-modal-pop { animation: modal-pop 0.2s ease-out forwards; }
-
-    .text-gradient {
-      background: linear-gradient(to bottom, #ffffff 0%, #e0e0e0 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
   `}</style>
 );
 
@@ -323,9 +316,7 @@ const InfiniteScrollTrigger = ({ onIntersect }) => {
   return <div ref={triggerRef} className="h-20 w-full flex items-center justify-center p-4"><div className="w-8 h-8 border-4 border-gray-600 border-t-transparent rounded-full animate-spin"></div></div>;
 };
 
-// --- COMPONENTS ---
-
-// --- NAVBAR COMPONENT (ATTACHED FLOATING CURVE EFFECT) ---
+// --- NAVBAR COMPONENT ---
 const Navbar = ({ isPrimeOnly }) => {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState({ text: [], visual: [] });
@@ -339,15 +330,10 @@ const Navbar = ({ isPrimeOnly }) => {
   const dropdownRef = useRef(null);
   const theme = getTheme(isPrimeOnly);
 
-  // --- SCROLL LISTENER ---
   useEffect(() => {
     const handleScroll = () => {
-      // Threshold is 10px to trigger the effect
-      if (window.scrollY > 10) {
-        setIsScrolled(true);
-      } else {
-        setIsScrolled(false);
-      }
+      if (window.scrollY > 10) setIsScrolled(true);
+      else setIsScrolled(false);
     };
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
@@ -417,11 +403,6 @@ const Navbar = ({ isPrimeOnly }) => {
     return "text-[#c7cbd1] font-medium text-[15px] hover:text-white hover:bg-white/5 hover:backdrop-blur-sm rounded-lg px-4 py-2 transition-all duration-300 ease-in-out cursor-pointer hover:shadow-[0_0_10px_rgba(255,255,255,0.1)]";
   };
 
-  // --- DYNAMIC NAV CLASSES ---
-  // State 1 (Scrolled): 
-  // - Fixed at Top (0)
-  // - Rounded Bottom Corners (rounded-b-3xl) to create the "hanging" effect
-  // - Deep shadow + Inset highlight for "carved" glass look
   const navClasses = isScrolled
     ? "fixed top-0 left-0 w-full z-[1000] flex items-center px-[24px] transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] backdrop-blur-xl bg-[#0f171e]/90 rounded-b-[24px] shadow-[0_20px_40px_-10px_rgba(0,0,0,0.6),inset_0_-1px_0_rgba(255,255,255,0.1)] border-b border-white/5"
     : "fixed top-0 left-0 w-full z-[1000] flex items-center px-[24px] transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] bg-transparent bg-gradient-to-b from-black/80 to-transparent rounded-none border-transparent";
@@ -507,13 +488,11 @@ const WatchlistPage = ({ isPrimeOnly }) => {
       }
 
       const promises = savedList.map(async (key) => {
-        // Key format: "type-id" (e.g., "movie-12345")
         const [type, id] = key.split('-');
         if (!type || !id) return null;
         try {
           const res = await fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}`);
           const data = await res.json();
-          // Inject the type back into the object for the card component to use
           return { ...data, media_type: type };
         } catch (e) {
           console.error("Failed to load watchlist item", e);
@@ -581,9 +560,9 @@ const WatchlistPage = ({ isPrimeOnly }) => {
     </div>
   );
 };
+
 // --- SPORTS / LIVE TV COMPONENTS ---
 const SportsPage = () => {
-  // --- DLHD DATA ---
   const ALL_DLHD_CHANNELS = [
     { name: "ABC USA", id: "51" }, { name: "AHC (American Heroes Channel)", id: "206" }, { name: "Antenna TV USA", id: "283" }, { name: "A&E USA", id: "302" },
     { name: "AMC USA", id: "303" }, { name: "Animal Planet", id: "304" }, { name: "Astro SuperSport 1", id: "123" }, { name: "Astro SuperSport 2", id: "124" },
@@ -800,11 +779,6 @@ const SportsPage = () => {
     { name: "5 USA", id: "360" }, { name: "3sat DE", id: "726" }
   ];
 
-  // --- EXISTING STATE ---
-  const [channels, setChannels] = useState([]);
-  const [displayedChannels, setDisplayedChannels] = useState([]);
-  
-  // --- MANUAL STREAM CONFIGURATION ---
   const SPECIAL_STREAM = {
     name: "ICC T20 WC Live (Bengali)",
     logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR-sN5te7jsC9YTazKRH6RgQCxTAqs60oWZMw&s",
@@ -820,6 +794,8 @@ const SportsPage = () => {
     'Sports': ['Sports', 'Live Sports', 'Cricket', 'Football (Soccer)', 'Basketball', 'Tennis', 'Motorsports', 'Wrestling (WWE / AEW / UFC)', 'Sports Events (PPV)']
   };
 
+  const [channels, setChannels] = useState([]);
+  const [displayedChannels, setDisplayedChannels] = useState([]);
   const [activeMainCategory, setActiveMainCategory] = useState('All');
   const [activeSubCategory, setActiveSubCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState("");
@@ -829,8 +805,7 @@ const SportsPage = () => {
   const itemsPerPage = 60;
   const navigate = useNavigate();
 
-  // --- NEW STATE FOR DLHD ---
-  const [activeTab, setActiveTab] = useState('iptv'); // 'iptv' or 'dlhd'
+  const [activeTab, setActiveTab] = useState('iptv');
   const [dlhdQuery, setDlhdQuery] = useState("");
 
   const PLAYLIST_URL = 'https://iptv-org.github.io/iptv/index.m3u';
@@ -867,7 +842,6 @@ const SportsPage = () => {
     return 'General Entertainment';
   };
 
-  // --- FETCH CHANNELS (RESTORED) ---
   useEffect(() => {
     setLoading(true);
     setError(null);
@@ -882,7 +856,6 @@ const SportsPage = () => {
         const parsed = [];
         let current = {};
 
-        // --- 1. INJECT YOUR MANUAL STREAM FIRST ---
         parsed.push(SPECIAL_STREAM);
 
         for (let i = 0; i < lines.length; i++) {
@@ -915,7 +888,6 @@ const SportsPage = () => {
       })
       .catch(e => {
         console.error("Playlist Error:", e);
-        // Even if playlist fails, show your manual stream
         setChannels([SPECIAL_STREAM]);
         setLoading(false);
       });
@@ -957,7 +929,6 @@ const SportsPage = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // --- NEW FILTER LOGIC FOR DLHD ---
   const getDlhdChannels = () => {
     if (!dlhdQuery) return ALL_DLHD_CHANNELS;
     return ALL_DLHD_CHANNELS.filter(c => c.name.toLowerCase().includes(dlhdQuery.toLowerCase()));
@@ -1399,7 +1370,6 @@ const SearchResults = ({ isPrimeOnly }) => {
 };
 
 // --- MOVIE DETAIL COMPONENT ---
-// --- MOVIE DETAIL COMPONENT (FIXED RELATED SECTION) ---
 const MovieDetail = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
@@ -1415,6 +1385,11 @@ const MovieDetail = () => {
   const [trailerKey, setTrailerKey] = useState(null);
   const [isMuted, setIsMuted] = useState(true);
   const [hoveredRelatedId, setHoveredRelatedId] = useState(null);
+  
+  // --- NEW EPISODE LIST STATE ---
+  const [selectedSeason, setSelectedSeason] = useState(1);
+  const [seasonData, setSeasonData] = useState(null);
+  const [isSeasonDropdownOpen, setIsSeasonDropdownOpen] = useState(false);
   
   // --- INTERACTION STATE ---
   const [isInWatchlist, setIsInWatchlist] = useState(false);
@@ -1440,7 +1415,7 @@ const MovieDetail = () => {
     setIsMuted(true); 
     setMovie(null); 
     setRelatedMovies([]); 
-    setActiveTab('related');
+    setActiveTab(type === 'tv' ? 'episodes' : 'related');
     
     const savedWatchlist = JSON.parse(localStorage.getItem('watchlist')) || [];
     setIsInWatchlist(savedWatchlist.includes(`${type}-${id}`));
@@ -1485,6 +1460,16 @@ const MovieDetail = () => {
     };
     fetchData();
   }, [type, id]);
+
+  // --- FETCH TV SEASON DATA ---
+  useEffect(() => {
+    if (type === 'tv' && selectedSeason) {
+      setSeasonData(null); // Clear previous data to show loader
+      fetch(`${BASE_URL}/tv/${id}/season/${selectedSeason}?api_key=${TMDB_API_KEY}`)
+        .then(res => res.json())
+        .then(data => setSeasonData(data));
+    }
+  }, [type, id, selectedSeason]);
 
   // --- HANDLERS ---
   const showToast = (msg) => {
@@ -1653,9 +1638,87 @@ const MovieDetail = () => {
 
       {/* --- TABS SECTION --- */}
       <div className="px-6 md:px-12 mt-4 border-b border-white/10 flex gap-8 text-lg font-bold">
+         {type === 'tv' && (
+           <div onClick={() => setActiveTab('episodes')} className={`pb-3 cursor-pointer transition border-b-[3px] ${activeTab === 'episodes' ? 'border-white text-white' : 'border-transparent text-gray-400 hover:text-white'}`}>Episodes</div>
+         )}
          <div onClick={() => setActiveTab('related')} className={`pb-3 cursor-pointer transition border-b-[3px] ${activeTab === 'related' ? 'border-white text-white' : 'border-transparent text-gray-400 hover:text-white'}`}>Related</div>
          <div onClick={() => setActiveTab('details')} className={`pb-3 cursor-pointer transition border-b-[3px] ${activeTab === 'details' ? 'border-white text-white' : 'border-transparent text-gray-400 hover:text-white'}`}>Details</div>
       </div>
+
+      {/* --- TAB CONTENT: EPISODES (WATER GLASS EFFECT) --- */}
+      {activeTab === 'episodes' && type === 'tv' && (
+        <div className="px-6 md:px-12 py-8 animate-in fade-in slide-in-from-right-4 relative z-30">
+          
+          {/* Glassmorphic Season Selector */}
+          <div className="relative inline-block mb-8 z-50">
+            <button 
+              onClick={() => setIsSeasonDropdownOpen(!isSeasonDropdownOpen)} 
+              className="flex items-center gap-3 px-6 py-3 bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl text-white font-bold shadow-[0_8px_32px_rgba(0,0,0,0.2)] hover:bg-white/20 hover:border-white/40 transition-all"
+            >
+               <span>Season {selectedSeason}</span>
+               <ChevronDown size={18} className={`transition-transform duration-300 ${isSeasonDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {isSeasonDropdownOpen && (
+              <div className="absolute top-full left-0 mt-3 w-64 bg-[#0f171e]/40 backdrop-blur-3xl border border-white/20 rounded-3xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] overflow-hidden z-[100] max-h-72 overflow-y-auto scrollbar-hide">
+                 {(movie?.seasons?.filter(s => s.season_number > 0) || []).map(s => (
+                    <button 
+                      key={s.season_number} 
+                      onClick={() => { setSelectedSeason(s.season_number); setIsSeasonDropdownOpen(false); }} 
+                      className={`w-full text-left px-5 py-4 font-bold transition-all border-b border-white/5 last:border-0 hover:bg-white/20 ${selectedSeason === s.season_number ? 'bg-white/10 text-white border-l-4 border-l-[#00A8E1]' : 'text-gray-300'}`}
+                    >
+                      <div className="flex justify-between items-center">
+                        <span>{s.name || `Season ${s.season_number}`}</span>
+                        {s.episode_count && <span className="text-[10px] font-normal opacity-80 bg-black/40 px-2 py-1 rounded-md">{s.episode_count} Eps</span>}
+                      </div>
+                    </button>
+                 ))}
+              </div>
+            )}
+          </div>
+
+          {/* Water Glass Episode List */}
+          <div className="flex flex-col gap-5">
+             {seasonData?.episodes ? seasonData.episodes.map(ep => (
+                <div 
+                  key={ep.id} 
+                  onClick={() => navigate(`/watch/tv/${id}?season=${selectedSeason}&episode=${ep.episode_number}`)} 
+                  className="group flex flex-col md:flex-row gap-5 p-4 bg-white/5 backdrop-blur-2xl border border-white/10 hover:border-white/30 rounded-3xl shadow-[0_4px_24px_rgba(0,0,0,0.1)] cursor-pointer transition-all duration-300 hover:bg-white/10 hover:-translate-y-1"
+                >
+                  <div className="relative w-full md:w-64 aspect-[16/9] rounded-2xl overflow-hidden bg-black/40 flex-shrink-0 shadow-inner">
+                     {ep.still_path ? (
+                       <img src={`${IMAGE_BASE_URL}${ep.still_path}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" alt={ep.name} />
+                     ) : (
+                       <div className="w-full h-full flex justify-center items-center text-gray-500 text-xs">No Image Available</div>
+                     )}
+                     <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex justify-center items-center backdrop-blur-[2px]">
+                        <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-md flex justify-center items-center border border-white/40 shadow-[0_0_15px_rgba(255,255,255,0.2)]">
+                           <Play fill="white" size={20} className="ml-1 text-white"/>
+                        </div>
+                     </div>
+                     <div className="absolute bottom-2 right-2 bg-black/60 backdrop-blur-md px-2 py-1 rounded-md text-[10px] font-bold text-white border border-white/10">
+                       {ep.runtime ? `${ep.runtime}m` : 'TBA'}
+                     </div>
+                  </div>
+                  
+                  <div className="flex-1 flex flex-col justify-center py-1">
+                     <div className="flex justify-between items-center mb-1.5">
+                        <span className="text-[#00A8E1] font-bold text-xs uppercase tracking-wider drop-shadow-sm">Episode {ep.episode_number}</span>
+                        {ep.air_date && <span className="text-gray-400 text-xs font-medium">{new Date(ep.air_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>}
+                     </div>
+                     <h4 className="text-white font-bold text-xl mb-2 group-hover:text-[#00A8E1] transition-colors">{ep.name}</h4>
+                     <p className="text-gray-300 text-sm line-clamp-2 md:line-clamp-3 leading-relaxed opacity-90">{ep.overview || "No overview available for this episode."}</p>
+                  </div>
+                </div>
+             )) : (
+                <div className="flex items-center gap-3 text-white/50 bg-white/5 backdrop-blur-2xl p-8 rounded-3xl border border-white/10 justify-center shadow-lg">
+                   <Loader className="animate-spin text-[#00A8E1]" size={28} /> 
+                   <span className="font-medium tracking-wide">Fetching episodes from TMDB...</span>
+                </div>
+             )}
+          </div>
+        </div>
+      )}
 
       {/* --- TAB CONTENT: RELATED --- */}
       {activeTab === 'related' && (
@@ -1666,7 +1729,6 @@ const MovieDetail = () => {
             <ChevronLeft size={40} className="text-white hover:scale-125 transition-transform" />
           </button>
           
-          {/* REPLACED 'row-container' with explicit flex styles to fix blank space issue */}
           <div ref={relatedSliderRef} className="flex gap-4 overflow-x-auto scrollbar-hide px-6 md:px-12 py-10 scroll-smooth items-start">
             {relatedMovies.length > 0 ? (
               relatedMovies.map((m, index) => (
@@ -1840,8 +1902,8 @@ const MovieDetail = () => {
     </div>
   );
 };
-// --- PLAYER COMPONENT (UPDATED FOR RESUME) ---
-// --- PLAYER COMPONENT (WITH BOLLYWOOD/INDIAN SERVER SUPPORT) ---
+
+// --- PLAYER COMPONENT ---
 const Player = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
@@ -1854,69 +1916,36 @@ const Player = () => {
   
   // Episode & Season State
   const queryParams = new URLSearchParams(location.search);
-  const [season, setSeason] = useState(Number(queryParams.get('season')) || 1);
-  const [episode, setEpisode] = useState(Number(queryParams.get('episode')) || 1);
-  const [showEpisodes, setShowEpisodes] = useState(false);
-  const [seasonData, setSeasonData] = useState(null);
+  const season = Number(queryParams.get('season')) || 1;
+  const episode = Number(queryParams.get('episode')) || 1;
 
-  // --- NEW STATES FOR BETTER SEASON HANDLING ---
   const [imdbId, setImdbId] = useState(null);
-  const [availableSeasons, setAvailableSeasons] = useState([]);
-  const [isSeasonDropdownOpen, setIsSeasonDropdownOpen] = useState(false);
-  
-  // --- MEDIA METADATA FOR HISTORY ---
   const [mediaDetails, setMediaDetails] = useState(null);
-
 
   // --- 1. FETCH METADATA & LANGUAGE DETECTION ---
   useEffect(() => {
     const fetchDetails = async () => {
       try {
-        // Append external_ids to get IMDB ID in one go
         const res = await fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`);
         const data = await res.json();
         
-        setMediaDetails(data); // Save details for history
+        setMediaDetails(data); 
 
-        // 1. Get IMDB ID
-        // For movies, it's often at root level or inside external_ids
-        // For TV, it's usually in external_ids
         const foundImdbId = data.imdb_id || data.external_ids?.imdb_id;
         setImdbId(foundImdbId);
 
-        // 2. Check for Indian Languages
         const indianLanguages = ['hi', 'bn', 'ta', 'te', 'ml', 'kn', 'mr', 'pa', 'gu'];
         const isIndianContent = indianLanguages.includes(data.original_language);
         setIsIndian(isIndianContent);
 
-        // 3. Auto-Switch Server Logic
-        if (isIndianContent) {
-          setActiveServer('slime'); // Switch to new Bollywood server
-        } else {
-          setActiveServer('fastest'); // Default to Fastest server
-        }
-
-        // 4. Set Total Seasons from the actual array (TV Only)
-        if (type === 'tv' && data.seasons) {
-            // Filter out Season 0 (Specials) to keep the list clean
-            const validSeasons = data.seasons.filter(s => s.season_number > 0);
-            setAvailableSeasons(validSeasons);
-        }
+        // 3. Auto-Switch Server Logic - Absolute Priority for Fastest
+        setActiveServer('fastest');
       } catch (e) {
         console.error("Error fetching details:", e);
       }
     };
     fetchDetails();
   }, [type, id]);
-
-  // --- 2. FETCH SEASONS (TV ONLY) ---
-  useEffect(() => {
-    if (type === 'tv') {
-      fetch(`${BASE_URL}/tv/${id}/season/${season}?api_key=${TMDB_API_KEY}`)
-        .then(res => res.json())
-        .then(data => setSeasonData(data));
-    }
-  }, [type, id, season]);
 
   // --- 3. SAVE PROGRESS (CONTINUE WATCHING) ---
   useEffect(() => {
@@ -1936,13 +1965,11 @@ const Player = () => {
         poster_path: mediaDetails.poster_path,
         backdrop_path: mediaDetails.backdrop_path,
         last_updated: Date.now(),
-        // Keep existing progress if available, otherwise 0
         progress: (currentTime > 0 && duration > 0) 
           ? { watched: currentTime, duration } 
           : (previousData.progress || { watched: 0, duration: 0 }),
       };
 
-      // Specific TV Logic
       if (type === 'tv') {
         newData.last_season_watched = season;
         newData.last_episode_watched = episode;
@@ -1951,28 +1978,20 @@ const Player = () => {
       localStorage.setItem('vidFastProgress', JSON.stringify({ ...history, [key]: newData }));
     };
 
-    // A. Save immediately on load/change (So it appears in "Continue Watching" list)
     saveProgress();
 
-    // B. Listen for PostMessages (For sources that support progress updates like VidFast & VidKing)
     const handleMessage = (event) => {
       try {
         let data = event.data;
-        
-        // Parse stringified JSON from VidKing player
         if (typeof data === 'string') {
           try { data = JSON.parse(data); } catch (e) {}
         }
-
-        // Standard HLS/HTML5 player format
         if (data && data.type === 'timeupdate' && data.currentTime && data.duration) {
            saveProgress(data.currentTime, data.duration);
         }
-        // Specific VidFast/Embed formats
         if (data && data.event === 'timeupdate' && data.data) {
            saveProgress(data.data.currentTime, data.data.duration);
         }
-        // NEW VidKing Format
         if (data && data.type === 'PLAYER_EVENT' && data.data && data.data.event === 'timeupdate') {
            saveProgress(data.data.currentTime, data.data.duration);
         }
@@ -1986,17 +2005,13 @@ const Player = () => {
 
   // --- 4. SOURCE GENERATOR ---
   const getSourceUrl = () => {
-    
-    // A. Fastest (VidKing - Absolute Priority)
     if (activeServer === 'fastest') {
-      // Get saved progress to resume playback automatically
       const history = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
       const key = `${type === 'tv' ? 't' : 'm'}${id}`;
       const savedProgress = history[key]?.progress?.watched || 0;
       
-      // Only append progress if there is a valid history
       const progressParam = savedProgress > 0 ? `&progress=${Math.floor(savedProgress)}` : '';
-      const colorParam = "color=00A8E1"; // Prime Blue
+      const colorParam = "color=00A8E1";
 
       if (type === 'tv') {
         return `https://www.vidking.net/embed/tv/${id}/${season}/${episode}?${colorParam}&autoPlay=true&nextEpisode=true&episodeSelector=true${progressParam}`;
@@ -2005,7 +2020,6 @@ const Player = () => {
       }
     }
 
-    // B. Rare Streams (RiveStream - Fallback Priority)
     if (activeServer === 'rare') {
       if (type === 'tv') {
         return `https://rivestream.net/embed?type=tv&id=${id}&season=${season}&episode=${episode}`;
@@ -2014,9 +2028,8 @@ const Player = () => {
       }
     }
 
-    // C. Fastest (CineSrc)
     if (activeServer === 'fast2') {
-      const colorParam = "color=%2300A8E1"; // Prime Blue
+      const colorParam = "color=%2300A8E1";
       if (type === 'tv') {
         return `https://cinesrc.st/embed/tv/${id}?s=${season}&e=${episode}&autoplay=true&autonext=true&${colorParam}`;
       } else {
@@ -2024,18 +2037,15 @@ const Player = () => {
       }
     }
 
-    // D. Slime (Bollywood/Indian) - Uses IMDb ID
     if (activeServer === 'slime') {
-      const targetId = imdbId || id; // Fallback to TMDB ID if IMDb missing
+      const targetId = imdbId || id;
       if (type === 'tv') {
-         // Assuming standard query param format for TV on this player
          return `https://slime403heq.com/play/${targetId}?season=${season}&episode=${episode}`;
       } else {
          return `https://slime403heq.com/play/${targetId}`;
       }
     }
     
-    // E. VidRock (Bengali Fallback)
     if (activeServer === 'vidrock') {
       const identifier = imdbId || id;
       if (type === 'tv') {
@@ -2045,7 +2055,6 @@ const Player = () => {
       }
     }
 
-    // F. VidFast (Standard Global)
     if (activeServer === 'vidfast') {
       const themeParam = "theme=00A8E1";
       if (type === 'tv') {
@@ -2055,7 +2064,6 @@ const Player = () => {
       }
     }
 
-    // G. Multi-Audio (Zxcstream) - Default Fallback for all other cases
     if (type === 'tv') {
       return `https://www.zxcstream.xyz/player/tv/${id}/${season}/${episode}?autoplay=false&back=true&server=0`;
     } else {
@@ -2076,7 +2084,6 @@ const Player = () => {
 
         {/* SERVER SWITCHER */}
         <div className="pointer-events-auto relative flex flex-col items-center">
-          {/* FLOATING BUTTON */}
           <button
             onClick={() => setShowServers(!showServers)}
             className="flex items-center gap-2 bg-black/50 hover:bg-[#00A8E1] text-white px-4 py-2.5 rounded-full backdrop-blur-md border border-white/10 transition-all shadow-lg font-bold text-xs uppercase tracking-wider group"
@@ -2086,7 +2093,6 @@ const Player = () => {
             <ChevronDown size={16} className={`transition-transform duration-300 ${showServers ? 'rotate-180' : ''}`} />
           </button>
 
-          {/* DROPDOWN MENU */}
           {showServers && (
             <div className="absolute top-full mt-3 w-48 bg-[#19222b]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl flex flex-col overflow-hidden z-[150] animate-in fade-in slide-in-from-top-2">
               <button
@@ -2096,7 +2102,6 @@ const Player = () => {
                 Fastest (VidKing)
               </button>
               
-              {/* NEW: Rare Streams Button */}
               <button
                 onClick={() => { setActiveServer('rare'); setShowServers(false); }}
                 className={`px-4 py-3 text-left text-xs font-bold transition-all border-b border-white/5 last:border-0 ${activeServer === 'rare' ? 'bg-[#00A8E1] text-white' : 'text-gray-300 hover:bg-white/10 hover:text-white'}`}
@@ -2130,24 +2135,13 @@ const Player = () => {
             </div>
           )}
         </div>
-
-        {/* EPISODE LIST TOGGLE (For TV) */}
-        {type === 'tv' ? (
-          <button
-            onClick={() => setShowEpisodes(!showEpisodes)}
-            className={`pointer-events-auto p-3 rounded-full backdrop-blur-md border border-white/10 transition-all ${showEpisodes ? 'bg-[#00A8E1] text-white' : 'bg-black/50 hover:bg-[#333c46] text-gray-200'}`}
-          >
-            <List size={24} />
-          </button>
-        ) : (
-          <div className="w-12"></div>
-        )}
+        
+        {/* Placeholder to balance the flex layout since we removed the sidebar button */}
+        <div className="w-12"></div>
       </div>
 
       {/* PLAYER FRAME */}
       <div className="flex-1 relative w-full h-full bg-black">
-        
-        {/* Fallback Hint Message (Only shows when on the default 'fastest' server) */}
         {activeServer === 'fastest' && (
            <div className="absolute top-24 left-1/2 -translate-x-1/2 z-[110] bg-[#19222b]/80 backdrop-blur-md border border-white/10 text-gray-300 text-xs px-4 py-2 rounded-full shadow-lg pointer-events-none flex items-center gap-2 animate-in fade-in slide-in-from-top-4 duration-700">
              <Info size={14} className="text-[#00A8E1]" />
@@ -2167,125 +2161,20 @@ const Player = () => {
           title="Player"
         ></iframe>
       </div>
-
-      {/* EPISODE SIDEBAR (TV Only) */}
-      {type === 'tv' && (
-        <div className={`fixed right-0 top-0 h-full bg-[#00050D]/95 backdrop-blur-xl border-l border-white/10 transition-all duration-500 ease-in-out z-[110] flex flex-col ${showEpisodes ? 'w-[350px] translate-x-0 shadow-2xl' : 'w-[350px] translate-x-full shadow-none'}`}>
-          <div className="pt-24 px-6 pb-4 border-b border-white/10 flex items-center justify-between bg-[#1a242f]/50">
-            <h2 className="font-bold text-white text-lg">Episodes</h2>
-            <div className="relative">
-              <button 
-                onClick={() => setIsSeasonDropdownOpen(!isSeasonDropdownOpen)}
-                className="flex items-center gap-2 bg-[#1a242f] hover:bg-[#232d38] border border-white/10 text-white font-bold py-2 px-4 rounded-lg transition-all shadow-md"
-              >
-                <span>Season {season}</span>
-                <ChevronDown size={16} className={`transition-transform duration-300 ${isSeasonDropdownOpen ? 'rotate-180' : ''}`} />
-              </button>
-
-              {isSeasonDropdownOpen && (
-                <div className="absolute right-0 top-full mt-2 w-56 bg-[#0f171e]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl overflow-hidden z-[200] animate-in fade-in slide-in-from-top-2 max-h-64 overflow-y-auto scrollbar-hide">
-                  {availableSeasons.map((s) => (
-                    <button
-                      key={s.season_number}
-                      onClick={() => {
-                        setSeason(s.season_number);
-                        setIsSeasonDropdownOpen(false);
-                      }}
-                      className={`w-full flex items-center justify-between text-left px-4 py-3 text-sm font-bold transition-all border-b border-white/5 last:border-0 ${
-                        season === s.season_number 
-                          ? 'bg-[#00A8E1] text-white' 
-                          : 'text-gray-300 hover:bg-white/10 hover:text-white'
-                      }`}
-                    >
-                      <span>{s.name || `Season ${s.season_number}`}</span>
-                      {s.episode_count && <span className="text-[10px] text-gray-400 font-normal bg-black/30 px-1.5 py-0.5 rounded">{s.episode_count} Eps</span>}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-          
-          <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-hide relative">
-            {seasonData?.episodes ? (
-              seasonData.episodes.map(ep => (
-                <div 
-                  key={ep.id} 
-                  onClick={() => setEpisode(ep.episode_number)} 
-                  className={`flex flex-col gap-2 p-3 rounded-xl cursor-pointer transition-all duration-300 group ${
-                    episode === ep.episode_number 
-                      ? 'bg-[#19222b] border border-[#00A8E1] shadow-[0_0_15px_rgba(0,168,225,0.15)]' 
-                      : 'bg-[#0f171e]/50 hover:bg-[#19222b] border border-white/5 hover:border-white/20'
-                  }`}
-                >
-                  <div className="flex gap-3">
-                    <div className="relative w-32 h-20 flex-shrink-0 bg-[#0a0f14] rounded-lg overflow-hidden border border-white/5">
-                      {ep.still_path ? (
-                        <img src={`${IMAGE_BASE_URL}${ep.still_path}`} className={`w-full h-full object-cover transition-all duration-500 ${episode === ep.episode_number ? 'opacity-100 scale-105' : 'opacity-70 group-hover:opacity-100 group-hover:scale-105'}`} alt={ep.name} />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-gray-600 text-xs font-medium">No Image</div>
-                      )}
-                      
-                      {/* Play Button Overlay */}
-                      <div className={`absolute inset-0 bg-black/40 flex items-center justify-center transition-opacity duration-300 ${episode === ep.episode_number ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-                        <div className="w-8 h-8 rounded-full bg-[#00A8E1] flex items-center justify-center shadow-[0_0_10px_#00A8E1]">
-                           <Play size={14} fill="white" className="text-white ml-0.5" />
-                        </div>
-                      </div>
-
-                      {/* Runtime Badge */}
-                      {ep.runtime && (
-                        <div className="absolute bottom-1 right-1 bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] font-bold text-white border border-white/10">
-                          {ep.runtime}m
-                        </div>
-                      )}
-                    </div>
-                    
-                    <div className="flex flex-col justify-center min-w-0 flex-1">
-                      <div className="flex items-center justify-between mb-0.5">
-                         <span className={`text-[10px] font-black uppercase tracking-wider ${episode === ep.episode_number ? 'text-[#00A8E1]' : 'text-gray-400'}`}>
-                           Episode {ep.episode_number}
-                         </span>
-                         {ep.air_date && <span className="text-[9px] text-gray-500 font-medium">{new Date(ep.air_date).getFullYear()}</span>}
-                      </div>
-                      <h4 className={`text-sm font-bold truncate leading-tight mb-1 ${episode === ep.episode_number ? 'text-white' : 'text-gray-200 group-hover:text-white'}`}>
-                        {ep.name}
-                      </h4>
-                    </div>
-                  </div>
-
-                  {/* Collapsible Overview */}
-                  {ep.overview && (
-                    <p className={`text-xs mt-1 line-clamp-2 leading-relaxed transition-all ${episode === ep.episode_number ? 'text-gray-300' : 'text-gray-500 group-hover:text-gray-400'}`}>
-                      {ep.overview}
-                    </p>
-                  )}
-                </div>
-              ))
-            ) : (
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-500">
-                <Loader className="animate-spin mb-3 text-[#00A8E1]" size={32} />
-                <span className="text-sm font-medium animate-pulse">Loading Season {season}...</span>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 };
+
 // --- MAIN WRAPPERS ---
 const Home = ({ isPrimeOnly }) => {
   const { rows, loadMore } = useInfiniteRows('all', isPrimeOnly);
   const [history, setHistory] = useState([]);
 
   useEffect(() => {
-    // READ FROM 'vidFastProgress'
     const rawProgress = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
-    // Convert Dictionary to Array & STRICT SORT by 'last_updated'
     const historyArray = Object.values(rawProgress)
-      .filter(item => item && item.last_updated) // Filter out broken entries
-      .sort((a, b) => b.last_updated - a.last_updated) // Latest first
+      .filter(item => item && item.last_updated) 
+      .sort((a, b) => b.last_updated - a.last_updated) 
       .map(item => ({
         ...item,
         id: item.id,
@@ -2294,10 +2183,8 @@ const Home = ({ isPrimeOnly }) => {
         media_type: item.type,
         vote_average: item.vote_average
       }));
-    // OPTIONAL: Fetch missing details if they weren't saved by the player
     const enrichHistory = async () => {
       const enriched = await Promise.all(historyArray.map(async (h) => {
-        // If we don't have an image, fetch it from TMDB
         if(!h.poster_path) {
           try {
             const res = await fetch(`${BASE_URL}/${h.type}/${h.id}?api_key=${TMDB_API_KEY}`);
@@ -2314,8 +2201,8 @@ const Home = ({ isPrimeOnly }) => {
     } else {
       setHistory([]);
     }
-
   }, []);
+  
   return (
     <>
       <Hero isPrimeOnly={isPrimeOnly} />
@@ -2344,6 +2231,7 @@ const MoviesPage = ({ isPrimeOnly }) => {
     </>
   );
 };
+
 const TVPage = ({ isPrimeOnly }) => {
   const { rows, loadMore } = useInfiniteRows('tv', isPrimeOnly);
   return (
@@ -2358,6 +2246,7 @@ const TVPage = ({ isPrimeOnly }) => {
     </>
   );
 };
+
 const StorePage = () => <div className="pt-32 px-12 text-white">Store</div>;
 
 function App() {
