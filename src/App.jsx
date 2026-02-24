@@ -1703,7 +1703,15 @@ const MovieDetail = () => {
                   
                   <div className="flex-1 flex flex-col justify-center py-1">
                      <div className="flex justify-between items-center mb-1.5">
-                        <span className="text-[#00A8E1] font-bold text-xs uppercase tracking-wider drop-shadow-sm">Episode {ep.episode_number}</span>
+                        <div className="flex items-center gap-3">
+                           <span className="text-[#00A8E1] font-bold text-xs uppercase tracking-wider drop-shadow-sm">Episode {ep.episode_number}</span>
+                           {/* IMDb-Style Rating Badge */}
+                           {ep.vote_average > 0 && (
+                             <span className="flex items-center gap-1 text-[10px] font-bold bg-[#f5c518] text-black px-1.5 py-0.5 rounded-sm shadow-sm">
+                               ★ {ep.vote_average.toFixed(1)}
+                             </span>
+                           )}
+                        </div>
                         {ep.air_date && <span className="text-gray-400 text-xs font-medium">{new Date(ep.air_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>}
                      </div>
                      <h4 className="text-white font-bold text-xl mb-2 group-hover:text-[#00A8E1] transition-colors">{ep.name}</h4>
