@@ -1912,7 +1912,7 @@ const MovieDetail = () => {
   );
 };
 
-// --- PLAYER COMPONENT ---
+// --- PLAYER COMPONENT (THE IFRAME ILLUSION) ---
 const Player = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
@@ -1923,9 +1923,9 @@ const Player = () => {
   const season = Number(queryParams.get('season')) || 1;
   const episode = Number(queryParams.get('episode')) || 1;
 
-  // Track progress (Optional: Keep this if you want to remember where the user left off)
+  // Track progress (Saves where the user left off)
   useEffect(() => {
-    const saveProgress = (currentTime = 0, duration = 0) => {
+    const saveProgress = () => {
       const history = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
       const key = `${type === 'tv' ? 't' : 'm'}${id}`;
       const previousData = history[key] || {};
@@ -1935,9 +1935,8 @@ const Player = () => {
         id: Number(id),
         type,
         last_updated: Date.now(),
-        progress: (currentTime > 0 && duration > 0) 
-          ? { watched: currentTime, duration } 
-          : (previousData.progress || { watched: 0, duration: 0 }),
+        // We set a dummy progress so it shows up in "Continue Watching"
+        progress: previousData.progress || { watched: 1, duration: 100 },
       };
 
       if (type === 'tv') {
@@ -1950,31 +1949,51 @@ const Player = () => {
     saveProgress();
   }, [season, episode, type, id]);
 
+  // Generate the seamless VidKing Embed URL
+  const getSourceUrl = () => {
+    // VidKing allows us to pass a HEX color to match your Prime theme!
+    const themeColor = "00A8E1"; 
+    
+    if (type === 'tv') {
+      return `https://www.vidking.net/embed/tv/${id}/${season}/${episode}?color=${themeColor}&autoPlay=true&nextEpisode=true`;
+    } else {
+      return `https://www.vidking.net/embed/movie/${id}?color=${themeColor}&autoPlay=true`;
+    }
+  };
+
   return (
-    <div className="fixed inset-0 bg-black z-[100] overflow-hidden flex flex-col" style={{ transform: 'translateZ(0)' }}>
-      {/* TOP CONTROLS LAYER - BACK BUTTON ONLY */}
-      <div className="absolute top-0 left-0 w-full h-20 pointer-events-none z-[120] flex items-center justify-between px-6">
+    <div className="fixed inset-0 bg-black z-[200] overflow-hidden flex flex-col">
+      
+      {/* NATIVE UI OVERLAY: Back Button */}
+      {/* We use pointer-events-none on the container so the user can still click the video behind it */}
+      <div className="absolute top-0 left-0 w-full h-24 bg-gradient-to-b from-black/80 to-transparent pointer-events-none z-[250] flex items-center px-6 transition-opacity duration-300">
         <button
           onClick={() => navigate(-1)}
-          className="pointer-events-auto bg-black/50 hover:bg-[#00A8E1] text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all shadow-lg group"
+          className="pointer-events-auto bg-black/40 hover:bg-[#00A8E1] text-white w-12 h-12 rounded-full backdrop-blur-md border border-white/10 transition-all flex items-center justify-center shadow-[0_0_15px_rgba(0,168,225,0.3)] group"
         >
           <ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" />
         </button>
       </div>
 
-      {/* PLAYER FRAME - STRICTLY SHAKA PLAYER */}
-      <div className="flex-1 relative w-full h-full bg-black">
-        <ShakaPlayerUI 
-          tmdbId={id} 
-          type={type} 
-          season={season} 
-          episode={episode} 
-        />
+      {/* THE IFRAME (Bypasses all CORS and IP blocks) */}
+      <div className="flex-1 w-full h-full bg-black relative">
+        {/* Loading Pulse behind the iframe */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+           <div className="w-12 h-12 border-4 border-[#00A8E1] border-t-transparent rounded-full animate-spin"></div>
+        </div>
+
+        <iframe
+          src={getSourceUrl()}
+          className="w-full h-full border-none absolute inset-0 z-10"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+          loading="eager"
+          allowFullScreen
+          title="Movie Player"
+        ></iframe>
       </div>
     </div>
   );
 };
-
 // --- MAIN WRAPPERS ---
 const Home = ({ isPrimeOnly }) => {
   const { rows, loadMore } = useInfiniteRows('all', isPrimeOnly);
