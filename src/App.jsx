@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useLocation, useParams, Link } from 'react-router-dom';
 import { Search, Play, Info, Plus, ChevronRight, ChevronLeft, Download, Share2, CheckCircle2, ThumbsUp, ChevronDown, Grip, Loader, List, ArrowLeft, X, Volume2, VolumeX, Trophy, Signal, Clock, Ban, Eye, Bookmark, TrendingUp, Monitor } from 'lucide-react';
+import ShakaPlayerUI from './components/ShakaPlayerUI';
 
 // --- GLOBAL HLS REFERENCE ---
 const Hls = window.Hls;
@@ -2157,17 +2158,27 @@ const Player = () => {
            </div>
         )}
 
-        <iframe
-          key={activeServer + season + episode}
-          src={getSourceUrl()}
-          className="w-full h-full border-none"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
-          loading="eager"
-          fetchPriority="high"
-          referrerPolicy="origin"
-          allowFullScreen
-          title="Player"
-        ></iframe>
+        {/* ShakaPlayerUI rendered when server is "fastest" */}
+        {activeServer === 'fastest' ? (
+          <ShakaPlayerUI 
+            tmdbId={id} 
+            type={type} 
+            season={season} 
+            episode={episode} 
+          />
+        ) : (
+          <iframe
+            key={activeServer + season + episode}
+            src={getSourceUrl()}
+            className="w-full h-full border-none"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+            loading="eager"
+            fetchPriority="high"
+            referrerPolicy="origin"
+            allowFullScreen
+            title="Player"
+          ></iframe>
+        )}
       </div>
     </div>
   );
