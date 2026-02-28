@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useLocation, useParams, Link } from 'react-router-dom';
 import { Search, Play, Info, Plus, ChevronRight, ChevronLeft, Download, Share2, CheckCircle2, ThumbsUp, ChevronDown, Grip, Loader, List, ArrowLeft, X, Volume2, VolumeX, Trophy, Signal, Clock, Ban, Eye, Bookmark, TrendingUp, Monitor } from 'lucide-react';
 import ShakaPlayerUI from './ShakaPlayerUI';
+import PrimePlayer from './PrimePlayer';
 
 // --- GLOBAL HLS REFERENCE ---
 const Hls = window.Hls;
@@ -1912,19 +1913,36 @@ const MovieDetail = () => {
   );
 };
 
-// --- PLAYER COMPONENT (THE IFRAME ILLUSION) ---
+// --- PLAYER COMPONENT (CUSTOM PRIME UI) ---
 const Player = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Episode & Season State
   const queryParams = new URLSearchParams(location.search);
   const season = Number(queryParams.get('season')) || 1;
   const episode = Number(queryParams.get('episode')) || 1;
 
-  // Track progress (Saves where the user left off)
+  const [mediaDetails, setMediaDetails] = useState(null);
+
+  // 1. Fetch TMDB details to get the exact Title for the scraper
   useEffect(() => {
+    const fetchDetails = async () => {
+      try {
+        // TMDB_API_KEY and BASE_URL are already defined globally in your App.jsx
+        const res = await fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}`);
+        const data = await res.json();
+        setMediaDetails(data);
+      } catch (e) {
+        console.error("Error fetching details:", e);
+      }
+    };
+    fetchDetails();
+  }, [type, id]);
+
+  // Track progress (Optional: Keep this to remember where the user left off)
+  useEffect(() => {
+    if (!mediaDetails) return;
     const saveProgress = () => {
       const history = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
       const key = `${type === 'tv' ? 't' : 'm'}${id}`;
@@ -1934,8 +1952,10 @@ const Player = () => {
         ...previousData,
         id: Number(id),
         type,
+        title: mediaDetails.title || mediaDetails.name,
+        poster_path: mediaDetails.poster_path,
+        backdrop_path: mediaDetails.backdrop_path,
         last_updated: Date.now(),
-        // We set a dummy progress so it shows up in "Continue Watching"
         progress: previousData.progress || { watched: 1, duration: 100 },
       };
 
@@ -1945,52 +1965,29 @@ const Player = () => {
       }
       localStorage.setItem('vidFastProgress', JSON.stringify({ ...history, [key]: newData }));
     };
-
     saveProgress();
-  }, [season, episode, type, id]);
+  }, [mediaDetails, season, episode, type, id]);
 
-  // Generate the seamless VidKing Embed URL
-  const getSourceUrl = () => {
-    // VidKing allows us to pass a HEX color to match your Prime theme!
-    const themeColor = "00A8E1"; 
-    
-    if (type === 'tv') {
-      return `https://www.vidking.net/embed/tv/${id}/${season}/${episode}?color=${themeColor}&autoPlay=true&nextEpisode=true`;
-    } else {
-      return `https://www.vidking.net/embed/movie/${id}?color=${themeColor}&autoPlay=true`;
-    }
-  };
+  // Show a loading screen while we fetch the title
+  if (!mediaDetails) {
+    return (
+      <div className="fixed inset-0 bg-black z-[200] flex items-center justify-center">
+         <div className="w-12 h-12 border-4 border-[#00A8E1] border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
 
+  const title = mediaDetails.title || mediaDetails.name;
+
+  // 2. Render your custom Prime Player!
   return (
-    <div className="fixed inset-0 bg-black z-[200] overflow-hidden flex flex-col">
-      
-      {/* NATIVE UI OVERLAY: Back Button */}
-      {/* We use pointer-events-none on the container so the user can still click the video behind it */}
-      <div className="absolute top-0 left-0 w-full h-24 bg-gradient-to-b from-black/80 to-transparent pointer-events-none z-[250] flex items-center px-6 transition-opacity duration-300">
-        <button
-          onClick={() => navigate(-1)}
-          className="pointer-events-auto bg-black/40 hover:bg-[#00A8E1] text-white w-12 h-12 rounded-full backdrop-blur-md border border-white/10 transition-all flex items-center justify-center shadow-[0_0_15px_rgba(0,168,225,0.3)] group"
-        >
-          <ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" />
-        </button>
-      </div>
-
-      {/* THE IFRAME (Bypasses all CORS and IP blocks) */}
-      <div className="flex-1 w-full h-full bg-black relative">
-        {/* Loading Pulse behind the iframe */}
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-           <div className="w-12 h-12 border-4 border-[#00A8E1] border-t-transparent rounded-full animate-spin"></div>
-        </div>
-
-        <iframe
-          src={getSourceUrl()}
-          className="w-full h-full border-none absolute inset-0 z-10"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
-          loading="eager"
-          allowFullScreen
-          title="Movie Player"
-        ></iframe>
-      </div>
+    <div className="fixed inset-0 bg-black z-[200] overflow-hidden" style={{ transform: 'translateZ(0)' }}>
+        <PrimePlayer 
+            title={title} 
+            mediaType={type} 
+            season={season} 
+            episode={episode} 
+        />
     </div>
   );
 };
