@@ -1918,61 +1918,22 @@ const Player = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // --- STATE ---
-  const [activeServer, setActiveServer] = useState('fastest'); 
-  const [showServers, setShowServers] = useState(false); // Dropdown toggle
-  const [isIndian, setIsIndian] = useState(false); // Track if content is Indian
-  
   // Episode & Season State
   const queryParams = new URLSearchParams(location.search);
   const season = Number(queryParams.get('season')) || 1;
   const episode = Number(queryParams.get('episode')) || 1;
 
-  const [imdbId, setImdbId] = useState(null);
-  const [mediaDetails, setMediaDetails] = useState(null);
-
-  // --- 1. FETCH METADATA & LANGUAGE DETECTION ---
+  // Track progress (Optional: Keep this if you want to remember where the user left off)
   useEffect(() => {
-    const fetchDetails = async () => {
-      try {
-        const res = await fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`);
-        const data = await res.json();
-        
-        setMediaDetails(data); 
-
-        const foundImdbId = data.imdb_id || data.external_ids?.imdb_id;
-        setImdbId(foundImdbId);
-
-        const indianLanguages = ['hi', 'bn', 'ta', 'te', 'ml', 'kn', 'mr', 'pa', 'gu'];
-        const isIndianContent = indianLanguages.includes(data.original_language);
-        setIsIndian(isIndianContent);
-
-        // 3. Auto-Switch Server Logic - Absolute Priority for Fastest
-        setActiveServer('fastest');
-      } catch (e) {
-        console.error("Error fetching details:", e);
-      }
-    };
-    fetchDetails();
-  }, [type, id]);
-
-  // --- 3. SAVE PROGRESS (CONTINUE WATCHING) ---
-  useEffect(() => {
-    if (!mediaDetails) return;
-
     const saveProgress = (currentTime = 0, duration = 0) => {
       const history = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
       const key = `${type === 'tv' ? 't' : 'm'}${id}`;
-      
       const previousData = history[key] || {};
       
       const newData = {
         ...previousData,
         id: Number(id),
         type,
-        title: mediaDetails.title || mediaDetails.name,
-        poster_path: mediaDetails.poster_path,
-        backdrop_path: mediaDetails.backdrop_path,
         last_updated: Date.now(),
         progress: (currentTime > 0 && duration > 0) 
           ? { watched: currentTime, duration } 
@@ -1983,106 +1944,15 @@ const Player = () => {
         newData.last_season_watched = season;
         newData.last_episode_watched = episode;
       }
-
       localStorage.setItem('vidFastProgress', JSON.stringify({ ...history, [key]: newData }));
     };
 
     saveProgress();
-
-    const handleMessage = (event) => {
-      try {
-        let data = event.data;
-        if (typeof data === 'string') {
-          try { data = JSON.parse(data); } catch (e) {}
-        }
-        if (data && data.type === 'timeupdate' && data.currentTime && data.duration) {
-           saveProgress(data.currentTime, data.duration);
-        }
-        if (data && data.event === 'timeupdate' && data.data) {
-           saveProgress(data.data.currentTime, data.data.duration);
-        }
-        if (data && data.type === 'PLAYER_EVENT' && data.data && data.data.event === 'timeupdate') {
-           saveProgress(data.data.currentTime, data.data.duration);
-        }
-      } catch(e) {}
-    };
-
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-
-  }, [mediaDetails, season, episode, type, id]);
-
-  // --- 4. SOURCE GENERATOR ---
-  const getSourceUrl = () => {
-    if (activeServer === 'fastest') {
-      const history = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
-      const key = `${type === 'tv' ? 't' : 'm'}${id}`;
-      const savedProgress = history[key]?.progress?.watched || 0;
-      
-      const progressParam = savedProgress > 0 ? `&progress=${Math.floor(savedProgress)}` : '';
-      const colorParam = "color=00A8E1";
-
-      if (type === 'tv') {
-        return `https://www.vidking.net/embed/tv/${id}/${season}/${episode}?${colorParam}&autoPlay=true&nextEpisode=true&episodeSelector=true${progressParam}`;
-      } else {
-        return `https://www.vidking.net/embed/movie/${id}?${colorParam}&autoPlay=true${progressParam}`;
-      }
-    }
-
-    if (activeServer === 'rare') {
-      if (type === 'tv') {
-        return `https://rivestream.net/embed?type=tv&id=${id}&season=${season}&episode=${episode}`;
-      } else {
-        return `https://rivestream.net/embed?type=movie&id=${id}`;
-      }
-    }
-
-    if (activeServer === 'fast2') {
-      const colorParam = "color=%2300A8E1";
-      if (type === 'tv') {
-        return `https://cinesrc.st/embed/tv/${id}?s=${season}&e=${episode}&autoplay=true&autonext=true&${colorParam}`;
-      } else {
-        return `https://cinesrc.st/embed/movie/${id}?autoplay=true&${colorParam}`;
-      }
-    }
-
-    if (activeServer === 'slime') {
-      const targetId = imdbId || id;
-      if (type === 'tv') {
-         return `https://slime403heq.com/play/${targetId}?season=${season}&episode=${episode}`;
-      } else {
-         return `https://slime403heq.com/play/${targetId}`;
-      }
-    }
-    
-    if (activeServer === 'vidrock') {
-      const identifier = imdbId || id;
-      if (type === 'tv') {
-        return `https://vidrock.net/tv/${identifier}/${season}/${episode}`;
-      } else {
-        return `https://vidrock.net/movie/${identifier}`;
-      }
-    }
-
-    if (activeServer === 'vidfast') {
-      const themeParam = "theme=00A8E1";
-      if (type === 'tv') {
-        return `${VIDFAST_BASE}/tv/${id}/${season}/${episode}?autoPlay=true&${themeParam}&nextButton=true&autoNext=true`;
-      } else {
-        return `${VIDFAST_BASE}/movie/${id}?autoPlay=true&${themeParam}`;
-      }
-    }
-
-    if (type === 'tv') {
-      return `https://www.zxcstream.xyz/player/tv/${id}/${season}/${episode}?autoplay=false&back=true&server=0`;
-    } else {
-      return `https://www.zxcstream.xyz/player/movie/${id}?autoplay=false&back=true&server=0`;
-    }
-  };
+  }, [season, episode, type, id]);
 
   return (
     <div className="fixed inset-0 bg-black z-[100] overflow-hidden flex flex-col" style={{ transform: 'translateZ(0)' }}>
-      {/* TOP CONTROLS LAYER */}
+      {/* TOP CONTROLS LAYER - BACK BUTTON ONLY */}
       <div className="absolute top-0 left-0 w-full h-20 pointer-events-none z-[120] flex items-center justify-between px-6">
         <button
           onClick={() => navigate(-1)}
@@ -2090,95 +1960,16 @@ const Player = () => {
         >
           <ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" />
         </button>
-
-        {/* SERVER SWITCHER */}
-        <div className="pointer-events-auto relative flex flex-col items-center">
-          <button
-            onClick={() => setShowServers(!showServers)}
-            className="flex items-center gap-2 bg-black/50 hover:bg-[#00A8E1] text-white px-4 py-2.5 rounded-full backdrop-blur-md border border-white/10 transition-all shadow-lg font-bold text-xs uppercase tracking-wider group"
-          >
-            <Signal size={16} className={`${activeServer === 'fastest' ? 'text-[#00A8E1]' : 'text-gray-400'} group-hover:text-white transition-colors`} />
-            <span className="hidden sm:inline">Server: </span> {activeServer}
-            <ChevronDown size={16} className={`transition-transform duration-300 ${showServers ? 'rotate-180' : ''}`} />
-          </button>
-
-          {showServers && (
-            <div className="absolute top-full mt-3 w-48 bg-[#19222b]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl flex flex-col overflow-hidden z-[150] animate-in fade-in slide-in-from-top-2">
-              <button
-                onClick={() => { setActiveServer('fastest'); setShowServers(false); }}
-                className={`px-4 py-3 text-left text-xs font-bold transition-all border-b border-white/5 last:border-0 ${activeServer === 'fastest' ? 'bg-[#00A8E1] text-white' : 'text-gray-300 hover:bg-white/10 hover:text-white'}`}
-              >
-                Fastest (VidKing)
-              </button>
-              
-              <button
-                onClick={() => { setActiveServer('rare'); setShowServers(false); }}
-                className={`px-4 py-3 text-left text-xs font-bold transition-all border-b border-white/5 last:border-0 ${activeServer === 'rare' ? 'bg-[#00A8E1] text-white' : 'text-gray-300 hover:bg-white/10 hover:text-white'}`}
-              >
-                Rare Streams
-              </button>
-              <button
-                onClick={() => { setActiveServer('slime'); setShowServers(false); }}
-                className={`px-4 py-3 text-left text-xs font-bold transition-all flex items-center justify-between border-b border-white/5 last:border-0 ${activeServer === 'slime' ? 'bg-[#E50914] text-white' : 'text-gray-300 hover:bg-white/10 hover:text-white'}`}
-              >
-                <span>Bollywood / Indian</span>
-                {isIndian && activeServer !== 'slime' && <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>}
-              </button>
-              <button
-                onClick={() => { setActiveServer('vidfast'); setShowServers(false); }}
-                className={`px-4 py-3 text-left text-xs font-bold transition-all border-b border-white/5 last:border-0 ${activeServer === 'vidfast' ? 'bg-[#00A8E1] text-white' : 'text-gray-300 hover:bg-white/10 hover:text-white'}`}
-              >
-                VidFast
-              </button>
-              <button
-                onClick={() => { setActiveServer('zxcstream'); setShowServers(false); }}
-                className={`px-4 py-3 text-left text-xs font-bold transition-all ${activeServer === 'zxcstream' ? 'bg-[#00A8E1] text-white' : 'text-gray-300 hover:bg-white/10 hover:text-white'}`}
-              >
-                Multi-Audio
-              </button>
-              {activeServer === 'zxcstream' && (
-                <div className="bg-[#0f171e] text-[9px] text-[#00A8E1] font-bold text-center py-2 px-1 border-t border-white/5">
-                  Select Audio in Settings
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-        
-        {/* Placeholder to balance the flex layout since we removed the sidebar button */}
-        <div className="w-12"></div>
       </div>
 
-      {/* PLAYER FRAME */}
+      {/* PLAYER FRAME - STRICTLY SHAKA PLAYER */}
       <div className="flex-1 relative w-full h-full bg-black">
-        {activeServer === 'fastest' && (
-           <div className="absolute top-24 left-1/2 -translate-x-1/2 z-[110] bg-[#19222b]/80 backdrop-blur-md border border-white/10 text-gray-300 text-xs px-4 py-2 rounded-full shadow-lg pointer-events-none flex items-center gap-2 animate-in fade-in slide-in-from-top-4 duration-700">
-             <Info size={14} className="text-[#00A8E1]" />
-             <span>If the video doesn't load, switch to <strong className="text-white">Rare Streams</strong> from the Server section.</span>
-           </div>
-        )}
-
-        {/* ShakaPlayerUI rendered when server is "fastest" */}
-        {activeServer === 'fastest' ? (
-          <ShakaPlayerUI 
-            tmdbId={id} 
-            type={type} 
-            season={season} 
-            episode={episode} 
-          />
-        ) : (
-          <iframe
-            key={activeServer + season + episode}
-            src={getSourceUrl()}
-            className="w-full h-full border-none"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
-            loading="eager"
-            fetchPriority="high"
-            referrerPolicy="origin"
-            allowFullScreen
-            title="Player"
-          ></iframe>
-        )}
+        <ShakaPlayerUI 
+          tmdbId={id} 
+          type={type} 
+          season={season} 
+          episode={episode} 
+        />
       </div>
     </div>
   );
