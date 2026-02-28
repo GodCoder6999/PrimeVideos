@@ -17,45 +17,45 @@ const ShakaPlayerUI = ({ tmdbId, type = 'movie', season, episode }) => {
                 setLoading(true);
                 setError(null);
                 
-                // Fetch the stream from a CORS-friendly API instead of scraping Vidfast locally
-                let fetchUrl = type === 'movie' 
-                    ? `https://vidlink.pro/api/movie/${tmdbId}` 
-                    : `https://vidlink.pro/api/tv/${tmdbId}/${season}/${episode}`;
+                // 1. Ask your Vercel Puppeteer API to scrape Vidfast
+                let fetchUrl = `/api/get-stream?type=${type}&tmdbId=${tmdbId}`;
+                if (type === 'tv' && season && episode) {
+                    fetchUrl += `&s=${season}&e=${episode}`;
+                }
 
                 const response = await fetch(fetchUrl);
                 const data = await response.json();
 
-                // Check if the API successfully returned a stream URL
-                const streamUrl = data.streamUrl || (data.source && data.source[0]?.url);
-                
-                if (!streamUrl) {
-                    throw new Error('Stream not found or blocked by provider.');
+                if (!data.success || !data.hlsUrl) {
+                    throw new Error('Your scraper could not find the stream on Vidfast.');
                 }
+
+                const rawM3u8 = data.hlsUrl;
+
+                // 2. Wrap the Vidfast link in a CORS Proxy to bypass browser security blocks
+                // We use corsproxy.io to mask the request
+                const proxiedUrl = `https://corsproxy.io/?${encodeURIComponent(rawM3u8)}`;
 
                 // Install polyfills
                 shaka.polyfill.installAll();
 
                 if (shaka.Player.isBrowserSupported()) {
-                    // Initialize Player and UI
                     player = new shaka.Player(videoRef.current);
                     ui = new shaka.ui.Overlay(player, containerRef.current, videoRef.current);
                     
-                    // Customize the UI configuration
                     const config = {
-                        controlPanelElements: [
-                            'play_pause', 
-                            'time_and_duration', 
-                            'spacer', 
-                            'mute', 
-                            'volume', 
-                            'fullscreen', 
-                            'overflow_menu'
-                        ],
+                        controlPanelElements: ['play_pause', 'time_and_duration', 'spacer', 'mute', 'volume', 'fullscreen', 'overflow_menu'],
                     };
                     ui.configure(config);
 
-                    // Load the direct .m3u8 URL
-                    await player.load(streamUrl);
+                    // 3. Optional: Configure Shaka to allow cross-origin cookies/requests
+                    player.getNetworkingEngine().registerRequestFilter((type, request) => {
+                        // This helps bypass some basic host protections
+                        request.allowCrossSiteCredentials = false; 
+                    });
+
+                    // 4. Try loading the proxied URL
+                    await player.load(proxiedUrl);
                     setLoading(false);
                     videoRef.current.play().catch(e => console.log("Autoplay blocked by browser."));
                 } else {
@@ -64,7 +64,8 @@ const ShakaPlayerUI = ({ tmdbId, type = 'movie', season, episode }) => {
                 }
             } catch (err) {
                 console.error("Playback Error:", err);
-                setError('Failed to load video stream. The source might be temporarily unavailable.');
+                // If it fails, it means Vidfast has strict IP-locking active on the video chunks.
+                setError('Vidfast blocked the stream (CORS/IP Mismatch). Shaka Player cannot play this source directly.');
                 setLoading(false);
             }
         };
@@ -73,7 +74,6 @@ const ShakaPlayerUI = ({ tmdbId, type = 'movie', season, episode }) => {
             loadStream();
         }
 
-        // Cleanup on unmount
         return () => {
             if (ui) ui.destroy();
             if (player) player.destroy();
@@ -85,23 +85,19 @@ const ShakaPlayerUI = ({ tmdbId, type = 'movie', season, episode }) => {
             {loading && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center z-50 bg-black/90">
                     <div className="w-12 h-12 border-4 border-[#00A8E1] border-t-transparent rounded-full animate-spin mb-4"></div>
-                    <p className="text-[#00A8E1] font-bold animate-pulse tracking-widest uppercase text-sm">Loading Stream...</p>
+                    <p className="text-[#00A8E1] font-bold animate-pulse uppercase tracking-widest text-xs">Scraping Vidfast & Bypassing CORS...</p>
                 </div>
             )}
             
             {error && (
                 <div className="absolute z-50 bg-[#19222b] border border-red-500/30 p-6 rounded-xl text-center max-w-sm">
-                    <p className="text-red-500 font-bold mb-2">Playback Error</p>
+                    <p className="text-red-500 font-bold mb-2">Host Blocked Request</p>
                     <p className="text-gray-400 text-sm">{error}</p>
                 </div>
             )}
             
-            {/* Shaka Player Container */}
-            <div ref={containerRef} className="w-full h-full shadow-[0_0_50px_rgba(0,168,225,0.1)]">
-                <video 
-                    ref={videoRef} 
-                    className="w-full h-full object-contain"
-                />
+            <div ref={containerRef} className="w-full h-full">
+                <video ref={videoRef} className="w-full h-full object-contain" />
             </div>
         </div>
     );
