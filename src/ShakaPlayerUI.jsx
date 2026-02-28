@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-// Import Shaka Player and its default UI CSS
 import shaka from 'shaka-player/dist/shaka-player.ui.js';
 import 'shaka-player/dist/controls.css';
 
@@ -16,44 +15,56 @@ const ShakaPlayerUI = ({ tmdbId, type = 'movie', season, episode }) => {
         const loadStream = async () => {
             try {
                 setLoading(true);
+                setError(null);
                 
-                // 1. Fetch the .m3u8 URL from your existing Puppeteer API
-                let fetchUrl = `/api/get-stream?type=${type}&tmdbId=${tmdbId}`;
-                if (type === 'tv' && season && episode) {
-                    fetchUrl += `&s=${season}&e=${episode}`;
-                }
+                // Fetch the stream from a CORS-friendly API instead of scraping Vidfast locally
+                let fetchUrl = type === 'movie' 
+                    ? `https://vidlink.pro/api/movie/${tmdbId}` 
+                    : `https://vidlink.pro/api/tv/${tmdbId}/${season}/${episode}`;
 
                 const response = await fetch(fetchUrl);
                 const data = await response.json();
 
-                if (!data.success || !data.hlsUrl) {
-                    throw new Error('Stream not found');
+                // Check if the API successfully returned a stream URL
+                const streamUrl = data.streamUrl || (data.source && data.source[0]?.url);
+                
+                if (!streamUrl) {
+                    throw new Error('Stream not found or blocked by provider.');
                 }
 
-                // 2. Install polyfills
+                // Install polyfills
                 shaka.polyfill.installAll();
 
                 if (shaka.Player.isBrowserSupported()) {
-                    // 3. Initialize Player and UI
+                    // Initialize Player and UI
                     player = new shaka.Player(videoRef.current);
                     ui = new shaka.ui.Overlay(player, containerRef.current, videoRef.current);
                     
-                    // You can customize the UI configuration here
+                    // Customize the UI configuration
                     const config = {
-                        controlPanelElements: ['play_pause', 'time_and_duration', 'spacer', 'mute', 'volume', 'fullscreen', 'overflow_menu'],
+                        controlPanelElements: [
+                            'play_pause', 
+                            'time_and_duration', 
+                            'spacer', 
+                            'mute', 
+                            'volume', 
+                            'fullscreen', 
+                            'overflow_menu'
+                        ],
                     };
                     ui.configure(config);
 
-                    // 4. Load the Vidfast .m3u8 URL
-                    await player.load(data.hlsUrl);
+                    // Load the direct .m3u8 URL
+                    await player.load(streamUrl);
                     setLoading(false);
-                    videoRef.current.play().catch(e => console.log("Autoplay blocked"));
+                    videoRef.current.play().catch(e => console.log("Autoplay blocked by browser."));
                 } else {
-                    setError('Browser not supported for Shaka Player');
+                    setError('Browser not supported for Shaka Player.');
+                    setLoading(false);
                 }
             } catch (err) {
-                console.error(err);
-                setError('Failed to load video.');
+                console.error("Playback Error:", err);
+                setError('Failed to load video stream. The source might be temporarily unavailable.');
                 setLoading(false);
             }
         };
@@ -62,7 +73,7 @@ const ShakaPlayerUI = ({ tmdbId, type = 'movie', season, episode }) => {
             loadStream();
         }
 
-        // Cleanup
+        // Cleanup on unmount
         return () => {
             if (ui) ui.destroy();
             if (player) player.destroy();
@@ -70,20 +81,26 @@ const ShakaPlayerUI = ({ tmdbId, type = 'movie', season, episode }) => {
     }, [tmdbId, type, season, episode]);
 
     return (
-        <div className="w-full max-w-5xl mx-auto bg-black rounded-lg overflow-hidden relative">
+        <div className="w-full h-full bg-black relative flex items-center justify-center">
             {loading && (
-                <div className="absolute inset-0 flex items-center justify-center z-50 bg-black/80">
-                    <p className="text-[#00A8E1] font-bold animate-pulse">Locating stream...</p>
+                <div className="absolute inset-0 flex flex-col items-center justify-center z-50 bg-black/90">
+                    <div className="w-12 h-12 border-4 border-[#00A8E1] border-t-transparent rounded-full animate-spin mb-4"></div>
+                    <p className="text-[#00A8E1] font-bold animate-pulse tracking-widest uppercase text-sm">Loading Stream...</p>
                 </div>
             )}
-            {error && <p className="text-red-500 p-4 text-center absolute z-50">{error}</p>}
             
-            {/* Shaka Player requires a container div to attach custom UI controls to */}
-            <div ref={containerRef} className="w-full h-full">
+            {error && (
+                <div className="absolute z-50 bg-[#19222b] border border-red-500/30 p-6 rounded-xl text-center max-w-sm">
+                    <p className="text-red-500 font-bold mb-2">Playback Error</p>
+                    <p className="text-gray-400 text-sm">{error}</p>
+                </div>
+            )}
+            
+            {/* Shaka Player Container */}
+            <div ref={containerRef} className="w-full h-full shadow-[0_0_50px_rgba(0,168,225,0.1)]">
                 <video 
                     ref={videoRef} 
-                    className="w-full h-full"
-                    poster="" // You can pass the TMDB backdrop image here
+                    className="w-full h-full object-contain"
                 />
             </div>
         </div>
