@@ -19,7 +19,7 @@ const PrimePlayer = ({ tmdbId, title, mediaType, season, episode, releaseYear })
 
     // REPLACE THIS with your deployed Express Backend URL (e.g., from Render.com)
     // If testing locally, keep it as localhost:3000
-    const BACKEND_URL = "http://localhost:3000"; 
+    const BACKEND_URL = "https://prime-backend-8lfx.onrender.com"; 
 
     useEffect(() => {
         const initPlayer = async () => {
