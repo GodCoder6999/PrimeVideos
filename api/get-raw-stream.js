@@ -6,26 +6,37 @@ export default async function handler(req, res) {
     const { title, type, season, episode } = req.query;
     if (!title) return res.status(400).json({ success: false, error: "Title required" });
 
-    // Try multiple providers just in case one is down
-    const providers = [new MOVIES.FlixHQ(), new MOVIES.Goku()];
+    // 1. Array of unlocked providers to hunt through
+    // SFlix and Goku have massive libraries and are more likely to carry Indian content
+    const providers = [
+        new MOVIES.SFlix(),
+        new MOVIES.Goku(),
+        new MOVIES.FlixHQ(),
+        new MOVIES.ZoeChip(),
+        new MOVIES.VidsrcTo()
+    ];
 
     for (const provider of providers) {
         try {
+            console.log(`Checking provider: ${provider.name}...`);
             const searchResults = await provider.search(title);
+            
             if (!searchResults.results || searchResults.results.length === 0) continue;
 
+            // Grab the first exact match
             const mediaId = searchResults.results[0].id;
             const mediaInfo = await provider.fetchMediaInfo(mediaId);
             
             let targetEpisodeId;
             if (type === 'tv') {
                 const ep = mediaInfo.episodes.find(e => e.season === Number(season) && e.number === Number(episode));
-                if (!ep) continue;
+                if (!ep) continue; // Episode not found on this provider, try next
                 targetEpisodeId = ep.id;
             } else {
                 targetEpisodeId = mediaInfo.episodes[0].id;
             }
 
+            // Extract the unlocked m3u8 stream!
             const streamData = await provider.fetchEpisodeSources(targetEpisodeId, mediaId);
             const bestStream = streamData.sources.find(s => s.quality === 'auto' || s.quality === '1080p') || streamData.sources[0];
 
@@ -37,9 +48,14 @@ export default async function handler(req, res) {
                 });
             }
         } catch (error) {
-            console.log(`Provider ${provider.name} failed, trying next...`);
+            // Silently fail and move to the next provider
+            console.log(`[Scraper] ${provider.name} failed. Moving to next.`);
         }
     }
 
-    return res.status(404).json({ success: false, error: "Could not find a working stream for this title on any provider." });
+    // If ALL providers fail to find an unlocked stream
+    return res.status(404).json({ 
+        success: false, 
+        error: "This title is currently unavailable." 
+    });
 }
