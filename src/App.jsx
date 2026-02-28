@@ -1913,7 +1913,6 @@ const MovieDetail = () => {
   );
 };
 
-// --- PLAYER COMPONENT (CUSTOM PRIME UI) ---
 const Player = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
@@ -1925,11 +1924,9 @@ const Player = () => {
 
   const [mediaDetails, setMediaDetails] = useState(null);
 
-  // 1. Fetch TMDB details to get the exact Title for the scraper
   useEffect(() => {
     const fetchDetails = async () => {
       try {
-        // TMDB_API_KEY and BASE_URL are already defined globally in your App.jsx
         const res = await fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}`);
         const data = await res.json();
         setMediaDetails(data);
@@ -1940,35 +1937,6 @@ const Player = () => {
     fetchDetails();
   }, [type, id]);
 
-  // Track progress (Optional: Keep this to remember where the user left off)
-  useEffect(() => {
-    if (!mediaDetails) return;
-    const saveProgress = () => {
-      const history = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
-      const key = `${type === 'tv' ? 't' : 'm'}${id}`;
-      const previousData = history[key] || {};
-      
-      const newData = {
-        ...previousData,
-        id: Number(id),
-        type,
-        title: mediaDetails.title || mediaDetails.name,
-        poster_path: mediaDetails.poster_path,
-        backdrop_path: mediaDetails.backdrop_path,
-        last_updated: Date.now(),
-        progress: previousData.progress || { watched: 1, duration: 100 },
-      };
-
-      if (type === 'tv') {
-        newData.last_season_watched = season;
-        newData.last_episode_watched = episode;
-      }
-      localStorage.setItem('vidFastProgress', JSON.stringify({ ...history, [key]: newData }));
-    };
-    saveProgress();
-  }, [mediaDetails, season, episode, type, id]);
-
-  // Show a loading screen while we fetch the title
   if (!mediaDetails) {
     return (
       <div className="fixed inset-0 bg-black z-[200] flex items-center justify-center">
@@ -1979,10 +1947,10 @@ const Player = () => {
 
   const title = mediaDetails.title || mediaDetails.name;
 
-  // 2. Render your custom Prime Player!
   return (
     <div className="fixed inset-0 bg-black z-[200] overflow-hidden" style={{ transform: 'translateZ(0)' }}>
         <PrimePlayer 
+            tmdbId={id}  // Passing the TMDB ID back to your original scraper
             title={title} 
             mediaType={type} 
             season={season} 
