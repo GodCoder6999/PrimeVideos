@@ -6,8 +6,6 @@ export default async function handler(req, res) {
 
     const { type, tmdbId, s, e } = req.query;
     const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5"; 
-    
-    // --- REPLACE THIS WITH YOUR REAL-DEBRID API KEY ---
     const RD_API_KEY = "G5AGJXNA2UXL4H7MTZ5RX3K5HS6PPA2K3KOU4XP2WYTNJO3CEMZQ"; 
 
     if (!type || !tmdbId) return res.status(400).json({ success: false, message: 'Missing parameters' });
@@ -19,7 +17,7 @@ export default async function handler(req, res) {
         const imdbId = idData.imdb_id;
         if (!imdbId) throw new Error("IMDb ID not found.");
 
-        // 2. Dual Scraper (Torrentio + MediaFusion for Bollywood/South content)
+        // 2. Fetch streams from trackers
         const fetchStream = async (url) => {
             try {
                 const r = await fetch(url, { signal: AbortSignal.timeout(2000) });
@@ -33,54 +31,62 @@ export default async function handler(req, res) {
 
         const [tStreams, mStreams] = await Promise.all([fetchStream(tUrl), fetchStream(mUrl)]);
         const allStreams = [...tStreams, ...mStreams].filter(st => st.infoHash);
-        if (allStreams.length === 0) throw new Error("No streams found on trackers.");
+        if (allStreams.length === 0) throw new Error("No streams found.");
 
-        // 3. Filter and pick best stream
         const bestStream = allStreams.find(st => !st.title?.toLowerCase().includes('hevc')) || allStreams[0];
         const hash = bestStream.infoHash.toLowerCase();
 
-        // 4. REAL-DEBRID FLOW
-        // Step A: Add magnet to Real-Debrid
+        // 3. Real-Debrid Flow
         const addRes = await fetch("https://api.real-debrid.com/rest/1.0/torrents/addMagnet", {
             method: "POST",
             headers: { "Authorization": `Bearer ${RD_API_KEY}` },
             body: new URLSearchParams({ magnet: `magnet:?xt=urn:btih:${hash}` })
         });
         const addData = await addRes.json();
-        if (!addData.id) throw new Error("Failed to add magnet to Real-Debrid.");
-
-        // Step B: Select all files to trigger instant caching (if available)
+        
         await fetch(`https://api.real-debrid.com/rest/1.0/torrents/selectFiles/${addData.id}`, {
             method: "POST",
             headers: { "Authorization": `Bearer ${RD_API_KEY}` },
             body: new URLSearchParams({ files: "all" })
         });
 
-        // Step C: Get Torrent Info to find the hoster link
         const infoRes = await fetch(`https://api.real-debrid.com/rest/1.0/torrents/info/${addData.id}`, {
             headers: { "Authorization": `Bearer ${RD_API_KEY}` }
         });
         const infoData = await infoRes.json();
 
-        // If cached, it will have links immediately
         if (infoData.links && infoData.links.length > 0) {
-            // Unrestrict the first link (usually the biggest video file)
             const unrestrictRes = await fetch("https://api.real-debrid.com/rest/1.0/unrestrict/link", {
                 method: "POST",
                 headers: { "Authorization": `Bearer ${RD_API_KEY}` },
                 body: new URLSearchParams({ link: infoData.links[0] })
             });
             const unrestrictData = await unrestrictRes.json();
-            
-            return res.status(200).json({ success: true, streamUrl: unrestrictData.download });
-        } else {
-            // If not cached, provide progress update
-            const progress = Math.round(infoData.progress || 0);
-            return res.status(202).json({ 
-                success: false, 
-                isDownloading: true, 
-                message: progress > 0 ? `RD Downloading: ${progress}%` : "Adding to RD..." 
+            const rawUrl = unrestrictData.download;
+
+            // NETMIRROR LOGIC: If it's a manifest, rewrite it; otherwise, return the proxied URL
+            if (rawUrl.includes('.m3u8')) {
+                const manifestRes = await fetch(rawUrl);
+                let manifestText = await manifestRes.text();
+                
+                const proxyBase = `https://${req.headers.host}/api/proxy?url=`;
+                const baseUrl = rawUrl.substring(0, rawUrl.lastIndexOf('/') + 1);
+
+                const updatedManifest = manifestText.replace(/^(?!#)(.*)$/gm, (match) => {
+                    const fullUrl = match.startsWith('http') ? match : `${baseUrl}${match}`;
+                    return `${proxyBase}${encodeURIComponent(fullUrl)}`;
+                });
+
+                res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+                return res.status(200).send(updatedManifest);
+            }
+
+            return res.status(200).json({ 
+                success: true, 
+                streamUrl: `https://${req.headers.host}/api/proxy?url=${encodeURIComponent(rawUrl)}` 
             });
+        } else {
+            return res.status(202).json({ success: false, isDownloading: true });
         }
     } catch (error) {
         return res.status(500).json({ success: false, error: error.message });
