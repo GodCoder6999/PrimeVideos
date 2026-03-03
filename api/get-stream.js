@@ -8,7 +8,7 @@ export default async function handler(req, res) {
     const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5"; 
     
     // --- INSERT YOUR PREMIUMIZE API KEY HERE ---
-    const PREMIUMIZE_API_KEY = "YOUR_PREMIUMIZE_API_KEY"; 
+    const PREMIUMIZE_API_KEY = "c9k7rnbbt6ge982k"; 
 
     if (!type || !tmdbId) return res.status(400).json({ success: false, message: 'Missing parameters' });
 
