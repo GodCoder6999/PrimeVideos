@@ -18,48 +18,36 @@ export default async function handler(req, res) {
         if (!imdbId) throw new Error("Could not find IMDb ID.");
 
         let torrentioUrl = `https://torrentio.strem.fun/stream/movie/${imdbId}.json`;
-        if (type === 'tv') {
-            torrentioUrl = `https://torrentio.strem.fun/stream/series/${imdbId}:${s}:${e}.json`;
-        }
+        if (type === 'tv') torrentioUrl = `https://torrentio.strem.fun/stream/series/${imdbId}:${s}:${e}.json`;
 
         const torrentioRes = await fetch(torrentioUrl);
         const torrentioData = await torrentioRes.json();
         
-        if (!torrentioData.streams || torrentioData.streams.length === 0) {
-            return res.status(404).json({ success: false, message: 'No torrents found.' });
-        }
+        if (!torrentioData.streams?.length) throw new Error('No torrents found.');
 
-        // Filter for MP4 as it is most browser-compatible for direct playback
-        const compatibleStreams = torrentioData.streams.filter(stream => {
-            const title = (stream.title || '').toLowerCase();
-            return title.includes('mp4') && !title.includes('hevc') && !title.includes('x265');
-        });
+        // Filter for browser-compatible streams (MP4) and avoid HEVC/x265
+        const bestStream = torrentioData.streams.find(s => {
+            const t = s.title.toLowerCase();
+            return t.includes('mp4') && !t.includes('hevc') && !t.includes('x265');
+        }) || torrentioData.streams[0];
 
-        const bestStream = compatibleStreams.length > 0 ? compatibleStreams[0] : torrentioData.streams[0];
         const magnetLink = `magnet:?xt=urn:btih:${bestStream.infoHash}`;
+        // CRITICAL: Use the actual file index from Torrentio, not just '0'
         const fileIdx = bestStream.fileIdx !== undefined ? bestStream.fileIdx : 0;
 
-        const formData = new FormData();
-        formData.append("magnet", magnetLink);
-
-        const addTorrentRes = await fetch("https://api.torbox.app/v1/api/torrents/createtorrent", {
+        const addRes = await fetch("https://api.torbox.app/v1/api/torrents/createtorrent", {
             method: "POST",
             headers: { "Authorization": `Bearer ${TORBOX_API_KEY}` },
-            body: formData
+            body: new URLSearchParams({ magnet: magnetLink })
         });
-        
-        const torrentData = await addTorrentRes.json();
-        if (!torrentData.success) throw new Error("TorBox error");
+        const addData = await addRes.json();
+        if (!addData.success) throw new Error("Failed to add to TorBox");
 
-        const dlRes = await fetch(`https://api.torbox.app/v1/api/torrents/requestdl?token=${TORBOX_API_KEY}&torrent_id=${torrentData.data.torrent_id}&file_id=${fileIdx}`, {
-            method: "GET",
-            headers: { "Authorization": `Bearer ${TORBOX_API_KEY}` }
-        });
-
+        // Request the specific video file index
+        const dlRes = await fetch(`https://api.torbox.app/v1/api/torrents/requestdl?token=${TORBOX_API_KEY}&torrent_id=${addData.data.torrent_id}&file_id=${fileIdx}`);
         const dlData = await dlRes.json();
 
         if (dlData.success && dlData.data) {
-            // Standardized key: streamUrl
             return res.status(200).json({ success: true, streamUrl: dlData.data });
         } else {
             return res.status(202).json({ success: false, isDownloading: true });
