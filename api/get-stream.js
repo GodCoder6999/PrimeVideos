@@ -11,47 +11,34 @@ export default async function handler(req, res) {
     if (!type || !tmdbId) return res.status(400).json({ success: false, message: 'Missing parameters' });
 
     try {
+        // 1. Convert TMDB ID to IMDb ID
         const idRes = await fetch(`https://api.themoviedb.org/3/${type}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`);
         const idData = await idRes.json();
         const imdbId = idData.imdb_id;
 
         if (!imdbId) throw new Error("Could not find IMDb ID.");
 
-        const ADDONS = [
-            "https://torrentio.strem.fun", 
-            "https://mediafusion.fun",
-            "https://knightcrawler.elfhosted.com",
-            "https://annatar.elfhosted.com"
-        ];
+        // 2. STRICT TORRENTGALAXY ISOLATION
+        // We pass the "providers=torrentgalaxy" parameter to bypass Cloudflare 
+        // while strictly pulling only TorrentGalaxy's database results.
+        const tgxUrl = type === 'tv' 
+            ? `https://torrentio.strem.fun/providers=torrentgalaxy/stream/series/${imdbId}:${s}:${e}.json`
+            : `https://torrentio.strem.fun/providers=torrentgalaxy/stream/movie/${imdbId}.json`;
 
-        // 1. FAST SCRAPING: Reduced timeout to 2000ms (2 seconds)
-        const fetchPromises = ADDONS.map(async (addonBaseUrl) => {
-            const url = type === 'tv' 
-                ? `${addonBaseUrl}/stream/series/${imdbId}:${s}:${e}.json`
-                : `${addonBaseUrl}/stream/movie/${imdbId}.json`;
-            
-            try {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 2000); 
-                const response = await fetch(url, { signal: controller.signal });
-                clearTimeout(timeoutId);
-                
-                if (!response.ok) return [];
-                const data = await response.json();
-                return data.streams || [];
-            } catch (err) {
-                return []; 
-            }
-        });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000); 
+        const response = await fetch(tgxUrl, { signal: controller.signal });
+        clearTimeout(timeoutId);
 
-        const results = await Promise.allSettled(fetchPromises);
-        
-        let allStreams = [];
-        results.forEach(r => { if (r.status === 'fulfilled') allStreams.push(...r.value); });
-        allStreams = allStreams.filter(stream => stream.infoHash);
+        if (!response.ok) throw new Error("TorrentGalaxy aggregator failed to respond.");
+        const data = await response.json();
+        const allStreams = data.streams || [];
 
-        if (allStreams.length === 0) return res.status(404).json({ success: false, message: 'No streams found.' });
+        if (allStreams.length === 0) {
+            return res.status(404).json({ success: false, message: 'Movie/Show not found on TorrentGalaxy.' });
+        }
 
+        // 3. Filter for browser-compatible streams (Prioritize MP4, Avoid HEVC/x265)
         let compatibleStreams = allStreams.filter(stream => {
             const title = (stream.title || stream.name || '').toLowerCase();
             return !title.includes('hevc') && !title.includes('x265');
@@ -59,11 +46,12 @@ export default async function handler(req, res) {
 
         if (compatibleStreams.length === 0) compatibleStreams = allStreams;
 
+        // Grab the best TorrentGalaxy stream
         const bestStream = compatibleStreams[0];
         const magnetLink = `magnet:?xt=urn:btih:${bestStream.infoHash}`;
         const fileIdx = bestStream.fileIdx !== undefined ? bestStream.fileIdx : 0;
 
-        // 2. THE QUEUE FIX: Check Torbox's active list first to prevent duplicate errors
+        // 4. CHECK TORBOX QUEUE (Prevents Duplicate Crashing Bug)
         const listRes = await fetch("https://api.torbox.app/v1/api/torrents/mylist?bypass_cache=true", {
             headers: { "Authorization": `Bearer ${TORBOX_API_KEY}` }
         });
@@ -79,6 +67,7 @@ export default async function handler(req, res) {
         if (existingTorrent) {
             torrentId = existingTorrent.id;
         } else {
+            // Send the TorrentGalaxy magnet to TorBox
             const formData = new URLSearchParams();
             formData.append("magnet", magnetLink);
             const addRes = await fetch("https://api.torbox.app/v1/api/torrents/createtorrent", {
@@ -87,18 +76,18 @@ export default async function handler(req, res) {
                 body: formData
             });
             const addData = await addRes.json();
-            if (!addData.success) throw new Error(addData.detail || "Failed to add to TorBox limit.");
+            if (!addData.success) throw new Error(addData.detail || "Failed to add TorrentGalaxy magnet to TorBox.");
             torrentId = addData.data.torrent_id;
         }
 
-        // 3. Request Download Link
+        // 5. Request Direct Download Link
         const dlRes = await fetch(`https://api.torbox.app/v1/api/torrents/requestdl?token=${TORBOX_API_KEY}&torrent_id=${torrentId}&file_id=${fileIdx}`);
         const dlData = await dlRes.json();
 
+        // 6. Handle Caching vs Playing
         if (dlData.success && dlData.data) {
             return res.status(200).json({ success: true, streamUrl: dlData.data });
         } else {
-            // 4. Provide real-time progress for uncached files
             let progressMsg = "Initializing Cache...";
             if (existingTorrent) {
                 const percent = Math.round(existingTorrent.progress * 100);
