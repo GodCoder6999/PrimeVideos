@@ -11,14 +11,12 @@ export default async function handler(req, res) {
     if (!type || !tmdbId) return res.status(400).json({ success: false, message: 'Missing parameters' });
 
     try {
-        // 1. Convert TMDB to IMDb ID
         const idRes = await fetch(`https://api.themoviedb.org/3/${type}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`);
         const idData = await idRes.json();
         const imdbId = idData.imdb_id;
 
         if (!imdbId) throw new Error("Could not find IMDb ID for this title.");
 
-        // 2. Fetch from Torrentio
         let torrentioUrl = `https://torrentio.strem.fun/stream/movie/${imdbId}.json`;
         if (type === 'tv') {
             torrentioUrl = `https://torrentio.strem.fun/stream/series/${imdbId}:${s}:${e}.json`;
@@ -28,27 +26,28 @@ export default async function handler(req, res) {
         const torrentioData = await torrentioRes.json();
         
         if (!torrentioData.streams || torrentioData.streams.length === 0) {
-            return res.status(404).json({ success: false, message: 'No torrents found on Torrentio.' });
+            return res.status(404).json({ success: false, message: 'No torrents found.' });
         }
 
-        // 3. FILTER AND SORT: Remove HEVC/x265 and prioritize MP4
+        // --- THE CRITICAL FIX: STRICT BROWSER COMPATIBILITY FILTER ---
+        // We MUST find an mp4. MKV files will break the HTML5 video player.
         const compatibleStreams = torrentioData.streams.filter(stream => {
             const title = (stream.title || '').toLowerCase();
-            return !title.includes('hevc') && !title.includes('x265');
-        }).sort((a, b) => {
-            // Push MP4 files to the top of the list
-            const aIsMp4 = (a.title || '').toLowerCase().includes('mp4');
-            const bIsMp4 = (b.title || '').toLowerCase().includes('mp4');
-            return (aIsMp4 === bIsMp4) ? 0 : aIsMp4 ? -1 : 1; 
+            return title.includes('mp4') && !title.includes('hevc') && !title.includes('x265') && !title.includes('mkv');
         });
 
-        const bestStream = compatibleStreams.length > 0 ? compatibleStreams[0] : torrentioData.streams[0];
+        if (compatibleStreams.length === 0) {
+            return res.status(404).json({ success: false, message: 'No browser-compatible MP4 streams found. Try another movie.' });
+        }
+
+        // Grab the best MP4 stream
+        const bestStream = compatibleStreams[0];
         const magnetLink = `magnet:?xt=urn:btih:${bestStream.infoHash}`;
         
-        // CRITICAL FIX: Get the exact file index from Torrentio (fallback to 0 if missing)
+        // Use Torrentio's file index to ensure we grab the video, not a text file
         const fileIdx = bestStream.fileIdx !== undefined ? bestStream.fileIdx : 0;
 
-        // 4. Send Magnet to TorBox
+        // Send to TorBox
         const formData = new FormData();
         formData.append("magnet", magnetLink);
 
@@ -59,11 +58,11 @@ export default async function handler(req, res) {
         });
         
         const torrentData = await addTorrentRes.json();
-        if (!torrentData.success) throw new Error(torrentData.detail || "Failed to add torrent");
+        if (!torrentData.success) throw new Error("Failed to add torrent to TorBox");
 
         const torrentId = torrentData.data.torrent_id;
 
-        // 5. Request the EXACT file using the extracted fileIdx
+        // Request Download Link
         const dlRes = await fetch(`https://api.torbox.app/v1/api/torrents/requestdl?token=${TORBOX_API_KEY}&torrent_id=${torrentId}&file_id=${fileIdx}`, {
             method: "GET",
             headers: { "Authorization": `Bearer ${TORBOX_API_KEY}` }
@@ -71,10 +70,12 @@ export default async function handler(req, res) {
 
         const dlData = await dlRes.json();
 
+        // Check if Torbox actually has the file ready
         if (dlData.success && dlData.data) {
             return res.status(200).json({ success: true, streamUrl: dlData.data });
         } else {
-            throw new Error("Torrent is not cached on TorBox yet. Try another title.");
+            // TorBox is currently downloading it to their servers. Free users must wait.
+            return res.status(202).json({ success: false, isDownloading: true, message: "TorBox is downloading this movie to their servers. Please wait 2-3 minutes and refresh." });
         }
 
     } catch (error) {
