@@ -38,10 +38,15 @@ export default async function handler(req, res) {
             return res.status(404).json({ success: false, message: 'No torrents found on Torrentio.' });
         }
 
-        // Pick the first stream (usually the most seeded/best quality)
-        const bestStream = torrentioData.streams[0];
-        const magnetLink = `magnet:?xt=urn:btih:${bestStream.infoHash}`;
+        // NEW: Filter out HEVC/x265 because Chrome/Firefox show a blank screen for them
+        const compatibleStreams = torrentioData.streams.filter(stream => {
+            const title = (stream.title || '').toLowerCase();
+            return !title.includes('hevc') && !title.includes('x265');
+        });
 
+        // Use the first compatible stream, or fallback to the first available if none exist
+        const bestStream = compatibleStreams.length > 0 ? compatibleStreams[0] : torrentioData.streams[0];
+        const magnetLink = `magnet:?xt=urn:btih:${bestStream.infoHash}`;
         // --- 3. SEND MAGNET TO TORBOX API ---
         const formData = new FormData();
         formData.append("magnet", magnetLink);
