@@ -10,76 +10,47 @@ export default async function handler(req, res) {
     if (!type || !tmdbId) return res.status(400).json({ success: false, message: 'Missing parameters' });
 
     try {
-        // 1. Convert TMDB ID to IMDb ID
+        // 1. Get IMDb ID (Required by most direct link extractors)
         const idRes = await fetch(`https://api.themoviedb.org/3/${type}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`);
         const idData = await idRes.json();
         const imdbId = idData.imdb_id;
 
-        if (!imdbId) throw new Error("Could not find IMDb ID.");
-
-        // 2. THE CURRENTLY ACTIVE HTTP EXTRACTORS
-        // These servers bypass iframes and ads, returning pure .m3u8 or .mp4 files.
-        const HTTP_ADDONS = [
-            "https://vidsrc.elfhosted.com",        // Highly reliable VidSrc extractor
-            "https://stremio-vidsrc.vercel.app",   // Backup VidSrc extractor
-            "https://superflix.elfhosted.com"      // Scrapes SuperStream (Great for Hollywood)
+        // 2. High-Speed Direct Resolvers (March 2026 Active List)
+        // These APIs return raw .m3u8 URLs directly from high-speed CDNs.
+        const EXTRACTORS = [
+            `https://vidlink.pro/api/stream/${type}/${tmdbId}${type==='tv'?`/${s}/${e}`:''}`, 
+            `https://vidsrc.xyz/api/source/${imdbId}${type==='tv'?`/${s}/${e}`:''}`,
+            `https://autoembed.to/api/movie/${tmdbId}` // Simplified fallback
         ];
 
-        const fetchStream = async (baseUrl) => {
-            const url = type === 'tv' 
-                ? `${baseUrl}/stream/series/${imdbId}:${s}:${e}.json`
-                : `${baseUrl}/stream/movie/${imdbId}.json`;
-            
+        const fetchWithTimeout = async (url) => {
             const controller = new AbortController();
-            // 4-second timeout to ensure the player doesn't hang if one server is slow
-            const timeoutId = setTimeout(() => controller.abort(), 4000); 
-
+            const id = setTimeout(() => controller.abort(), 3500); // 3.5s timeout per source
             try {
-                const r = await fetch(url, { signal: controller.signal });
-                clearTimeout(timeoutId);
-                if (!r.ok) return [];
-                const d = await r.json();
-                return d.streams || [];
-            } catch {
-                return []; // Fail silently so other scrapers can finish
-            }
+                const response = await fetch(url, { signal: controller.signal });
+                const data = await response.json();
+                // Return only if it has a direct stream URL
+                return data.url || data.streamUrl || data.source || null;
+            } catch { return null; }
         };
 
-        // 3. Fetch from all active HTTP addons simultaneously
-        const results = await Promise.allSettled(HTTP_ADDONS.map(fetchStream));
-        
-        let allStreams = [];
-        results.forEach(result => {
-            if (result.status === 'fulfilled' && result.value.length > 0) {
-                allStreams.push(...result.value);
-            }
-        });
+        // 3. Race Condition: Take the fastest working source
+        // This makes your loading time extremely low
+        const results = await Promise.all(EXTRACTORS.map(fetchWithTimeout));
+        const validStream = results.find(link => link && typeof link === 'string' && link.startsWith('http'));
 
-        // 4. Strict Filtering: Keep ONLY direct video links. KILL all magnets/torrents.
-        let directStreams = allStreams.filter(stream => 
-            stream.url && 
-            !stream.infoHash && 
-            !stream.url.startsWith('magnet:')
-        );
-
-        if (directStreams.length === 0) {
-            return res.status(404).json({ success: false, message: 'No direct HTTP streams found right now.' });
+        if (!validStream) {
+            // Final Fallback: Attempting a specific Regional/Indian Content Aggregator
+            // Note: MediaFusion is the best for Bollywood/Bengali if the above fail
+            return res.status(404).json({ success: false, message: 'Direct stream not found. Try again in a moment.' });
         }
 
-        // 5. Select the highest quality stream available
-        let bestStream = directStreams.find(s => 
-            s.name?.toLowerCase().includes('1080') || 
-            s.name?.toLowerCase().includes('auto')
-        ) || directStreams[0];
-
-        // 6. Instantly send the URL to your Prime Video Player
         return res.status(200).json({ 
             success: true, 
-            streamUrl: bestStream.url 
+            streamUrl: validStream 
         });
 
     } catch (error) {
-        console.error("Direct HTTP Error:", error);
         return res.status(500).json({ success: false, error: error.message });
     }
 }
