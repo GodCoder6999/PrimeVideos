@@ -9,54 +9,33 @@ const PrimePlayer = ({ tmdbId, title, mediaType, season, episode }) => {
     const videoRef = useRef(null);
 
     // 1. Fetch the stream URL from TorBox
-    useEffect(() => {
-        const fetchStream = async () => {
-            setLoading(true);
-            setError(null);
-            try {
-                const res = await fetch(`/api/get-stream?type=${mediaType}&tmdbId=${tmdbId}&s=${season}&e=${episode}`);
-                const data = await res.json();
-
-                if (data.success && data.streamUrl) {
-                    setStreamUrl(data.streamUrl);
-                } else {
-                    setError(data.error || "Stream not available.");
-                }
-            } catch (err) {
-                console.error("Player Error", err);
-                setError("Failed to connect to streaming server.");
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchStream();
-    }, [tmdbId, mediaType, season, episode]);
-
     // 2. Attach the URL to the video player safely
     useEffect(() => {
         if (!streamUrl || !videoRef.current) return;
 
         const video = videoRef.current;
 
-        // Check if the URL is an HLS playlist and the browser supports HLS.js
+        // CRITICAL FIX: Catch browser decoding errors (like MKV failures)
+        video.onerror = () => {
+            console.error("Video Error:", video.error);
+            setError("Browser cannot decode this video format (Likely an unsupported MKV). Please try another stream.");
+        };
+
         if (streamUrl.includes('.m3u8') && Hls.isSupported()) {
             const hls = new Hls();
             hls.loadSource(streamUrl);
             hls.attachMedia(video);
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                video.play().catch(e => console.log("Autoplay prevented by browser:", e));
+                video.play().catch(e => console.log("Autoplay prevented:", e));
             });
 
             return () => {
                 if (hls) hls.destroy();
             };
-        } 
-        // If it's a native MP4, MKV, or Safari browser
-        else {
+        } else {
             video.src = streamUrl;
             video.addEventListener('loadedmetadata', () => {
-                video.play().catch(e => console.log("Autoplay prevented by browser:", e));
+                video.play().catch(e => console.log("Autoplay prevented:", e));
             });
         }
     }, [streamUrl]);
