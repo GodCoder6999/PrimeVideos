@@ -8,7 +8,7 @@ export default async function handler(req, res) {
     const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5"; 
     
     // --- REPLACE THIS WITH YOUR REAL-DEBRID API KEY ---
-    const RD_API_KEY = "YOUR_REAL_DEBRID_API_KEY"; 
+    const RD_API_KEY = "G5AGJXNA2UXL4H7MTZ5RX3K5HS6PPA2K3KOU4XP2WYTNJO3CEMZQ"; 
 
     if (!type || !tmdbId) return res.status(400).json({ success: false, message: 'Missing parameters' });
 
