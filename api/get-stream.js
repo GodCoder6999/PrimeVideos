@@ -6,7 +6,9 @@ export default async function handler(req, res) {
 
     const { type, tmdbId, s, e } = req.query;
     const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5"; 
-    const TORBOX_API_KEY = "c94190bd-70f2-4c0c-b30f-32c1b6ada48d"; 
+    
+    // --- INSERT YOUR PREMIUMIZE API KEY HERE ---
+    const PREMIUMIZE_API_KEY = "YOUR_PREMIUMIZE_API_KEY"; 
 
     if (!type || !tmdbId) return res.status(400).json({ success: false, message: 'Missing parameters' });
 
@@ -18,10 +20,10 @@ export default async function handler(req, res) {
 
         if (!imdbId) throw new Error("Could not find IMDb ID.");
 
-        // 2. ULTRA-FAST DUAL SCRAPING (Torrentio for Hollywood, MediaFusion for Indian)
+        // 2. ULTRA-FAST DUAL SCRAPING (Hollywood + Regional/Indian)
         const fetchStream = async (url) => {
             const controller = new AbortController();
-            const id = setTimeout(() => controller.abort(), 1800); // Strict 1.8s timeout
+            const id = setTimeout(() => controller.abort(), 1800); 
             try {
                 const r = await fetch(url, { signal: controller.signal });
                 clearTimeout(id);
@@ -34,72 +36,69 @@ export default async function handler(req, res) {
         const tUrl = type === 'tv' ? `https://torrentio.strem.fun/stream/series/${imdbId}:${s}:${e}.json` : `https://torrentio.strem.fun/stream/movie/${imdbId}.json`;
         const mUrl = type === 'tv' ? `https://mediafusion.fun/stream/series/${imdbId}:${s}:${e}.json` : `https://mediafusion.fun/stream/movie/${imdbId}.json`;
 
-        // Fetch both simultaneously
         const [tStreams, mStreams] = await Promise.all([fetchStream(tUrl), fetchStream(mUrl)]);
         let allStreams = [...tStreams, ...mStreams].filter(st => st.infoHash);
 
         if (allStreams.length === 0) return res.status(404).json({ success: false, message: 'No streams found on trackers.' });
 
         // 3. STRICT BROWSER COMPATIBILITY
-        // HEVC and MKV files often cause browsers to show a black screen. Prioritize standard MP4.
         let valid = allStreams.filter(st => {
             const title = (st.title || st.name || "").toLowerCase();
-            return !title.includes('hevc') && !title.includes('x265') && !title.includes('mkv'); 
+            return !title.includes('hevc') && !title.includes('x265'); 
         });
         
-        // Fallback 1: Allow MKV but still ban HEVC
-        if (valid.length === 0) valid = allStreams.filter(st => !st.title?.toLowerCase().includes('hevc'));
-        // Fallback 2: Take whatever we can get
         if (valid.length === 0) valid = allStreams;
 
-        // The scrapers already sort by seeders, so index 0 is the fastest downloading torrent.
         const bestStream = valid[0];
         const magnetLink = `magnet:?xt=urn:btih:${bestStream.infoHash}`;
-        const fileIdx = bestStream.fileIdx !== undefined ? bestStream.fileIdx : 0;
 
-        // 4. SMART TORBOX QUEUE MANAGEMENT
-        const listRes = await fetch("https://api.torbox.app/v1/api/torrents/mylist?bypass_cache=true", {
-            headers: { "Authorization": `Bearer ${TORBOX_API_KEY}` }
+        // 4. PREMIUMIZE INSTANT CACHE CHECK
+        const formData = new URLSearchParams();
+        formData.append("src", magnetLink);
+
+        const premRes = await fetch(`https://www.premiumize.me/api/transfer/directdl?apikey=${PREMIUMIZE_API_KEY}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: formData
         });
-        const listData = await listRes.json();
         
-        let torrentId = null;
-        let existingTorrent = listData?.data?.find(t => t.hash.toLowerCase() === bestStream.infoHash.toLowerCase());
+        const premData = await premRes.json();
 
-        if (existingTorrent) {
-            torrentId = existingTorrent.id;
-        } else {
-            // Add new magnet to Torbox
-            const formData = new URLSearchParams();
-            formData.append("magnet", magnetLink);
-            const addRes = await fetch("https://api.torbox.app/v1/api/torrents/createtorrent", {
-                method: "POST", headers: { "Authorization": `Bearer ${TORBOX_API_KEY}` }, body: formData
+        // 5. CACHE MISS FALLBACK
+        if (premData.status !== "success" || !premData.content) {
+            // It is not cached. We must tell Premiumize to start downloading it.
+            await fetch(`https://www.premiumize.me/api/transfer/create?apikey=${PREMIUMIZE_API_KEY}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({ src: magnetLink })
             });
-            const addData = await addRes.json();
-            
-            if (!addData.success) {
-                // If Torbox rejects it (e.g., free tier limit reached, or bad magnet)
-                throw new Error(addData.detail || "TorBox Free Tier Limit Reached or Failed.");
-            }
-            torrentId = addData.data.torrent_id;
+
+            // The React UI will keep polling this endpoint until Premiumize finishes the download
+            return res.status(202).json({ 
+                success: false, 
+                isDownloading: true, 
+                message: "Uncached file. Premiumize is downloading it to servers..." 
+            });
         }
 
-        // 5. REQUEST DOWNLOAD LINK
-        const dlRes = await fetch(`https://api.torbox.app/v1/api/torrents/requestdl?token=${TORBOX_API_KEY}&torrent_id=${torrentId}&file_id=${fileIdx}`);
-        const dlData = await dlRes.json();
+        // 6. CACHE HIT: EXTRACT VIDEO FILE
+        // Premiumize returns all files in the torrent. We want the biggest video file.
+        const videoFiles = premData.content.filter(file => 
+            file.path.match(/\.(mp4|mkv|avi|webm)$/i)
+        );
 
-        if (dlData.success && dlData.data) {
-            // IT IS CACHED! Instant Play.
-            return res.status(200).json({ success: true, streamUrl: dlData.data });
-        } else {
-            // NOT CACHED. Torbox is downloading it using seeders. Provide progress to UI.
-            let progressMsg = "Requesting TorBox Cache...";
-            if (existingTorrent) {
-                const percent = Math.round(existingTorrent.progress * 100);
-                progressMsg = percent > 0 ? `Downloading to TorBox: ${percent}%` : "Waiting for seeders...";
-            }
-            return res.status(202).json({ success: false, isDownloading: true, message: progressMsg });
+        if (videoFiles.length === 0) {
+            throw new Error("No playable video files found in the premiumize cache.");
         }
+
+        // Sort by size descending to grab the actual movie, not a tiny sample file
+        videoFiles.sort((a, b) => b.size - a.size);
+        const bestFile = videoFiles[0];
+
+        // Premiumize provides a direct raw 'link' and sometimes a 'stream_link' transcoded specifically for browsers
+        const finalStreamUrl = bestFile.stream_link || bestFile.link;
+
+        return res.status(200).json({ success: true, streamUrl: finalStreamUrl });
 
     } catch (error) {
         return res.status(500).json({ success: false, error: error.message });
