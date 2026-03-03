@@ -5,8 +5,8 @@ export default async function handler(req, res) {
     if (req.method === 'OPTIONS') return res.status(200).end();
 
     const { type, tmdbId, s, e } = req.query;
-    const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5"; 
-    const RD_API_KEY = "G5AGJXNA2UXL4H7MTZ5RX3K5HS6PPA2K3KOU4XP2WYTNJO3CEMZQ"; 
+    const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5";
+    const RD_API_KEY = "G5AGJXNA2UXL4H7MTZ5RX3K5HS6PPA2K3KOU4XP2WYTNJO3CEMZQ";
 
     if (!type || !tmdbId) return res.status(400).json({ success: false, message: 'Missing parameters' });
 
@@ -20,7 +20,7 @@ export default async function handler(req, res) {
         // 2. Fetch streams from trackers
         const fetchStream = async (url) => {
             try {
-                const r = await fetch(url, { signal: AbortSignal.timeout(2000) });
+                const r = await fetch(url, { signal: AbortSignal.timeout(2500) });
                 const d = await r.json();
                 return d.streams || [];
             } catch { return []; }
@@ -64,14 +64,17 @@ export default async function handler(req, res) {
             const unrestrictData = await unrestrictRes.json();
             const rawUrl = unrestrictData.download;
 
-            // NETMIRROR LOGIC: If it's a manifest, rewrite it; otherwise, return the proxied URL
+            // NETMIRROR LOGIC: Rewrite Manifests
+            const proxyBase = `https://${req.headers.host}/api/proxy?url=`;
+
             if (rawUrl.includes('.m3u8')) {
                 const manifestRes = await fetch(rawUrl);
                 let manifestText = await manifestRes.text();
                 
-                const proxyBase = `https://${req.headers.host}/api/proxy?url=`;
+                // Base URL to handle relative paths in the original manifest
                 const baseUrl = rawUrl.substring(0, rawUrl.lastIndexOf('/') + 1);
 
+                // Rewrite segments and secondary playlists to go through our proxy
                 const updatedManifest = manifestText.replace(/^(?!#)(.*)$/gm, (match) => {
                     const fullUrl = match.startsWith('http') ? match : `${baseUrl}${match}`;
                     return `${proxyBase}${encodeURIComponent(fullUrl)}`;
@@ -81,9 +84,10 @@ export default async function handler(req, res) {
                 return res.status(200).send(updatedManifest);
             }
 
+            // For non-M3U8 (MP4/MKV), send the proxied URL as a JSON object
             return res.status(200).json({ 
                 success: true, 
-                streamUrl: `https://${req.headers.host}/api/proxy?url=${encodeURIComponent(rawUrl)}` 
+                streamUrl: `${proxyBase}${encodeURIComponent(rawUrl)}` 
             });
         } else {
             return res.status(202).json({ success: false, isDownloading: true });
