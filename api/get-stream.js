@@ -5,72 +5,81 @@ export default async function handler(req, res) {
     if (req.method === 'OPTIONS') return res.status(200).end();
 
     const { type, tmdbId, s, e } = req.query;
+    const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5"; 
 
-    if (!type || !tmdbId) {
-        return res.status(400).json({ success: false, message: 'Missing parameters' });
-    }
+    if (!type || !tmdbId) return res.status(400).json({ success: false, message: 'Missing parameters' });
 
     try {
-        // We are using a public, high-speed Direct Stream API (bypassing Torrents entirely)
-        // This API aggregates direct .m3u8 CDN links from hosters like VidCloud, UpStream, etc.
-        const API_BASE = "https://consumet-api-clone.vercel.app/meta/tmdb";
+        // 1. Convert TMDB ID to IMDb ID
+        const idRes = await fetch(`https://api.themoviedb.org/3/${type}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`);
+        const idData = await idRes.json();
+        const imdbId = idData.imdb_id;
 
-        // 1. Fetch the media metadata to get the specific Direct Stream ID
-        const infoRes = await fetch(`${API_BASE}/info/${tmdbId}?type=${type}`);
-        if (!infoRes.ok) throw new Error("Failed to find media on direct hosters.");
-        const infoData = await infoRes.json();
+        if (!imdbId) throw new Error("Could not find IMDb ID.");
 
-        let targetEpisodeId = null;
+        // 2. HTTP-BASED STREMIO ADDONS (Zero Torrents, Zero Waiting)
+        // These servers scrape high-speed CDNs and output raw .m3u8 links instantly.
+        const HTTP_ADDONS = [
+            "https://shluflix.elfhosted.com",  // Best for Hollywood
+            "https://stremify.hayd.uk",        // Great for international & dubbed
+            "https://nodebrid.fly.dev"         // High-speed fallback
+        ];
 
-        if (type === 'movie') {
-            // For movies, the episode ID is usually just the movie ID itself
-            targetEpisodeId = infoData.episodeId || infoData.id;
-        } else if (type === 'tv') {
-            // For TV Shows, we must find the exact season and episode ID in the CDN database
-            const targetSeason = parseInt(s);
-            const targetEp = parseInt(e);
+        const fetchStream = async (baseUrl) => {
+            const url = type === 'tv' 
+                ? `${baseUrl}/stream/series/${imdbId}:${s}:${e}.json`
+                : `${baseUrl}/stream/movie/${imdbId}.json`;
             
-            // Find the correct season data
-            const seasonData = infoData.seasons?.find(season => season.season === targetSeason);
-            if (!seasonData) throw new Error(`Season ${targetSeason} not found on CDN.`);
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 3500); // 3.5s timeout
 
-            // Find the exact episode
-            const episodeData = seasonData.episodes?.find(ep => ep.episode === targetEp);
-            if (!episodeData) throw new Error(`Episode ${targetEp} not found on CDN.`);
+            try {
+                const r = await fetch(url, { signal: controller.signal });
+                clearTimeout(timeoutId);
+                if (!r.ok) return [];
+                const d = await r.json();
+                return d.streams || [];
+            } catch {
+                return [];
+            }
+        };
 
-            targetEpisodeId = episodeData.id;
+        // 3. Fetch from all HTTP addons simultaneously
+        const results = await Promise.allSettled(HTTP_ADDONS.map(fetchStream));
+        
+        let allStreams = [];
+        results.forEach(result => {
+            if (result.status === 'fulfilled' && result.value.length > 0) {
+                allStreams.push(...result.value);
+            }
+        });
+
+        // 4. Strict Filtering: Ensure we only get direct HTTP URLs, NO MAGNETS
+        let directStreams = allStreams.filter(stream => 
+            stream.url && 
+            !stream.infoHash && 
+            !stream.url.startsWith('magnet:')
+        );
+
+        if (directStreams.length === 0) {
+            return res.status(404).json({ success: false, message: 'No direct streams found. Try another movie.' });
         }
 
-        if (!targetEpisodeId) throw new Error("Could not extract CDN stream ID.");
+        // 5. Select the highest quality stream
+        // CDNs usually return "Auto", "1080p", or server names like "UpCloud".
+        let bestStream = directStreams.find(s => 
+            s.name?.toLowerCase().includes('1080') || 
+            s.name?.toLowerCase().includes('auto')
+        ) || directStreams[0];
 
-        // 2. Fetch the raw .m3u8 Stream Link from the CDN
-        const watchRes = await fetch(`${API_BASE}/watch/${targetEpisodeId}?id=${infoData.id}`);
-        if (!watchRes.ok) throw new Error("Failed to extract raw video stream.");
-        const watchData = await watchRes.json();
-
-        if (!watchData.sources || watchData.sources.length === 0) {
-            throw new Error("No playable CDN sources found for this title.");
-        }
-
-        // 3. Find the best quality stream (Prioritize Auto/1080p)
-        // Direct Hosters usually provide an 'auto' m3u8 playlist that adapts to internet speed
-        const bestSource = watchData.sources.find(src => src.quality === 'auto') 
-                        || watchData.sources.find(src => src.quality === '1080p') 
-                        || watchData.sources[0];
-
-        if (!bestSource || !bestSource.url) {
-            throw new Error("Invalid stream URL returned from CDN.");
-        }
-
-        // 4. Return the Instant Stream directly to the React Player
+        // 6. Return INSTANTLY to the Prime Player (No caching state needed)
         return res.status(200).json({ 
             success: true, 
-            streamUrl: bestSource.url,
-            subtitles: watchData.subtitles || [] // Bonus: It often fetches direct subtitles too!
+            streamUrl: bestStream.url 
         });
 
     } catch (error) {
-        console.error("Direct CDN Error:", error);
+        console.error("Direct HTTP Error:", error);
         return res.status(500).json({ success: false, error: error.message });
     }
 }
