@@ -11,111 +11,103 @@ export default async function handler(req, res) {
     if (!type || !tmdbId) return res.status(400).json({ success: false, message: 'Missing parameters' });
 
     try {
-        // 1. Convert TMDB ID to IMDb ID
         const idRes = await fetch(`https://api.themoviedb.org/3/${type}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`);
         const idData = await idRes.json();
         const imdbId = idData.imdb_id;
 
-        if (!imdbId) throw new Error("Could not find IMDb ID for this title.");
+        if (!imdbId) throw new Error("Could not find IMDb ID.");
 
-        // 2. Define the Multi-Scraper Array (MediaFusion is KING for Indian content)
         const ADDONS = [
             "https://torrentio.strem.fun", 
-            "https://mediafusion.fun",           // Best for Bollywood, Tollywood, Bengali
-            "https://knightcrawler.elfhosted.com", // Great backup for older TV shows
-            "https://annatar.elfhosted.com"        // High quality premium scraper fallback
+            "https://mediafusion.fun",
+            "https://knightcrawler.elfhosted.com",
+            "https://annatar.elfhosted.com"
         ];
 
-        // 3. Fetch from all 4 add-ons simultaneously
+        // 1. FAST SCRAPING: Reduced timeout to 2000ms (2 seconds)
         const fetchPromises = ADDONS.map(async (addonBaseUrl) => {
             const url = type === 'tv' 
                 ? `${addonBaseUrl}/stream/series/${imdbId}:${s}:${e}.json`
                 : `${addonBaseUrl}/stream/movie/${imdbId}.json`;
             
             try {
-                // Set a 4-second timeout so one slow scraper doesn't hang the whole site
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 4000);
-                
-                const res = await fetch(url, { signal: controller.signal });
+                const timeoutId = setTimeout(() => controller.abort(), 2000); 
+                const response = await fetch(url, { signal: controller.signal });
                 clearTimeout(timeoutId);
                 
-                if (!res.ok) return [];
-                const data = await res.json();
+                if (!response.ok) return [];
+                const data = await response.json();
                 return data.streams || [];
             } catch (err) {
-                return []; // If one addon fails/times out, quietly ignore it
+                return []; 
             }
         });
 
         const results = await Promise.allSettled(fetchPromises);
         
-        // 4. Aggregate all streams into one giant list
         let allStreams = [];
-        results.forEach(result => {
-            if (result.status === 'fulfilled') {
-                allStreams.push(...result.value);
-            }
-        });
-
-        // Filter out streams that don't have an infoHash (TorBox requires torrents)
+        results.forEach(r => { if (r.status === 'fulfilled') allStreams.push(...r.value); });
         allStreams = allStreams.filter(stream => stream.infoHash);
 
-        if (allStreams.length === 0) {
-            return res.status(404).json({ success: false, message: 'No streams found across any network.' });
-        }
+        if (allStreams.length === 0) return res.status(404).json({ success: false, message: 'No streams found.' });
 
-        // 5. Filter for browser compatibility (Avoid HEVC/x265 to prevent blank screens)
         let compatibleStreams = allStreams.filter(stream => {
             const title = (stream.title || stream.name || '').toLowerCase();
             return !title.includes('hevc') && !title.includes('x265');
         });
 
-        // If ALL streams are HEVC, fallback to the main list and let the browser try its best
-        if (compatibleStreams.length === 0) {
-            compatibleStreams = allStreams;
-        }
+        if (compatibleStreams.length === 0) compatibleStreams = allStreams;
 
-        // 6. Pick the absolute best stream (Addons sort by highest seeders/quality automatically)
         const bestStream = compatibleStreams[0];
         const magnetLink = `magnet:?xt=urn:btih:${bestStream.infoHash}`;
-        
-        // Ensure we grab the actual video file inside the torrent, not a text file
         const fileIdx = bestStream.fileIdx !== undefined ? bestStream.fileIdx : 0;
 
-        // 7. Send the magnet to TorBox
-        const formData = new URLSearchParams();
-        formData.append("magnet", magnetLink);
-
-        const addRes = await fetch("https://api.torbox.app/v1/api/torrents/createtorrent", {
-            method: "POST",
-            headers: { "Authorization": `Bearer ${TORBOX_API_KEY}` },
-            body: formData
-        });
-        
-        const addData = await addRes.json();
-        if (!addData.success) throw new Error("Failed to add to TorBox");
-
-        const torrentId = addData.data.torrent_id;
-
-        // 8. Request the direct download link
-        const dlRes = await fetch(`https://api.torbox.app/v1/api/torrents/requestdl?token=${TORBOX_API_KEY}&torrent_id=${torrentId}&file_id=${fileIdx}`, {
-            method: "GET",
+        // 2. THE QUEUE FIX: Check Torbox's active list first to prevent duplicate errors
+        const listRes = await fetch("https://api.torbox.app/v1/api/torrents/mylist?bypass_cache=true", {
             headers: { "Authorization": `Bearer ${TORBOX_API_KEY}` }
         });
+        const listData = await listRes.json();
+        
+        let torrentId = null;
+        let existingTorrent = null;
 
+        if (listData.success && listData.data) {
+            existingTorrent = listData.data.find(t => t.hash.toLowerCase() === bestStream.infoHash.toLowerCase());
+        }
+
+        if (existingTorrent) {
+            torrentId = existingTorrent.id;
+        } else {
+            const formData = new URLSearchParams();
+            formData.append("magnet", magnetLink);
+            const addRes = await fetch("https://api.torbox.app/v1/api/torrents/createtorrent", {
+                method: "POST",
+                headers: { "Authorization": `Bearer ${TORBOX_API_KEY}` },
+                body: formData
+            });
+            const addData = await addRes.json();
+            if (!addData.success) throw new Error(addData.detail || "Failed to add to TorBox limit.");
+            torrentId = addData.data.torrent_id;
+        }
+
+        // 3. Request Download Link
+        const dlRes = await fetch(`https://api.torbox.app/v1/api/torrents/requestdl?token=${TORBOX_API_KEY}&torrent_id=${torrentId}&file_id=${fileIdx}`);
         const dlData = await dlRes.json();
 
-        // 9. Check if Torbox has cached it yet
         if (dlData.success && dlData.data) {
             return res.status(200).json({ success: true, streamUrl: dlData.data });
         } else {
-            // Tell the React frontend to keep spinning the loader while TorBox downloads it
-            return res.status(202).json({ success: false, isDownloading: true, message: "Caching file..." });
+            // 4. Provide real-time progress for uncached files
+            let progressMsg = "Initializing Cache...";
+            if (existingTorrent) {
+                const percent = Math.round(existingTorrent.progress * 100);
+                progressMsg = `Downloading to Server: ${percent}%`;
+            }
+            return res.status(202).json({ success: false, isDownloading: true, message: progressMsg });
         }
 
     } catch (error) {
-        console.error("Streaming Error:", error);
         return res.status(500).json({ success: false, error: error.message });
     }
 }
