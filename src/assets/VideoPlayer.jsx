@@ -1,4 +1,4 @@
-// File: src/components/VideoPlayer.jsx
+// src/assets/VideoPlayer.jsx
 import React, { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
 
@@ -11,34 +11,34 @@ const VideoPlayer = ({ tmdbId, type = 'movie', season, episode }) => {
         const fetchStream = async () => {
             try {
                 setLoading(true);
-                
-                // Build the URL depending on movie vs tv
-                let fetchUrl = `http://localhost:3001/api/get-stream/${type}/${tmdbId}`;
+                // Use relative URL for Vercel compatibility
+                let fetchUrl = `/api/get-stream?type=${type}&tmdbId=${tmdbId}`;
                 if (type === 'tv' && season && episode) {
-                    fetchUrl += `?s=${season}&e=${episode}`;
+                    fetchUrl += `&s=${season}&e=${episode}`;
                 }
 
                 const response = await fetch(fetchUrl);
                 const data = await response.json();
 
-                if (!data.success) throw new Error('Stream not found');
+                if (!data.success || !data.streamUrl) throw new Error('Stream not found');
 
                 const video = videoRef.current;
-                
-                if (Hls.isSupported()) {
+                const url = data.streamUrl;
+
+                if (url.includes('.m3u8') && Hls.isSupported()) {
                     const hls = new Hls();
-                    hls.loadSource(data.hlsUrl);
+                    hls.loadSource(url);
                     hls.attachMedia(video);
                     hls.on(Hls.Events.MANIFEST_PARSED, () => {
                         setLoading(false);
-                        video.play().catch(e => console.log("Autoplay blocked"));
+                        video.play().catch(() => {});
                     });
-                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                    video.src = data.hlsUrl;
-                    video.addEventListener('loadedmetadata', () => {
+                } else {
+                    video.src = url;
+                    video.onloadedmetadata = () => {
                         setLoading(false);
-                        video.play();
-                    });
+                        video.play().catch(() => {});
+                    };
                 }
             } catch (err) {
                 setError('Failed to load video.');
@@ -53,12 +53,7 @@ const VideoPlayer = ({ tmdbId, type = 'movie', season, episode }) => {
         <div className="w-full max-w-5xl mx-auto bg-black rounded-lg overflow-hidden">
             {loading && <p className="text-white p-4 text-center">Locating stream...</p>}
             {error && <p className="text-red-500 p-4 text-center">{error}</p>}
-            
-            <video 
-                ref={videoRef} 
-                controls 
-                className={`w-full h-auto ${loading ? 'hidden' : 'block'}`}
-            />
+            <video ref={videoRef} controls className={`w-full h-auto ${loading ? 'hidden' : 'block'}`} />
         </div>
     );
 };
