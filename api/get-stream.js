@@ -20,7 +20,8 @@ export default async function handler(req, res) {
         // 2. HTTP-BASED STREMIO ADDONS (Zero Torrents, Zero Waiting)
         // These servers scrape high-speed CDNs and output raw .m3u8 links instantly.
         const HTTP_ADDONS = [ // Best for Hollywood
-            "https://stremify.hayd.uk",        // Great for international & dubbed
+            "https://torrentio.strem.fun"
+            "https://stremify.hayd.uk",
             "https://nodebrid.fly.dev"         // High-speed fallback
         ];
 
