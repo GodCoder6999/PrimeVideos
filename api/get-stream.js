@@ -11,7 +11,7 @@ export default async function handler(req, res) {
 
     // YOUR KEYS (In a real app, put these in Vercel Environment Variables)
     const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5"; 
-    const TORBOX_API_KEY = "YOUR_TORBOX_API_KEY_HERE"; // PASTE YOUR TORBOX KEY HERE
+    const TORBOX_API_KEY = "c94190bd-70f2-4c0c-b30f-32c1b6ada48d"; // PASTE YOUR TORBOX KEY HERE
 
     if (!type || !tmdbId) {
         return res.status(400).json({ success: false, message: 'Missing parameters' });
