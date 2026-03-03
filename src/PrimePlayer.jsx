@@ -13,90 +13,35 @@ const PrimePlayer = ({ tmdbId, title, mediaType, season, episode }) => {
     const videoRef = useRef(null);
     const playerRef = useRef(null); // Reference for the Plyr instance
 
-    // 1. Fetch the stream URL (Unchanged)
-    useEffect(() => {
-        const fetchStream = async () => {
-            setLoading(true);
-            setError(null);
-            setIsDownloading(false);
-            try {
-                const res = await fetch(`/api/get-stream?type=${mediaType}&tmdbId=${tmdbId}&s=${season}&e=${episode}`);
-                const data = await res.json();
+    // src/PrimePlayer.jsx - Modified HLS effect
+useEffect(() => {
+    if (!streamUrl || !videoRef.current) return;
+    const video = videoRef.current;
 
-                if (data.success && data.streamUrl) {
-                    setStreamUrl(data.streamUrl);
-                } else if (data.isDownloading) {
-                    setIsDownloading(true);
-                    setError(data.message);
-                } else {
-                    setError(data.error || data.message || "Stream not available.");
-                }
-            } catch (err) {
-                console.error("Player Error", err);
-                setError("Failed to connect to streaming server.");
-            } finally {
-                setLoading(false);
-            }
-        };
+    // Check if the URL is an HLS manifest (.m3u8)
+    const isHLS = streamUrl.includes('.m3u8');
 
-        fetchStream();
-    }, [tmdbId, mediaType, season, episode]);
+    if (isHLS && Hls.isSupported()) {
+      const hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+      hls.loadSource(streamUrl);
+      hls.attachMedia(video);
+      hlsRef.current = hls;
+      hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
+    } else {
+      // Direct MP4 or Native HLS (Safari)
+      video.src = streamUrl;
+      video.load();
+      video.play().catch(() => {});
+    }
 
-    // 2. Attach HLS and initialize Plyr
-    useEffect(() => {
-        if (!streamUrl || !videoRef.current) return;
+    const handleCanPlay = () => setIsReadyToPlay(true);
+    video.addEventListener('canplay', handleCanPlay); // Changed to 'canplay' for faster response
 
-        const video = videoRef.current;
-
-        // Initialize the custom Plyr UI
-        playerRef.current = new Plyr(video, {
-            controls: [
-                'play-large', // The big play button in the center
-                'play',       // Play/pause playback
-                'progress',   // The progress bar and scrubber
-                'current-time', // The current time of playback
-                'duration',   // The full duration of the media
-                'mute',       // Toggle mute
-                'volume',     // Volume control
-                'captions',   // Toggle captions
-                'settings',   // Settings menu (quality, speed)
-                'pip',        // Picture-in-picture
-                'airplay',    // Airplay
-                'fullscreen', // Toggle fullscreen
-            ],
-            settings: ['quality', 'speed'],
-            autoplay: true,
-        });
-
-        video.onerror = () => {
-            console.error("Video Error:", video.error);
-            setError("Browser cannot decode this video format. Please try another stream.");
-        };
-
-        if (streamUrl.includes('.m3u8') && Hls.isSupported()) {
-            const hls = new Hls();
-            hls.loadSource(streamUrl);
-            hls.attachMedia(video);
-            
-            hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                video.play().catch(e => console.log("Autoplay blocked:", e));
-            });
-
-            return () => {
-                hls.destroy();
-                if (playerRef.current) playerRef.current.destroy();
-            };
-        } else {
-            video.src = streamUrl;
-            video.addEventListener('loadedmetadata', () => {
-                video.play().catch(e => console.log("Autoplay blocked:", e));
-            });
-
-            return () => {
-                if (playerRef.current) playerRef.current.destroy();
-            };
-        }
-    }, [streamUrl]);
+    return () => {
+      video.removeEventListener('canplay', handleCanPlay);
+      if (hlsRef.current) hlsRef.current.destroy();
+    };
+}, [streamUrl]);
 
     // UI Renders (Loading & Error States Unchanged)
     if (loading) {
