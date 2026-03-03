@@ -1,314 +1,308 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader, AlertTriangle, Clock, ArrowLeft, Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Maximize, MessageSquare, List } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, Maximize, Settings, X, ChevronRight, SkipForward, Loader, AlertTriangle, Clock } from 'lucide-react';
 import Hls from 'hls.js';
 
-const PrimePlayer = ({ tmdbId, title, mediaType, season, episode }) => {
-    const navigate = useNavigate();
-    const videoRef = useRef(null);
-    const containerRef = useRef(null);
-    const controlsTimeoutRef = useRef(null);
+// Mock X-Ray Data
+const castMembers = [
+  { id: 1, name: 'John Krasinski', character: 'Jack Ryan', image: 'https://csspicker.dev/api/image/?q=john+krasinski&image_type=photo' },
+  { id: 2, name: 'Jonathan Potts', character: 'Dr. Roger Wade', image: 'https://csspicker.dev/api/image/?q=jonathan+potts&image_type=photo' },
+  { id: 3, name: 'Victoria Sanchez', character: 'Layla Navarro', image: 'https://csspicker.dev/api/image/?q=victoria+sanchez&image_type=photo' },
+  { id: 4, name: 'Wendell Pierce', character: 'James Greer', image: 'https://csspicker.dev/api/image/?q=wendell+pierce&image_type=photo' },
+];
 
-    // --- STREAM STATE ---
-    const [streamUrl, setStreamUrl] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-    const [isDownloading, setIsDownloading] = useState(false);
+export default function PrimePlayer({ tmdbId, title, mediaType, season, episode }) {
+  const navigate = useNavigate();
+  
+  // --- ENGINE STATE ---
+  const [streamUrl, setStreamUrl] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [isDownloading, setIsDownloading] = useState(false);
 
-    // --- PLAYER UI STATE ---
-    const [isPlaying, setIsPlaying] = useState(true);
-    const [currentTime, setCurrentTime] = useState(0);
-    const [duration, setDuration] = useState(0);
-    const [isMuted, setIsMuted] = useState(false);
-    const [showControls, setShowControls] = useState(true);
+  // --- PLAYER UI STATE ---
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [showControls, setShowControls] = useState(true);
+  const [xrayExpanded, setXrayExpanded] = useState(false);
+  
+  const videoRef = useRef(null);
+  const containerRef = useRef(null);
+  const controlsTimeoutRef = useRef(null);
 
-    // --- 1. FETCH STREAM (TorBox Integration) ---
-    useEffect(() => {
-        const fetchStream = async () => {
-            setLoading(true);
-            setError(null);
-            setIsDownloading(false);
-            try {
-                const res = await fetch(`/api/get-stream?type=${mediaType}&tmdbId=${tmdbId}&s=${season}&e=${episode}`);
-                const data = await res.json();
+  // --- 1. FETCH STREAM FROM BACKEND ---
+  useEffect(() => {
+    const fetchStream = async () => {
+        setLoading(true);
+        setError(null);
+        setIsDownloading(false);
+        try {
+            const res = await fetch(`/api/get-stream?type=${mediaType}&tmdbId=${tmdbId}&s=${season}&e=${episode}`);
+            const data = await res.json();
 
-                if (data.success && data.streamUrl) {
-                    setStreamUrl(data.streamUrl);
-                } else if (data.isDownloading) {
-                    setIsDownloading(true);
-                    setError(data.message);
-                } else {
-                    setError(data.error || data.message || "Stream not available.");
-                }
-            } catch (err) {
-                console.error("Player Error", err);
-                setError("Failed to connect to streaming server.");
-            } finally {
-                setLoading(false);
+            if (data.success && data.streamUrl) {
+                setStreamUrl(data.streamUrl);
+            } else if (data.isDownloading) {
+                setIsDownloading(true);
+                setError(data.message);
+            } else {
+                setError(data.error || data.message || "Stream not available.");
             }
+        } catch (err) {
+            setError("Failed to connect to streaming server.");
+        } finally {
+            setLoading(false);
+        }
+    };
+    if (tmdbId) fetchStream();
+  }, [tmdbId, mediaType, season, episode]);
+
+  // --- 2. ATTACH VIDEO & SYNC STATE ---
+  useEffect(() => {
+    if (!streamUrl || !videoRef.current) return;
+    const video = videoRef.current;
+
+    // Sync HTML5 Video state to React state
+    const handleTimeUpdate = () => setCurrentTime(video.currentTime);
+    const handleDurationChange = () => setDuration(video.duration);
+    const handlePlay = () => setIsPlaying(true);
+    const handlePause = () => setIsPlaying(false);
+
+    video.addEventListener('timeupdate', handleTimeUpdate);
+    video.addEventListener('loadedmetadata', handleDurationChange);
+    video.addEventListener('play', handlePlay);
+    video.addEventListener('pause', handlePause);
+
+    // Attach HLS or Native MP4
+    if (streamUrl.includes('.m3u8') && Hls.isSupported()) {
+        const hls = new Hls();
+        hls.loadSource(streamUrl);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(e => console.log(e)));
+        return () => {
+            hls.destroy();
+            video.removeEventListener('timeupdate', handleTimeUpdate);
         };
-        fetchStream();
-    }, [tmdbId, mediaType, season, episode]);
+    } else {
+        video.src = streamUrl;
+        video.addEventListener('loadedmetadata', () => video.play().catch(e => console.log(e)));
+    }
+    
+    return () => video.removeEventListener('timeupdate', handleTimeUpdate);
+  }, [streamUrl]);
 
-    // --- 2. ATTACH HLS & VIDEO LISTENERS ---
-    useEffect(() => {
-        if (!streamUrl || !videoRef.current) return;
-        const video = videoRef.current;
+  // --- 3. CONTROLS LOGIC ---
+  const togglePlay = () => {
+    if (videoRef.current.paused) videoRef.current.play();
+    else videoRef.current.pause();
+  };
 
-        video.onerror = () => setError("Browser cannot decode this video format. Please try another stream.");
-        
-        // Sync React state with Video tag
-        const handleTimeUpdate = () => setCurrentTime(video.currentTime);
-        const handleDurationChange = () => setDuration(video.duration);
-        const handlePlay = () => setIsPlaying(true);
-        const handlePause = () => setIsPlaying(false);
+  const skipTime = (amount) => {
+    videoRef.current.currentTime += amount;
+  };
 
-        video.addEventListener('timeupdate', handleTimeUpdate);
-        video.addEventListener('loadedmetadata', handleDurationChange);
-        video.addEventListener('play', handlePlay);
-        video.addEventListener('pause', handlePause);
+  const handleSeek = (e) => {
+    const seekTime = (e.target.value / 100) * duration;
+    videoRef.current.currentTime = seekTime;
+    setCurrentTime(seekTime);
+  };
 
-        if (streamUrl.includes('.m3u8') && Hls.isSupported()) {
-            const hls = new Hls();
-            hls.loadSource(streamUrl);
-            hls.attachMedia(video);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(e => console.log(e)));
-            return () => {
-                hls.destroy();
-                video.removeEventListener('timeupdate', handleTimeUpdate);
-                video.removeEventListener('loadedmetadata', handleDurationChange);
-                video.removeEventListener('play', handlePlay);
-                video.removeEventListener('pause', handlePause);
-            };
-        } else {
-            video.src = streamUrl;
-            video.addEventListener('loadedmetadata', () => video.play().catch(e => console.log(e)));
-        }
-    }, [streamUrl]);
+  const toggleMute = () => {
+    videoRef.current.muted = !videoRef.current.muted;
+    setIsMuted(!isMuted);
+  };
 
-    // --- 3. CUSTOM UI CONTROLS LOGIC ---
-    const togglePlay = () => {
-        if (videoRef.current.paused) videoRef.current.play();
-        else videoRef.current.pause();
+  const toggleFullScreen = () => {
+    if (!document.fullscreenElement) {
+        containerRef.current.requestFullscreen().catch(err => console.log(err));
+    } else {
+        document.exitFullscreen();
+    }
+  };
+
+  const formatTime = (seconds) => {
+    if (isNaN(seconds)) return "00:00";
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const handleMouseMove = () => {
+    setShowControls(true);
+    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    controlsTimeoutRef.current = setTimeout(() => {
+      if (isPlaying) setShowControls(false);
+    }, 3000);
+  };
+
+  // Prevent memory leaks on unmount
+  useEffect(() => {
+    return () => {
+      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     };
+  }, []);
 
-    const skipTime = (amount) => {
-        videoRef.current.currentTime += amount;
-    };
+  const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
 
-    const handleSeek = (e) => {
-        const seekTime = (e.target.value / 100) * duration;
-        videoRef.current.currentTime = seekTime;
-        setCurrentTime(seekTime);
-    };
+  // --- RENDERS ---
+  if (loading) return <div className="w-full h-screen bg-black flex flex-col items-center justify-center text-[#00A8E1]"><Loader className="animate-spin mb-4" size={48} /><p className="font-bold tracking-widest text-sm uppercase">Locating Torrents...</p></div>;
+  if (isDownloading) return <div className="w-full h-screen bg-black flex flex-col items-center justify-center text-yellow-500"><Clock size={48} className="mb-4 animate-pulse" /><p className="font-bold text-lg">Server is caching this torrent.</p></div>;
+  if (error) return <div className="w-full h-screen bg-black flex flex-col items-center justify-center text-red-500"><AlertTriangle size={48} className="mb-4" /><p className="font-bold">{error}</p></div>;
 
-    const toggleMute = () => {
-        videoRef.current.muted = !videoRef.current.muted;
-        setIsMuted(!isMuted);
-    };
+  return (
+    <div 
+      ref={containerRef}
+      className="relative w-full h-screen bg-black overflow-hidden font-sans"
+      onMouseMove={handleMouseMove}
+      onMouseLeave={() => isPlaying && setShowControls(false)}
+    >
+      {/* THE ACTUAL VIDEO ELEMENT */}
+      <video 
+        ref={videoRef}
+        className="absolute inset-0 w-full h-full object-contain bg-black cursor-pointer"
+        playsInline
+        onClick={togglePlay}
+      />
 
-    const toggleFullScreen = () => {
-        if (!document.fullscreenElement) {
-            containerRef.current.requestFullscreen().catch(err => console.log(err));
-        } else {
-            document.exitFullscreen();
-        }
-    };
+      {/* Dark Overlay (Fades out when controls hide) */}
+      <div className={`absolute inset-0 bg-black/40 pointer-events-none transition-opacity duration-300 ${showControls || !isPlaying ? 'opacity-100' : 'opacity-0'}`} />
 
-    // Auto-hide controls after 3 seconds of inactivity
-    const handleMouseMove = () => {
-        setShowControls(true);
-        clearTimeout(controlsTimeoutRef.current);
-        controlsTimeoutRef.current = setTimeout(() => {
-            if (isPlaying) setShowControls(false);
-        }, 3000);
-    };
-
-    // Format time from seconds to HH:MM:SS
-    const formatTime = (time) => {
-        if (isNaN(time)) return "00:00";
-        const h = Math.floor(time / 3600);
-        const m = Math.floor((time % 3600) / 60);
-        const s = Math.floor(time % 60);
-        if (h > 0) return `${h}:${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
-        return `${m}:${s < 10 ? '0' : ''}${s}`;
-    };
-
-    // --- RENDER LOADING / ERRORS ---
-    if (loading) return <div className="w-full h-full bg-black flex flex-col items-center justify-center text-[#00A8E1]"><Loader className="animate-spin mb-4" size={48} /><p className="font-bold tracking-widest text-sm uppercase">Locating Torrents...</p></div>;
-    if (isDownloading) return <div className="w-full h-full bg-black flex flex-col items-center justify-center text-yellow-500"><Clock size={48} className="mb-4 animate-pulse" /><p className="font-bold text-lg">Server caching torrent.</p></div>;
-    if (error) return <div className="w-full h-full bg-black flex flex-col items-center justify-center text-red-500"><AlertTriangle size={48} className="mb-4" /><p className="font-bold">{error}</p></div>;
-
-    // --- RENDER CUSTOM PLAYER ---
-    const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
-
-    return (
-        <div 
-            ref={containerRef}
-            className="prime-video-player" 
-            onMouseMove={handleMouseMove}
-            onMouseLeave={() => isPlaying && setShowControls(false)}
-        >
-            <style>{`
-                .prime-video-player {
-                    position: absolute;
-                    inset: 0;
-                    width: 100%;
-                    height: 100vh;
-                    background-color: #000;
-                    overflow: hidden;
-                    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
-                    color: #ffffff;
-                }
-                .video-view {
-                    width: 100%;
-                    height: 100%;
-                    object-fit: contain;
-                }
-                .playback-overlay-fragment {
-                    position: absolute;
-                    inset: 0;
-                    background: linear-gradient(to bottom, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0) 15%, rgba(0,0,0,0) 80%, rgba(0,0,0,0.9) 100%);
-                    display: flex;
-                    flex-direction: column;
-                    justify-content: space-between;
-                    padding: 2% 4%;
-                    transition: opacity 0.3s ease;
-                }
-                .top-bar { display: flex; justify-content: space-between; align-items: center; }
-                .top-left, .top-right { display: flex; gap: 24px; align-items: center; }
-                .nav-btn, .utility-btn { background: none; border: none; color: white; cursor: pointer; opacity: 0.8; transition: opacity 0.2s; }
-                .nav-btn:hover, .utility-btn:hover { opacity: 1; }
-                .technical-badges .badge { border: 1px solid rgba(255, 255, 255, 0.4); padding: 2px 6px; border-radius: 3px; font-size: 11px; font-weight: bold; color: #ccc; margin-left: 8px; }
-                
-                .temporal-btn.skip-intro {
-                    position: absolute; bottom: 120px; right: 4%;
-                    background-color: rgba(255, 255, 255, 0.9); color: #000;
-                    padding: 10px 20px; border-radius: 4px; font-weight: bold; font-size: 14px;
-                    cursor: pointer; z-index: 10; border: none; transition: transform 0.2s;
-                }
-                .temporal-btn.skip-intro:hover { transform: scale(1.05); }
-
-                .bottom-bar { display: flex; flex-direction: column; gap: 20px; width: 100%; padding-bottom: 20px; }
-                .progress-bar-container { display: flex; align-items: center; gap: 20px; width: 100%; }
-                .timestamp { font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums; opacity: 0.9; }
-                
-                .scrubber-track {
-                    flex-grow: 1; height: 5px; background-color: rgba(255, 255, 255, 0.2);
-                    border-radius: 2.5px; cursor: pointer; position: relative;
-                    display: flex; align-items: center;
-                }
-                .scrubber-fill {
-                    height: 100%; background-color: #00A8E1; border-radius: 2.5px;
-                    pointer-events: none;
-                }
-                .scrubber-thumb {
-                    width: 14px; height: 14px; background-color: white; border-radius: 50%;
-                    position: absolute; top: 50%; transform: translate(-50%, -50%);
-                    box-shadow: 0 0 10px rgba(0,0,0,0.5); pointer-events: none;
-                }
-                .scrubber-input {
-                    position: absolute; width: 100%; height: 100%; opacity: 0; cursor: pointer;
-                }
-
-                .transport-cluster { display: flex; justify-content: center; align-items: center; gap: 40px; }
-                .transport-btn { background: none; border: none; color: white; cursor: pointer; transition: transform 0.2s; opacity: 0.9; }
-                .transport-btn:hover { transform: scale(1.1); opacity: 1; }
-                .play-pause-btn { background: white; color: black; border-radius: 50%; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; }
-                .play-pause-btn:hover { background: #e0e0e0; transform: scale(1.05); }
-            `}</style>
-
-            {/* THE ACTUAL VIDEO ELEMENT */}
-            <video 
-                ref={videoRef} 
-                className="video-view"
-                onClick={togglePlay} // Clicking video toggles play/pause
-                playsInline
-            />
-
-            {/* THE CUSTOM UI OVERLAY */}
-            <div 
-                className="playback-overlay-fragment"
-                style={{ opacity: showControls || !isPlaying ? 1 : 0, pointerEvents: showControls || !isPlaying ? 'auto' : 'none' }}
+      {/* X-Ray Sidebar */}
+      <div className={`absolute left-0 top-0 h-full bg-black/80 backdrop-blur-sm transition-all duration-300 z-20 ${xrayExpanded ? 'w-80' : 'w-64'} ${showControls || !isPlaying ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="p-4">
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-white font-semibold text-sm">X-Ray</span>
+            <button 
+              onClick={() => setXrayExpanded(!xrayExpanded)}
+              className="text-gray-400 hover:text-white text-xs flex items-center gap-1 transition-colors"
             >
-                {/* TOP BAR */}
-                <div className="top-bar">
-                    <div className="top-left">
-                        <button className="nav-btn" onClick={() => navigate(-1)}><ArrowLeft size={28} /></button>
-                        <h2 className="text-xl font-bold drop-shadow-md truncate max-w-md">{title || "Prime Video"}</h2>
-                        {mediaType === 'tv' && (
-                            <button className="nav-btn flex items-center gap-2 ml-4 font-bold text-sm bg-white/10 px-3 py-1.5 rounded border border-white/20 hover:bg-white/20">
-                                <List size={18} /> Episodes
-                            </button>
-                        )}
-                    </div>
-                    
-                    <div className="top-right">
-                        {mediaType === 'movie' && (
-                            <div className="technical-badges">
-                                <span className="badge">UHD</span>
-                                <span className="badge">HDR</span>
-                            </div>
-                        )}
-                        <button className="utility-btn" onClick={toggleMute}>
-                            {isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}
-                        </button>
-                        <button className="utility-btn"><MessageSquare size={24} /></button>
-                        <button className="utility-btn font-bold text-sm ml-2" onClick={toggleFullScreen}>
-                            <Maximize size={22} />
-                        </button>
-                    </div>
+              View All
+              <ChevronRight className={`w-3 h-3 transition-transform ${xrayExpanded ? 'rotate-90' : ''}`} />
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {castMembers.map((member) => (
+              <div key={member.id} className="flex items-center gap-3 group cursor-pointer">
+                <div className="w-12 h-12 rounded overflow-hidden flex-shrink-0 border border-gray-600 group-hover:border-gray-400 transition-colors">
+                  <img src={member.image} alt={member.name} className="w-full h-full object-cover" />
                 </div>
-
-                {/* SKIP INTRO (Shows only in first 3 minutes of TV Shows as a placeholder logic) */}
-                {mediaType === 'tv' && currentTime > 10 && currentTime < 180 && (
-                    <button className="temporal-btn skip-intro" onClick={() => skipTime(85)}>
-                        Skip Intro
-                    </button>
-                )}
-
-                {/* BOTTOM BAR */}
-                <div className="bottom-bar">
-                    {/* Scrubber */}
-                    <div className="progress-bar-container">
-                        <span className="timestamp">{formatTime(currentTime)}</span>
-                        <div className="scrubber-track">
-                            <div className="scrubber-fill" style={{ width: `${progressPercent}%` }}></div>
-                            <div className="scrubber-thumb" style={{ left: `${progressPercent}%` }}></div>
-                            <input 
-                                type="range" 
-                                min="0" 
-                                max="100" 
-                                value={progressPercent || 0} 
-                                onChange={handleSeek} 
-                                className="scrubber-input"
-                            />
-                        </div>
-                        <span className="timestamp">-{formatTime(duration - currentTime)}</span>
-                    </div>
-                    
-                    {/* Controls */}
-                    <div className="transport-cluster relative">
-                        <div className="absolute left-0 text-sm font-bold text-gray-400">
-                            {mediaType === 'tv' ? `S${season} E${episode}` : ''}
-                        </div>
-
-                        <button className="transport-btn" onClick={() => skipTime(-10)} title="Rewind 10s">
-                            <RotateCcw size={32} />
-                        </button>
-                        
-                        <button className="transport-btn play-pause-btn" onClick={togglePlay}>
-                            {isPlaying ? <Pause size={28} fill="black" /> : <Play size={28} fill="black" className="ml-1" />}
-                        </button>
-                        
-                        <button className="transport-btn" onClick={() => skipTime(10)} title="Fast Forward 10s">
-                            <RotateCw size={32} />
-                        </button>
-                    </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-white text-xs font-medium truncate">{member.name}</p>
+                  <p className="text-gray-400 text-xs truncate">{member.character}</p>
                 </div>
-            </div>
+              </div>
+            ))}
+          </div>
         </div>
-    );
-};
+      </div>
 
-export default PrimePlayer;
+      {/* CONTROLS OVERLAY */}
+      <div className={`absolute inset-0 transition-opacity duration-300 z-10 ${showControls || !isPlaying ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+        
+        {/* Top Bar */}
+        <div className="absolute top-0 left-64 right-0 p-4 flex items-start justify-between">
+          <div className="flex-1" />
+          <div className="flex items-center gap-2">
+            <button className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded transition-all">
+              <Settings className="w-5 h-5" />
+            </button>
+            <button 
+              onClick={toggleMute}
+              className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded transition-all"
+            >
+              {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+            </button>
+            <button onClick={toggleFullScreen} className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded transition-all">
+              <Maximize className="w-5 h-5" />
+            </button>
+            <button onClick={() => navigate(-1)} className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded transition-all">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Center Title */}
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 text-center w-full max-w-2xl px-4">
+          <h1 className="text-white text-xl font-semibold mb-1 truncate drop-shadow-lg">{title || "Unknown Title"}</h1>
+          {mediaType === 'tv' && (
+            <p className="text-gray-300 text-sm drop-shadow-md">Season {season}, Ep. {episode}</p>
+          )}
+        </div>
+
+        {/* Center Play Button */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-auto">
+          <button 
+            onClick={togglePlay}
+            className={`w-20 h-20 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center hover:bg-white/30 transition-all ${showControls ? 'scale-100' : 'scale-90'}`}
+          >
+            {isPlaying ? (
+              <Pause className="w-10 h-10 text-white fill-white" />
+            ) : (
+              <Play className="w-10 h-10 text-white fill-white ml-1" />
+            )}
+          </button>
+        </div>
+
+        {/* Skip Buttons */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-48 pointer-events-auto">
+          <button onClick={() => skipTime(-10)} className="w-12 h-12 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center hover:bg-white/20 transition-all">
+            <SkipForward className="w-6 h-6 text-white rotate-180" />
+          </button>
+          <button onClick={() => skipTime(10)} className="w-12 h-12 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center hover:bg-white/20 transition-all">
+            <SkipForward className="w-6 h-6 text-white" />
+          </button>
+        </div>
+
+        {/* Bottom Controls */}
+        <div className="absolute bottom-0 left-0 right-0 p-4 pb-6 pointer-events-auto bg-gradient-to-t from-black/80 to-transparent">
+          {/* Progress Bar Container */}
+          <div className="mb-4 px-4 relative">
+            <div className="relative h-1.5 bg-gray-600 rounded-full group">
+              {/* Blue Fill */}
+              <div 
+                className="absolute h-full bg-[#00A8E1] rounded-full"
+                style={{ width: `${progressPercent}%` }}
+              />
+              {/* Thumb Hover */}
+              <div 
+                className="absolute w-3 h-3 bg-white rounded-full -translate-y-1/4 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-md"
+                style={{ left: `calc(${progressPercent}% - 6px)` }}
+              />
+              {/* Invisible Clickable Input */}
+              <input 
+                type="range" 
+                min="0" 
+                max="100" 
+                value={progressPercent || 0} 
+                onChange={handleSeek} 
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+              />
+            </div>
+          </div>
+
+          {/* Bottom Bar Details */}
+          <div className="flex items-center justify-between px-4">
+            <div className="flex items-center gap-4">
+              <span className="text-white text-sm font-medium">{formatTime(currentTime)}</span>
+              <span className="text-gray-400 text-sm">/</span>
+              <span className="text-gray-400 text-sm">{formatTime(duration)}</span>
+              {mediaType === 'movie' && (
+                  <span className="text-gray-400 text-sm ml-2 border border-gray-500 px-1.5 py-0.5 text-xs rounded">HD</span>
+              )}
+            </div>
+
+            {mediaType === 'tv' && (
+                <button className="flex items-center gap-2 text-white/80 hover:text-white transition-colors bg-white/10 px-3 py-1.5 rounded-md hover:bg-white/20">
+                <span className="text-sm font-medium">Next Episode</span>
+                <ChevronRight className="w-4 h-4" />
+                </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
