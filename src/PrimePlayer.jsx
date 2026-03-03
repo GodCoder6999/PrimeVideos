@@ -2,24 +2,21 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Play, Pause, Volume2, VolumeX, Maximize, ArrowLeft, 
-  MessageSquare, RotateCcw, RotateCw, Loader2, List, Settings
+  MessageSquare, Settings, RotateCcw, RotateCw, Loader2, List
 } from 'lucide-react';
 import Hls from 'hls.js';
 
 export default function PrimePlayer({ tmdbId, title, mediaType, season, episode }) {
   const navigate = useNavigate();
   
-  // -- Engine State --
+  // -- State --
   const [streamUrl, setStreamUrl] = useState(null);
   const [error, setError] = useState(null);
+  const [isFetching, setIsFetching] = useState(true); // ONLY true during initial load
   
-  // -- True Loading State --
-  // Stays true until the video element itself fires 'canplay'
-  const [isVideoReady, setIsVideoReady] = useState(false); 
-  
-  // -- Player UI State --
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const [volume, setVolume] = useState(1);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [showControls, setShowControls] = useState(true);
@@ -29,7 +26,7 @@ export default function PrimePlayer({ tmdbId, title, mediaType, season, episode 
   const controlsTimeoutRef = useRef(null);
   const timelineRef = useRef(null);
 
-  // 1. Fetch Stream & Handle Silent Polling for TorBox
+  // --- 1. Fetch Stream (Silent Polling) ---
   useEffect(() => {
     let isMounted = true;
 
@@ -42,24 +39,31 @@ export default function PrimePlayer({ tmdbId, title, mediaType, season, episode 
 
         if (data.success && data.streamUrl) {
           setStreamUrl(data.streamUrl);
+          setIsFetching(false); // Stop loading ONLY when we have the URL
         } else if (data.isDownloading) {
-          // Silently poll every 5 seconds until Torbox finishes caching. 
-          // The user only sees the loading spinner.
+          // Torbox is caching. Poll silently.
           setTimeout(fetchStream, 5000);
         } else {
           setError(data.error || data.message || "Video unavailable.");
+          setIsFetching(false);
         }
       } catch (err) {
-        if (isMounted) setError("Failed to connect to server.");
+        if (isMounted) {
+          setError("Failed to connect to server.");
+          setIsFetching(false);
+        }
       }
     };
 
-    if (tmdbId) fetchStream();
+    if (tmdbId) {
+      setIsFetching(true);
+      fetchStream();
+    }
 
     return () => { isMounted = false; };
   }, [tmdbId, mediaType, season, episode]);
 
-  // 2. Attach HLS & Sync Video Events
+  // --- 2. Attach Video Player ---
   useEffect(() => {
     if (!streamUrl || !videoRef.current) return;
     const video = videoRef.current;
@@ -68,19 +72,11 @@ export default function PrimePlayer({ tmdbId, title, mediaType, season, episode 
     const handleDurationChange = () => setDuration(video.duration);
     const handlePlay = () => setIsPlaying(true);
     const handlePause = () => setIsPlaying(false);
-    
-    // The True Loading Triggers
-    const handleCanPlay = () => setIsVideoReady(true);
-    const handleWaiting = () => setIsVideoReady(false); 
-    const handlePlaying = () => setIsVideoReady(true);
 
     video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('loadedmetadata', handleDurationChange);
     video.addEventListener('play', handlePlay);
     video.addEventListener('pause', handlePause);
-    video.addEventListener('canplay', handleCanPlay);
-    video.addEventListener('waiting', handleWaiting);
-    video.addEventListener('playing', handlePlaying);
     video.addEventListener('error', () => setError("Browser cannot decode this video format."));
 
     if (streamUrl.includes('.m3u8') && Hls.isSupported()) {
@@ -102,11 +98,10 @@ export default function PrimePlayer({ tmdbId, title, mediaType, season, episode 
     
     return () => {
       video.removeEventListener('timeupdate', handleTimeUpdate);
-      video.removeEventListener('canplay', handleCanPlay);
     };
   }, [streamUrl]);
 
-  // 3. UI Interactions
+  // --- 3. Controls Logic ---
   const togglePlay = () => {
     if (videoRef.current.paused) videoRef.current.play();
     else videoRef.current.pause();
@@ -125,9 +120,27 @@ export default function PrimePlayer({ tmdbId, title, mediaType, season, episode 
     setCurrentTime(newTime);
   };
 
+  const handleVolumeChange = (e) => {
+    const newVolume = parseFloat(e.target.value);
+    setVolume(newVolume);
+    videoRef.current.volume = newVolume;
+    if (newVolume === 0) {
+      setIsMuted(true);
+      videoRef.current.muted = true;
+    } else {
+      setIsMuted(false);
+      videoRef.current.muted = false;
+    }
+  };
+
   const toggleMute = () => {
-    videoRef.current.muted = !videoRef.current.muted;
-    setIsMuted(!isMuted);
+    const newMutedState = !isMuted;
+    setIsMuted(newMutedState);
+    videoRef.current.muted = newMutedState;
+    if (!newMutedState && volume === 0) {
+      setVolume(1);
+      videoRef.current.volume = 1;
+    }
   };
 
   const toggleFullScreen = () => {
@@ -143,7 +156,7 @@ export default function PrimePlayer({ tmdbId, title, mediaType, season, episode 
     clearTimeout(controlsTimeoutRef.current);
     controlsTimeoutRef.current = setTimeout(() => {
       if (isPlaying) setShowControls(false);
-    }, 3500);
+    }, 3000);
   };
 
   const formatTime = (seconds) => {
@@ -157,12 +170,12 @@ export default function PrimePlayer({ tmdbId, title, mediaType, season, episode 
 
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
 
-  // -- Render Error --
+  // --- Render Error State ---
   if (error) {
     return (
-      <div className="w-full h-screen bg-black flex flex-col items-center justify-center text-white font-sans">
-        <p className="text-xl mb-4 font-semibold">{error}</p>
-        <button onClick={() => navigate(-1)} className="px-6 py-2 bg-[#00A8E1] rounded hover:bg-[#0081b8] transition">Go Back</button>
+      <div className="w-full h-screen bg-black flex flex-col items-center justify-center text-white">
+        <p className="text-xl mb-4 font-semibold text-red-500">{error}</p>
+        <button onClick={() => navigate(-1)} className="px-6 py-2 bg-[#00A8E1] rounded hover:bg-[#0081b8] transition font-bold">Go Back</button>
       </div>
     );
   }
@@ -174,7 +187,7 @@ export default function PrimePlayer({ tmdbId, title, mediaType, season, episode 
       onMouseMove={handleMouseMove}
       onMouseLeave={() => isPlaying && setShowControls(false)}
     >
-      {/* 1. THE VIDEO LAYER */}
+      {/* VIDEO ELEMENT */}
       <video 
         ref={videoRef}
         className="absolute inset-0 w-full h-full object-contain cursor-pointer"
@@ -182,114 +195,122 @@ export default function PrimePlayer({ tmdbId, title, mediaType, season, episode 
         onClick={togglePlay}
       />
 
-      {/* 2. TRUE LOADING OVERLAY (Shows if API is fetching OR Video is buffering) */}
-      {!isVideoReady && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80">
-          <Loader2 className="w-16 h-16 animate-spin text-[#00A8E1]" />
+      {/* INITIAL FETCHING SPINNER (No Text, Only shows before stream URL is found) */}
+      {isFetching && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black">
+          <Loader2 className="w-14 h-14 animate-spin text-[#00A8E1]" />
         </div>
       )}
 
-      {/* 3. PRIME UI CONTROLS OVERLAY */}
+      {/* PRIME UI OVERLAY */}
       <div 
         className={`absolute inset-0 flex flex-col justify-between transition-opacity duration-300 z-40 ${
           showControls || !isPlaying ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
       >
-        {/* Top Gradient Banner */}
-        <div className="w-full pt-6 pb-24 px-8 bg-gradient-to-b from-black/90 via-black/40 to-transparent flex justify-between items-start">
-          <div className="flex items-center gap-6">
-            <button onClick={() => navigate(-1)} className="text-white/90 hover:text-white transition transform hover:scale-110">
-              <ArrowLeft size={32} />
+        {/* Top Header */}
+        <div className="w-full p-6 bg-gradient-to-b from-black/90 via-black/40 to-transparent flex justify-between items-start">
+          <div className="flex items-center gap-4">
+            <button onClick={() => navigate(-1)} className="text-white hover:scale-110 transition-transform p-2">
+              <ArrowLeft size={30} />
             </button>
-            <div>
-              <h1 className="text-white text-2xl font-bold tracking-wide drop-shadow-md">{title}</h1>
-            </div>
+            <h1 className="text-white text-xl font-bold tracking-wide drop-shadow-md truncate max-w-xl">
+              {title} {mediaType === 'tv' && <span className="text-gray-300 text-lg font-normal ml-2">Season {season} Ep {episode}</span>}
+            </h1>
           </div>
 
-          <div className="flex items-center gap-6">
-            <button className="text-white/80 hover:text-white transition flex flex-col items-center gap-1 group">
-              <MessageSquare size={26} className="group-hover:scale-110 transition-transform" />
-              <span className="text-[10px] font-bold uppercase tracking-wider">Subtitles</span>
+          <div className="flex items-center gap-6 pr-4">
+            <button className="text-white/90 hover:text-white transition-colors p-2">
+              <MessageSquare size={26} className="fill-white/20" />
             </button>
-            <button className="text-white/80 hover:text-white transition flex flex-col items-center gap-1 group">
-              <Settings size={26} className="group-hover:scale-110 transition-transform" />
-              <span className="text-[10px] font-bold uppercase tracking-wider">Quality</span>
+            <button className="text-white/90 hover:text-white transition-colors p-2">
+              <Settings size={26} className="fill-white/20" />
             </button>
-            <button onClick={toggleFullScreen} className="text-white/80 hover:text-white transition ml-4 hover:scale-110">
-              <Maximize size={28} />
+            <button onClick={toggleFullScreen} className="text-white/90 hover:text-white transition-colors p-2">
+              <Maximize size={26} />
             </button>
           </div>
         </div>
 
-        {/* Center Massive Play Button (Only shows when paused) */}
-        {!isPlaying && isVideoReady && (
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none">
-            <div className="w-24 h-24 rounded-full bg-black/40 border-2 border-white/20 backdrop-blur-sm flex items-center justify-center pointer-events-auto cursor-pointer hover:bg-black/60 hover:scale-105 transition-all" onClick={togglePlay}>
-              <Play className="w-12 h-12 text-white fill-white ml-2" />
-            </div>
+        {/* Center Massive Play Button (Appears when paused) */}
+        {!isPlaying && !isFetching && (
+          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-auto">
+            <button 
+              onClick={togglePlay}
+              className="w-24 h-24 rounded-full bg-black/40 border-2 border-white/40 flex items-center justify-center hover:bg-black/60 hover:scale-105 transition-all backdrop-blur-sm"
+            >
+              <Play className="w-10 h-10 text-white fill-white ml-2" />
+            </button>
           </div>
         )}
 
-        {/* Bottom Gradient Banner */}
-        <div className="w-full pt-24 pb-8 px-8 bg-gradient-to-t from-black/90 via-black/60 to-transparent">
+        {/* Bottom Controls Area */}
+        <div className="w-full pt-24 pb-6 px-8 bg-gradient-to-t from-black/90 via-black/60 to-transparent flex flex-col pointer-events-auto">
           
-          {/* Prime Video Scrubber */}
-          <div className="w-full group mb-6 relative">
+          {/* Progress Bar (Full Width Above Controls) */}
+          <div className="w-full group mb-5 relative flex items-center">
             <div 
               ref={timelineRef}
-              className="w-full h-1.5 bg-white/30 rounded cursor-pointer relative"
+              className="w-full h-1.5 bg-gray-500/50 rounded cursor-pointer relative"
               onClick={handleTimelineClick}
             >
-              {/* Blue Fill */}
               <div 
                 className="absolute top-0 left-0 h-full bg-[#00A8E1] rounded"
                 style={{ width: `${progressPercent}%` }}
               />
-              {/* Scrubber Dot (Appears on hover) */}
               <div 
-                className="absolute top-1/2 w-4 h-4 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-[0_0_10px_rgba(0,0,0,0.5)] pointer-events-none"
-                style={{ 
-                  left: `${progressPercent}%`, 
-                  transform: 'translate(-50%, -50%)' 
-                }}
+                className="absolute top-1/2 w-4 h-4 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-md pointer-events-none"
+                style={{ left: `${progressPercent}%`, transform: 'translate(-50%, -50%)' }}
               />
             </div>
           </div>
 
-          {/* Bottom Controls Row */}
+          {/* Bottom Bar Buttons */}
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-8">
+            {/* Left Controls */}
+            <div className="flex items-center gap-6">
               <button onClick={togglePlay} className="text-white hover:scale-110 transition-transform">
-                {isPlaying ? <Pause size={32} className="fill-white" /> : <Play size={32} className="fill-white" />}
+                {isPlaying ? <Pause size={30} className="fill-white" /> : <Play size={30} className="fill-white" />}
               </button>
               
-              <button onClick={() => skipTime(-10)} className="text-white/90 hover:text-white hover:scale-110 transition-transform">
-                <RotateCcw size={32} />
+              <button onClick={() => skipTime(-10)} className="text-white hover:scale-110 transition-transform">
+                <RotateCcw size={28} />
               </button>
               
-              <button onClick={() => skipTime(10)} className="text-white/90 hover:text-white hover:scale-110 transition-transform">
-                <RotateCw size={32} />
+              <button onClick={() => skipTime(10)} className="text-white hover:scale-110 transition-transform">
+                <RotateCw size={28} />
               </button>
 
-              <div className="flex items-center gap-4 ml-2">
-                <button onClick={toggleMute} className="text-white/90 hover:text-white transition-colors">
-                  {isMuted ? <VolumeX size={28} /> : <Volume2 size={28} />}
+              {/* Volume Group */}
+              <div className="flex items-center gap-2 group ml-2 relative">
+                <button onClick={toggleMute} className="text-white hover:scale-110 transition-transform">
+                  {isMuted || volume === 0 ? <VolumeX size={28} /> : <Volume2 size={28} />}
                 </button>
-                <div className="text-white/90 text-lg font-medium tracking-wide">
-                  {formatTime(currentTime)} <span className="text-white/50 mx-1">/</span> {formatTime(duration)}
-                </div>
+                {/* Expandable Volume Slider */}
+                <input 
+                  type="range" 
+                  min="0" max="1" step="0.05"
+                  value={isMuted ? 0 : volume}
+                  onChange={handleVolumeChange}
+                  className="w-0 opacity-0 group-hover:w-20 group-hover:opacity-100 transition-all duration-300 ease-out origin-left cursor-pointer accent-[#00A8E1]"
+                />
+              </div>
+
+              {/* Timestamps */}
+              <div className="text-white text-base font-medium tracking-wide ml-2">
+                {formatTime(currentTime)} <span className="text-gray-400 mx-1">/</span> {formatTime(duration)}
               </div>
             </div>
 
-            <div className="flex items-center gap-6">
+            {/* Right Controls */}
+            <div className="flex items-center gap-4">
               {mediaType === 'tv' && (
-                <button className="flex items-center gap-2 text-white font-bold text-sm bg-white/10 px-4 py-2 rounded border border-white/20 hover:bg-white/20 transition">
+                <button className="flex items-center gap-2 text-white font-bold text-sm bg-white/10 px-4 py-2 rounded-md hover:bg-white/20 transition-colors backdrop-blur-sm">
                   <List size={20} /> Next Episode
                 </button>
               )}
             </div>
           </div>
-
         </div>
       </div>
     </div>
