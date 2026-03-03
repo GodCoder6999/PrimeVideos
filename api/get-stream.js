@@ -17,12 +17,12 @@ export default async function handler(req, res) {
 
         if (!imdbId) throw new Error("Could not find IMDb ID.");
 
-        // 2. HTTP-BASED STREMIO ADDONS (Zero Torrents, Zero Waiting)
-        // These servers scrape high-speed CDNs and output raw .m3u8 links instantly.
-        const HTTP_ADDONS = [ // Best for Hollywood
-            "https://torrentio.strem.fun"
-            "https://stremify.hayd.uk",
-            "https://nodebrid.fly.dev"         // High-speed fallback
+        // 2. THE CURRENTLY ACTIVE HTTP EXTRACTORS
+        // These servers bypass iframes and ads, returning pure .m3u8 or .mp4 files.
+        const HTTP_ADDONS = [
+            "https://vidsrc.elfhosted.com",        // Highly reliable VidSrc extractor
+            "https://stremio-vidsrc.vercel.app",   // Backup VidSrc extractor
+            "https://superflix.elfhosted.com"      // Scrapes SuperStream (Great for Hollywood)
         ];
 
         const fetchStream = async (baseUrl) => {
@@ -31,7 +31,8 @@ export default async function handler(req, res) {
                 : `${baseUrl}/stream/movie/${imdbId}.json`;
             
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 3500); // 3.5s timeout
+            // 4-second timeout to ensure the player doesn't hang if one server is slow
+            const timeoutId = setTimeout(() => controller.abort(), 4000); 
 
             try {
                 const r = await fetch(url, { signal: controller.signal });
@@ -40,11 +41,11 @@ export default async function handler(req, res) {
                 const d = await r.json();
                 return d.streams || [];
             } catch {
-                return [];
+                return []; // Fail silently so other scrapers can finish
             }
         };
 
-        // 3. Fetch from all HTTP addons simultaneously
+        // 3. Fetch from all active HTTP addons simultaneously
         const results = await Promise.allSettled(HTTP_ADDONS.map(fetchStream));
         
         let allStreams = [];
@@ -54,7 +55,7 @@ export default async function handler(req, res) {
             }
         });
 
-        // 4. Strict Filtering: Ensure we only get direct HTTP URLs, NO MAGNETS
+        // 4. Strict Filtering: Keep ONLY direct video links. KILL all magnets/torrents.
         let directStreams = allStreams.filter(stream => 
             stream.url && 
             !stream.infoHash && 
@@ -62,17 +63,16 @@ export default async function handler(req, res) {
         );
 
         if (directStreams.length === 0) {
-            return res.status(404).json({ success: false, message: 'No direct streams found. Try another movie.' });
+            return res.status(404).json({ success: false, message: 'No direct HTTP streams found right now.' });
         }
 
-        // 5. Select the highest quality stream
-        // CDNs usually return "Auto", "1080p", or server names like "UpCloud".
+        // 5. Select the highest quality stream available
         let bestStream = directStreams.find(s => 
             s.name?.toLowerCase().includes('1080') || 
             s.name?.toLowerCase().includes('auto')
         ) || directStreams[0];
 
-        // 6. Return INSTANTLY to the Prime Player (No caching state needed)
+        // 6. Instantly send the URL to your Prime Video Player
         return res.status(200).json({ 
             success: true, 
             streamUrl: bestStream.url 
