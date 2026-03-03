@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Loader, AlertTriangle } from 'lucide-react'; // Assuming you use lucide-react
+import { Loader, AlertTriangle } from 'lucide-react';
+import Hls from 'hls.js'; // Import HLS.js to handle complex streams
 
 const PrimePlayer = ({ tmdbId, title, mediaType, season, episode }) => {
     const [streamUrl, setStreamUrl] = useState(null);
@@ -7,19 +8,19 @@ const PrimePlayer = ({ tmdbId, title, mediaType, season, episode }) => {
     const [error, setError] = useState(null);
     const videoRef = useRef(null);
 
+    // 1. Fetch the stream URL from TorBox
     useEffect(() => {
         const fetchStream = async () => {
             setLoading(true);
             setError(null);
             try {
-                // Call your newly updated Vercel API
                 const res = await fetch(`/api/get-stream?type=${mediaType}&tmdbId=${tmdbId}&s=${season}&e=${episode}`);
                 const data = await res.json();
 
                 if (data.success && data.streamUrl) {
                     setStreamUrl(data.streamUrl);
                 } else {
-                    setError(data.error || data.message || "Stream not available.");
+                    setError(data.error || "Stream not available.");
                 }
             } catch (err) {
                 console.error("Player Error", err);
@@ -32,6 +33,35 @@ const PrimePlayer = ({ tmdbId, title, mediaType, season, episode }) => {
         fetchStream();
     }, [tmdbId, mediaType, season, episode]);
 
+    // 2. Attach the URL to the video player safely
+    useEffect(() => {
+        if (!streamUrl || !videoRef.current) return;
+
+        const video = videoRef.current;
+
+        // Check if the URL is an HLS playlist and the browser supports HLS.js
+        if (streamUrl.includes('.m3u8') && Hls.isSupported()) {
+            const hls = new Hls();
+            hls.loadSource(streamUrl);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                video.play().catch(e => console.log("Autoplay prevented by browser:", e));
+            });
+
+            return () => {
+                if (hls) hls.destroy();
+            };
+        } 
+        // If it's a native MP4, MKV, or Safari browser
+        else {
+            video.src = streamUrl;
+            video.addEventListener('loadedmetadata', () => {
+                video.play().catch(e => console.log("Autoplay prevented by browser:", e));
+            });
+        }
+    }, [streamUrl]);
+
+    // UI Renders
     if (loading) {
         return (
             <div className="w-full h-full bg-black flex flex-col items-center justify-center text-[#00A8E1]">
@@ -46,9 +76,6 @@ const PrimePlayer = ({ tmdbId, title, mediaType, season, episode }) => {
             <div className="w-full h-full bg-black flex flex-col items-center justify-center text-red-500">
                 <AlertTriangle size={48} className="mb-4" />
                 <p className="font-bold">{error}</p>
-                <p className="text-gray-500 text-sm mt-2 max-w-md text-center">
-                   (If using TorBox free tier, the file might not be cached yet, or you reached your daily limit).
-                </p>
             </div>
         );
     }
@@ -57,9 +84,9 @@ const PrimePlayer = ({ tmdbId, title, mediaType, season, episode }) => {
         <div className="w-full h-full bg-black">
             <video 
                 ref={videoRef}
-                src={streamUrl} 
                 controls 
                 autoPlay 
+                playsInline
                 className="w-full h-full object-contain"
             />
         </div>
