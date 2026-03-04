@@ -20,48 +20,40 @@ export default async function handler(req, res) {
         if (!imdbId) throw new Error("IMDb ID not found.");
 
         // IMPORTANT: Put your actual ZenRows API Key here
-        const ZENROWS_API_KEY = "6bc46d18cdcb59931e895ba2658e883301541eea"; 
+        const ZENROWS_API_KEY = "YOUR_ZENROWS_API_KEY"; 
 
-        // We will try these domains in order. If one gives a 404, it moves to the next.
-        const domains = ['vidsrc.net', 'vidsrc.in', 'vidsrc.xyz', 'vidsrc.rip', 'vidsrc.pro'];
-        let scrapeData = null;
-        let successfulDomain = null;
+        const domains = ['vidsrc.net', 'vidsrc.cc', 'vidsrc.in', 'vidsrc.xyz', 'vidsrc.rip', 'vidsrc.pro'];
 
-        for (const domain of domains) {
+        // Fire requests to ALL domains at the EXACT SAME TIME
+        const fetchPromises = domains.map(async (domain) => {
             const targetUrl = type === 'tv' 
                 ? `https://${domain}/vapi/episode/${imdbId}/${s}/${e}` 
                 : `https://${domain}/vapi/movie/${imdbId}`;
 
-            try {
-                const response = await axios({
-                    url: 'https://api.zenrows.com/v1/',
-                    method: 'GET',
-                    timeout: 4000, // Short 4-second timeout so it quickly tries the next domain
-                    params: {
-                        'url': targetUrl,
-                        'apikey': ZENROWS_API_KEY,
-                        'premium_proxy': 'true', 
-                    },
-                });
+            const response = await axios({
+                url: 'https://api.zenrows.com/v1/',
+                method: 'GET',
+                timeout: 8500, // We can safely wait 8.5 seconds because they run in parallel
+                params: {
+                    'url': targetUrl,
+                    'apikey': ZENROWS_API_KEY,
+                    'premium_proxy': 'true', 
+                },
+            });
 
-                // If we get valid JSON data back, stop the loop!
-                if (response.data && response.data.source) {
-                    scrapeData = response.data;
-                    successfulDomain = domain;
-                    break; 
-                }
-            } catch (err) {
-                // It threw a 404 or timed out. Log it and let the loop continue to the next domain.
-                console.log(`${domain} failed:`, err.response?.data?.title || err.message);
+            if (response.data && response.data.source) {
+                return { data: response.data, domain }; // Return the winner
             }
-        }
+            throw new Error(`No video data on ${domain}`);
+        });
 
-        if (!scrapeData || !scrapeData.source) {
-            throw new Error("All domains returned 404 or failed. The content might not be available.");
-        }
+        // Promise.any() resolves instantly when the FIRST successful response comes back
+        const { data: scrapeData, domain: successfulDomain } = await Promise.any(fetchPromises);
 
+        // Extract the Direct Link
         const directLink = scrapeData.source[0].file || scrapeData.source[0].url; 
 
+        // Proxy the Manifest
         const protocol = req.headers['x-forwarded-proto'] || (req.headers.host.includes('localhost') ? 'http' : 'https');
         const proxyBase = `${protocol}://${req.headers.host}/api/proxy?url=`;
 
@@ -73,11 +65,10 @@ export default async function handler(req, res) {
         });
 
     } catch (error) {
-        const errorMessage = error.response?.data 
-            ? JSON.stringify(error.response.data) 
-            : error.message;
-            
-        console.error("API Error:", errorMessage);
-        return res.status(500).json({ success: false, error: errorMessage });
+        console.error("All domains timed out or returned 404.");
+        return res.status(500).json({ 
+            success: false, 
+            error: "All streaming sources are currently offline or blocked for this title." 
+        });
     }
 }
