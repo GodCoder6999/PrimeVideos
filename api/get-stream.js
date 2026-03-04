@@ -1,4 +1,3 @@
-import chromium from '@sparticuz/chromium';
 import puppeteer from 'puppeteer-core';
 import axios from 'axios';
 
@@ -16,7 +15,7 @@ export default async function handler(req, res) {
     let browser = null;
 
     try {
-        // 1. Convert TMDB ID to IMDB ID
+        // 1. Get IMDb ID
         const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5";
         const tmdbRes = await axios.get(`https://api.themoviedb.org/3/${type}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`);
         const imdbId = tmdbRes.data.imdb_id;
@@ -27,53 +26,45 @@ export default async function handler(req, res) {
             ? `https://vidfast.pro/embed/tv/${imdbId}/${s}/${e}` 
             : `https://vidfast.pro/embed/movie/${imdbId}`;
 
-        console.log(`[Puppeteer] Launching headless browser for: ${targetUrl}`);
+        // 🛑 PASTE YOUR BROWSERLESS API KEY HERE 🛑
+        const BROWSERLESS_API_KEY = "2U5Uo4hDU4WLtHLbfa6adecd9f34e90147cec50222fca3ab0";
 
-        // 2. Launch Chromium (Node 20 AL2023 Compatible Setup)
-        const isLocal = !process.env.VERCEL_REGION;
-        
-        // Sparticuz 132+ automatically handles missing Node 20 libraries
-        chromium.setGraphicsMode = false;
-        
-        browser = await puppeteer.launch({
-            args: isLocal ? ['--disable-web-security'] : chromium.args,
-            defaultViewport: chromium.defaultViewport,
-            executablePath: isLocal 
-                ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' // Change if on Mac
-                : await chromium.executablePath(),
-            headless: isLocal ? true : 'shell', // 'shell' is required for Node 20+ Chromium
-            ignoreHTTPSErrors: true,
+        console.log(`[Remote Puppeteer] Connecting to Browserless for: ${targetUrl}`);
+
+        // 2. Connect to the Remote Browser (ZERO Vercel OS Errors)
+        browser = await puppeteer.connect({
+            browserWSEndpoint: `wss://chrome.browserless.io?token=${BROWSERLESS_API_KEY}`,
+            defaultViewport: { width: 1920, height: 1080 }
         });
 
         const page = await browser.newPage();
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
 
-        // 3. Network Interception (The Extension Method)
+        // 3. The Extension-Style Interceptor
         await page.setRequestInterception(true);
         let extractedM3u8 = null;
 
         page.on('request', (request) => {
             const url = request.url();
 
-            // 🔥 TARGET LOCK: Catch the exact worker.dev link you found OR any standard m3u8
+            // Lock onto the m3u8 file the moment it's generated
             if (url.includes('.m3u8') || url.includes('fatherlessdad.workers.dev')) {
                 if (!url.includes('audio') && !url.includes('subtitles')) {
                     extractedM3u8 = url;
-                    console.log(`[Puppeteer] HIT! Stream grabbed: ${url.substring(0, 50)}...`);
+                    console.log(`[HIT] Stream grabbed: ${url.substring(0, 60)}...`);
                 }
             }
 
-            // Block everything else to make the page load in under 3 seconds
-            const resourceType = request.resourceType();
-            if (['image', 'stylesheet', 'font', 'media', 'fetch'].includes(resourceType) && !url.includes('.m3u8')) {
+            // Block heavy elements to keep the scrape under Vercel's timeout
+            if (['image', 'stylesheet', 'font', 'media'].includes(request.resourceType()) && !url.includes('.m3u8')) {
                 request.abort();
             } else {
                 request.continue();
             }
         });
 
-        // 4. Navigate and wait for the JS to execute and fire the network request
-        await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 7500 }).catch(() => {});
+        // 4. Load the page and wait for the network request
+        await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 8000 }).catch(() => {});
 
         let waitLoops = 0;
         while (!extractedM3u8 && waitLoops < 15) { 
@@ -84,23 +75,23 @@ export default async function handler(req, res) {
         await browser.close();
 
         if (!extractedM3u8) {
-            throw new Error("Page loaded, but no m3u8 was detected in the network traffic.");
+            throw new Error("Page loaded, but no m3u8 was requested by the embed player.");
         }
 
-        // 5. Proxy the extracted link securely to your PrimePlayer
+        // 5. Proxy the link back to your PrimePlayer
         const protocol = req.headers['x-forwarded-proto'] || (req.headers.host.includes('localhost') ? 'http' : 'https');
         const proxyBase = `${protocol}://${req.headers.host}/api/proxy?url=`;
 
         return res.status(200).json({ 
             success: true, 
             streamUrl: `${proxyBase}${encodeURIComponent(extractedM3u8)}`,
-            provider: "VidFast (Network Extracted)",
+            provider: "VidFast (Remote Extraction)",
             format: "m3u8"
         });
 
     } catch (error) {
         if (browser) await browser.close();
-        console.error("[Puppeteer Error]:", error.message);
+        console.error("[Extraction Error]:", error.message);
         
         return res.status(500).json({ 
             success: false, 
