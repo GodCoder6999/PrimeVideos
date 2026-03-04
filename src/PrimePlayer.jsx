@@ -1,64 +1,66 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect } from 'react';
 
-export default function EmbedPlayer({ type, tmdbId, season, episode }) {
-  const [imdbId, setImdbId] = useState(null);
-  const [loading, setLoading] = useState(true);
+export default function VidFastPlayer({ type, tmdbId, season, episode }) {
+  
+  // 1. Construct the URL with Advanced Features
+  const themeHex = "E50914"; // Netflix Red (Change to whatever matches your app)
+  
+  const embedUrl = type === 'tv'
+    ? `https://vidfast.pro/tv/${tmdbId}/${season}/${episode}?title=true&poster=true&theme=${themeHex}&nextButton=true&autoNext=true`
+    : `https://vidfast.pro/movie/${tmdbId}?title=true&poster=true&theme=${themeHex}`;
 
+  // 2. Set up the Event Listeners for Watch Progress
   useEffect(() => {
-    // 1. We quickly convert the TMDB ID to an IMDB ID since VidFast prefers it
-    async function fetchImdbId() {
-      try {
-        const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5"; 
-        const res = await fetch(`https://api.themoviedb.org/3/${type}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`);
-        const data = await res.json();
-        
-        if (data.imdb_id) {
-          setImdbId(data.imdb_id);
-        }
-      } catch (error) {
-        console.error("Failed to fetch IMDB ID:", error);
-      } finally {
-        setLoading(false);
+    const vidfastOrigins = [
+      'https://vidfast.pro', 'https://vidfast.in', 'https://vidfast.io',
+      'https://vidfast.me', 'https://vidfast.net', 'https://vidfast.pm',
+      'https://vidfast.xyz'
+    ];
+
+    const handleMessage = (event) => {
+      // Security check to ensure the message is actually from VidFast
+      if (!vidfastOrigins.includes(event.origin) || !event.data) {
+        return;
       }
-    }
 
-    if (tmdbId) {
-      fetchImdbId();
-    }
-  }, [type, tmdbId]);
+      // Track raw playback events (play, pause, seeked)
+      if (event.data.type === 'PLAYER_EVENT') {
+        const { event: playerEvent, currentTime, duration } = event.data.data;
+        // You can uncomment this to see the events fire in your browser console:
+        // console.log(`[VidFast] ${playerEvent} | Progress: ${Math.floor(currentTime)}s / ${Math.floor(duration)}s`);
+      }
 
-  if (loading) {
-    return (
-      <div className="w-full aspect-video bg-black flex items-center justify-center text-white">
-        Loading Player...
-      </div>
-    );
-  }
+      // Save complete watch history to local storage
+      if (event.data.type === 'MEDIA_DATA') {
+        // Fetch existing history so we don't overwrite other movies
+        const existingHistory = JSON.parse(localStorage.getItem('vidFastProgress') || '{}');
+        
+        // Merge the new progress data with the old data
+        const updatedHistory = {
+          ...existingHistory,
+          ...event.data.data
+        };
+        
+        // Save back to the browser's local storage
+        localStorage.setItem('vidFastProgress', JSON.stringify(updatedHistory));
+      }
+    };
 
-  if (!imdbId) {
-    return (
-      <div className="w-full aspect-video bg-black flex items-center justify-center text-white">
-        Media not available.
-      </div>
-    );
-  }
-
-  // 2. Construct the VidFast URL
-  const embedUrl = type === 'tv' 
-    ? `https://vidfast.pro/embed/tv/${imdbId}/${season}/${episode}` 
-    : `https://vidfast.pro/embed/movie/${imdbId}`;
+    window.addEventListener('message', handleMessage);
+    
+    // Cleanup listener when the video player is unmounted
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
 
   return (
-    <div className="w-full aspect-video bg-black rounded-lg overflow-hidden shadow-2xl">
+    <div className="w-full aspect-video bg-black rounded-lg overflow-hidden shadow-2xl relative">
       <iframe
         src={embedUrl}
-        width="100%"
-        height="100%"
-        frameBorder="0"
+        className="w-full h-full border-0 absolute top-0 left-0"
         allowFullScreen
-        title="Movie Player"
-        // This is crucial: it stops the iframe from knowing it's embedded on your site, preventing blocks
-        referrerPolicy="origin" 
+        allow="encrypted-media"
+        title="Video Player"
+        referrerPolicy="origin"
       ></iframe>
     </div>
   );
