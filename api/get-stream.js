@@ -1,87 +1,88 @@
 import axios from 'axios';
 
-// A standard User-Agent to prevent basic API blocking
-const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
-
 export default async function handler(req, res) {
-    // Enable CORS for your frontend
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
     if (req.method === 'OPTIONS') return res.status(200).end();
 
-    const { type, tmdbId, s, e } = req.query;
+    const { type, tmdbId } = req.query;
 
     if (!type || !tmdbId) {
         return res.status(400).json({ success: false, message: 'Missing parameters' });
     }
 
     try {
-        // 1. Fetch IMDb ID (Required by AutoEmbed and others)
+        // 1. Get the actual Movie Title and Year from TMDB
         const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5";
-        const tmdbRes = await axios.get(`https://api.themoviedb.org/3/${type}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`);
-        const imdbId = tmdbRes.data.imdb_id;
+        const tmdbUrl = type === 'tv' 
+            ? `https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${TMDB_API_KEY}` 
+            : `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${TMDB_API_KEY}`;
+            
+        const tmdbRes = await axios.get(tmdbUrl);
+        const title = type === 'tv' ? tmdbRes.data.name : tmdbRes.data.title;
+        const year = type === 'tv' 
+            ? tmdbRes.data.first_air_date?.split('-')[0] 
+            : tmdbRes.data.release_date?.split('-')[0];
 
-        const fetchPromises = [];
+        if (!title) throw new Error("Could not find title for this TMDB ID.");
 
-        // --- SOURCE 1: VidLink API (Currently the most reliable) ---
-        fetchPromises.push((async () => {
-            const url = type === 'tv' 
-                ? `https://vidlink.pro/api/video/tv/${tmdbId}/${s}/${e}` 
-                : `https://vidlink.pro/api/video/movie/${tmdbId}`;
-            const { data } = await axios.get(url, { headers: { 'User-Agent': USER_AGENT, 'Referer': 'https://vidlink.pro/' }, timeout: 6000 });
-            const link = data?.stream_url || data?.source?.[0]?.file;
-            if (link && link.includes('.m3u8')) return { link, provider: 'VidLink' };
-            throw new Error('VidLink failed or no m3u8 found');
-        })());
+        console.log(`[OD Scraper] Hunting for: ${title} (${year})`);
 
-        // --- SOURCE 2: AutoEmbed API ---
-        if (imdbId) {
-            fetchPromises.push((async () => {
-                const url = type === 'tv' 
-                    ? `https://autoembed.cc/api/getStreams?id=${imdbId}&s=${s}&e=${e}` 
-                    : `https://autoembed.cc/api/getStreams?id=${imdbId}`;
-                const { data } = await axios.get(url, { headers: { 'User-Agent': USER_AGENT, 'Referer': 'https://autoembed.cc/' }, timeout: 6000 });
-                const link = data?.data?.[0]?.file || data?.sources?.[0]?.file;
-                if (link && link.includes('.m3u8')) return { link, provider: 'AutoEmbed' };
-                throw new Error('AutoEmbed failed or no m3u8 found');
-            })());
+        // 2. 🛑 PASTE YOUR GOOGLE API CREDENTIALS HERE 🛑
+        const GOOGLE_API_KEY = "YOUR_GOOGLE_API_KEY";
+        const GOOGLE_CX_ID = "YOUR_SEARCH_ENGINE_CX_ID";
+
+        // 3. Construct the Google Dork
+        // We force "https" to prevent browser Mixed Content errors, and look for mp4/mkv
+        const dorkQuery = `inurl:https intitle:"index of" +(mp4|mkv) +"${title}" +"${year}" -inurl:(jsp|pl|php|html|aspx|htm|cf|shtml)`;
+
+        // 4. Execute the Search
+        const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_API_KEY}&cx=${GOOGLE_CX_ID}&q=${encodeURIComponent(dorkQuery)}`;
+        const searchRes = await axios.get(searchUrl);
+
+        const items = searchRes.data.items || [];
+
+        if (items.length === 0) {
+            throw new Error("Google found no Open Directories for this title.");
         }
 
-        // --- SOURCE 3: 8Stream Community API ---
-        if (imdbId) {
-            fetchPromises.push((async () => {
-                const url = type === 'tv' 
-                    ? `https://8-stream-api.vercel.app/api/tv?id=${imdbId}&s=${s}&e=${e}` 
-                    : `https://8-stream-api.vercel.app/api/movie?id=${imdbId}`;
-                const { data } = await axios.get(url, { headers: { 'User-Agent': USER_AGENT }, timeout: 6000 });
-                const link = data?.url || data?.sources?.[0]?.url;
-                if (link && link.includes('.m3u8')) return { link, provider: '8Stream' };
-                throw new Error('8Stream failed or no m3u8 found');
-            })());
+        // 5. Aggressive Link Extraction
+        // We scan the search results (both titles and snippets) for the direct video link
+        let directVideoUrl = null;
+        
+        for (const item of items) {
+            // Check the main link
+            if (item.link.match(/\.(mp4|mkv)$/i)) {
+                directVideoUrl = item.link;
+                break;
+            }
+            
+            // Check the snippet (sometimes the direct file link is in the text preview)
+            const snippetMatch = item.snippet.match(/https?:\/\/[^\s"'<>]+\.(mp4|mkv)/i);
+            if (snippetMatch) {
+                directVideoUrl = snippetMatch[0];
+                break;
+            }
         }
 
-        // 2. THE RACE: Get the fastest successful response
-        const winner = await Promise.any(fetchPromises);
+        if (!directVideoUrl) {
+             throw new Error("Found directories, but could not extract a direct .mp4 or .mkv link from the search snippet.");
+        }
 
-        console.log(`[SUCCESS] Stream provided by ${winner.provider}`);
-
-        // 3. Proxy the link to bypass browser CORS policies
-        const protocol = req.headers['x-forwarded-proto'] || (req.headers.host.includes('localhost') ? 'http' : 'https');
-        const proxyBase = `${protocol}://${req.headers.host}/api/proxy?url=`;
+        console.log(`[SUCCESS] Found OD Link: ${directVideoUrl}`);
 
         return res.status(200).json({ 
             success: true, 
-            streamUrl: `${proxyBase}${encodeURIComponent(winner.link)}`,
-            provider: winner.provider,
-            format: "m3u8"
+            streamUrl: directVideoUrl,
+            provider: "Open Directory Scraper",
+            format: directVideoUrl.endsWith('.mkv') ? "mkv" : "mp4" // Let the frontend know it's a raw file, not m3u8
         });
 
     } catch (error) {
-        // If we get here, all 3 APIs failed simultaneously (very rare, usually means the movie is unreleased)
-        console.error("All JSON APIs exhausted or timed out.");
+        console.error("[OD Error]:", error.message);
         return res.status(500).json({ 
             success: false, 
-            error: "Content currently unavailable from upstream providers. Please try another title." 
+            error: `Failed to locate an Open Directory for this title.` 
         });
     }
 }
