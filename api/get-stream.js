@@ -1,36 +1,9 @@
+import chromium from '@sparticuz/chromium';
+import puppeteer from 'puppeteer-core';
 import axios from 'axios';
 
-const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
-
-// 🚀 Aggressive Extractor: Hunts for any .m3u8 link hidden anywhere in the JSON payload
-const findM3u8InJson = (obj) => {
-    const str = JSON.stringify(obj);
-    const match = str.match(/https?:\/\/[^"'\s]+\.m3u8/);
-    return match ? match[0] : null;
-};
-
-const fetchStream = async (name, requestConfig, extractFn) => {
-    try {
-        const { data } = await axios({ 
-            ...requestConfig, 
-            timeout: 8000 
-        });
-        
-        // Try the standard extraction first, then fallback to aggressive regex hunting
-        let streamUrl = extractFn(data) || findM3u8InJson(data);
-
-        if (streamUrl && streamUrl.includes('.m3u8')) {
-            console.log(`[SUCCESS] Stream found on: ${name}`);
-            return { link: streamUrl, provider: name };
-        }
-        throw new Error('Valid .m3u8 stream data missing from response');
-    } catch (error) {
-        console.log(`[${name}] Failed:`, error.message);
-        throw error; 
-    }
-};
-
 export default async function handler(req, res) {
+    // CORS Headers
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
     if (req.method === 'OPTIONS') return res.status(200).end();
@@ -41,61 +14,100 @@ export default async function handler(req, res) {
         return res.status(400).json({ success: false, message: 'Missing parameters' });
     }
 
+    let browser = null;
+
     try {
-        // Fetch IMDb ID
+        // 1. Convert TMDB ID to IMDB ID (Required for most embed players)
         const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5";
         const tmdbRes = await axios.get(`https://api.themoviedb.org/3/${type}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`);
         const imdbId = tmdbRes.data.imdb_id;
 
-        const fetchPromises = [];
+        if (!imdbId) throw new Error("IMDb ID not found.");
 
-        // --- 1. VidFast (TMDB ID Endpoint) ---
-        fetchPromises.push(fetchStream('VidFast (TMDB)', {
-            url: type === 'tv' ? `https://vidfast.pro/api/tv/${tmdbId}/${s}/${e}` : `https://vidfast.pro/api/movie/${tmdbId}`,
-            headers: { 'User-Agent': USER_AGENT, 'Referer': 'https://vidfast.pro/' }
-        }, data => data?.source?.[0]?.file || data?.file || data?.url));
+        // We will target VidFast's embed player as our primary source
+        const targetUrl = type === 'tv' 
+            ? `https://vidfast.pro/embed/tv/${imdbId}/${s}/${e}` 
+            : `https://vidfast.pro/embed/movie/${imdbId}`;
 
-        // --- 2. VidFast (IMDB ID Endpoint) ---
-        if (imdbId) {
-            fetchPromises.push(fetchStream('VidFast (IMDB)', {
-                url: type === 'tv' ? `https://vidfast.pro/api/tv/${imdbId}/${s}/${e}` : `https://vidfast.pro/api/movie/${imdbId}`,
-                headers: { 'User-Agent': USER_AGENT, 'Referer': 'https://vidfast.pro/' }
-            }, data => data?.source?.[0]?.file || data?.file || data?.url));
+        console.log(`[Puppeteer] Launching headless browser for: ${targetUrl}`);
+
+        // 2. Launch Lightweight Chromium optimized for Vercel
+        // Optional: you may need to adjust the chromium executable path based on your specific Vercel deployment setup if this fails, but @sparticuz handles it 99% of the time.
+        browser = await puppeteer.launch({
+            args: [...chromium.args, '--disable-web-security'],
+            defaultViewport: chromium.defaultViewport,
+            executablePath: await chromium.executablePath(),
+            headless: chromium.headless,
+            ignoreHTTPSErrors: true,
+        });
+
+        const page = await browser.newPage();
+
+        // Set a realistic User-Agent to avoid immediate bot detection
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
+
+        // 3. Enable Network Interception (This is the "Extension" logic)
+        await page.setRequestInterception(true);
+
+        let extractedM3u8 = null;
+
+        page.on('request', (request) => {
+            const url = request.url();
+
+            // 🚀 FAST EXTRACTION: If we see an m3u8 in the network traffic, GRAB IT!
+            if (url.includes('.m3u8')) {
+                // Ignore audio-only or subtitle manifests if possible, we want the master or video manifest
+                if (!url.includes('audio') && !url.includes('subtitles')) {
+                    extractedM3u8 = url;
+                    console.log(`[Puppeteer] HIT! Found m3u8: ${url.substring(0, 60)}...`);
+                }
+            }
+
+            // SPEED OPTIMIZATION: Block heavy files so the page loads instantly
+            const resourceType = request.resourceType();
+            if (['image', 'stylesheet', 'font', 'media'].includes(resourceType)) {
+                request.abort();
+            } else {
+                request.continue();
+            }
+        });
+
+        // 4. Navigate to the page and wait for network activity
+        // We set a strict 8-second timeout so Vercel doesn't kill our function at 10 seconds
+        await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 8000 }).catch(() => {});
+
+        // Wait a tiny bit more for obfuscated JS to execute and make the XHR request
+        let waitLoops = 0;
+        while (!extractedM3u8 && waitLoops < 15) { // Wait up to ~3 seconds max
+            await new Promise(r => setTimeout(r, 200));
+            waitLoops++;
         }
 
-        // --- 3. VidLink Fallback ---
-        fetchPromises.push(fetchStream('VidLink', {
-            url: type === 'tv' ? `https://vidlink.pro/api/video/tv/${tmdbId}/${s}/${e}` : `https://vidlink.pro/api/video/movie/${tmdbId}`,
-            headers: { 'User-Agent': USER_AGENT, 'Referer': 'https://vidlink.pro/' }
-        }, data => data?.stream_url || data?.source?.[0]?.file));
+        // 5. Cleanup Browser
+        await browser.close();
 
-        // --- 4. AutoEmbed Fallback ---
-        if (imdbId) {
-            fetchPromises.push(fetchStream('AutoEmbed', {
-                url: type === 'tv' ? `https://autoembed.cc/api/getStreams?id=${imdbId}&s=${s}&e=${e}` : `https://autoembed.cc/api/getStreams?id=${imdbId}`,
-                headers: { 'User-Agent': USER_AGENT, 'Referer': 'https://autoembed.cc/' }
-            }, data => data?.data?.[0]?.file || data?.sources?.[0]?.file));
+        if (!extractedM3u8) {
+            throw new Error("Puppeteer watched the network traffic but no .m3u8 was requested by the site.");
         }
 
-        // Race them!
-        const winner = await Promise.any(fetchPromises);
-
-        // Proxy the manifest to bypass CORS blocks in the user's browser
+        // 6. Return the perfectly extracted link through your Proxy
         const protocol = req.headers['x-forwarded-proto'] || (req.headers.host.includes('localhost') ? 'http' : 'https');
         const proxyBase = `${protocol}://${req.headers.host}/api/proxy?url=`;
 
         return res.status(200).json({ 
             success: true, 
-            streamUrl: `${proxyBase}${encodeURIComponent(winner.link)}`,
-            provider: winner.provider,
+            streamUrl: `${proxyBase}${encodeURIComponent(extractedM3u8)}`,
+            provider: "VidFast (Puppeteer Extracted)",
             format: "m3u8"
         });
 
     } catch (error) {
-        console.error("[CRITICAL FAILURE] All aggregators exhausted.");
+        if (browser) await browser.close();
+        console.error("[Puppeteer Extractor Error]:", error.message);
+        
         return res.status(500).json({ 
             success: false, 
-            error: "Unable to extract the .m3u8 link from VidFast or fallbacks." 
+            error: `Failed to extract stream: ${error.message}` 
         });
     }
 }
