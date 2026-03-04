@@ -12,63 +12,71 @@ export default async function handler(req, res) {
     }
 
     try {
+        // 1. Fetch IMDb ID (Required by some aggregators)
         const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5";
-        const idRes = await fetch(`https://api.themoviedb.org/3/${type}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`);
-        const idData = await idRes.json();
-        const imdbId = idData.imdb_id;
+        const tmdbRes = await axios.get(`https://api.themoviedb.org/3/${type}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`);
+        const imdbId = tmdbRes.data.imdb_id;
 
-        if (!imdbId) throw new Error("IMDb ID not found.");
+        // 2. Define our Aggregator Promises
+        const fetchPromises = [];
 
-        // IMPORTANT: Put your actual ZenRows API Key here
-        const ZENROWS_API_KEY = "YOUR_ZENROWS_API_KEY"; 
+        // --- Source 1: VidLink API (Currently very reliable) ---
+        fetchPromises.push((async () => {
+            const url = type === 'tv' 
+                ? `https://vidlink.pro/api/video/tv/${tmdbId}/${s}/${e}`
+                : `https://vidlink.pro/api/video/movie/${tmdbId}`;
+            
+            const { data } = await axios.get(url, { timeout: 7000 });
+            const streamUrl = data?.stream_url || data?.source?.[0]?.file;
+            if (streamUrl) return { link: streamUrl, provider: "VidLink" };
+            throw new Error("VidLink failed");
+        })());
 
-        const domains = ['vidsrc.net', 'vidsrc.cc', 'vidsrc.in', 'vidsrc.xyz', 'vidsrc.rip', 'vidsrc.pro'];
+        // --- Source 2: AutoEmbed API ---
+        if (imdbId) {
+            fetchPromises.push((async () => {
+                const url = type === 'tv'
+                    ? `https://autoembed.cc/api/getStreams?id=${imdbId}&s=${s}&e=${e}`
+                    : `https://autoembed.cc/api/getStreams?id=${imdbId}`;
+                
+                const { data } = await axios.get(url, { timeout: 7000 });
+                const streamUrl = data?.data?.[0]?.file || data?.sources?.[0]?.file;
+                if (streamUrl) return { link: streamUrl, provider: "AutoEmbed" };
+                throw new Error("AutoEmbed failed");
+            })());
+        }
 
-        // Fire requests to ALL domains at the EXACT SAME TIME
-        const fetchPromises = domains.map(async (domain) => {
-            const targetUrl = type === 'tv' 
-                ? `https://${domain}/vapi/episode/${imdbId}/${s}/${e}` 
-                : `https://${domain}/vapi/movie/${imdbId}`;
+        // --- Source 3: FlixQuest / Community API ---
+        fetchPromises.push((async () => {
+            let url = `https://flixquest-api.vercel.app/vidsrc/watch-${type}?tmdbId=${tmdbId}`;
+            if (type === 'tv') url += `&season=${s}&ep=${e}`;
+            
+            const { data } = await axios.get(url, { timeout: 7000 });
+            const streamUrl = data?.sources?.[0]?.url || data?.streamUrl;
+            if (streamUrl) return { link: streamUrl, provider: "FlixQuest" };
+            throw new Error("FlixQuest failed");
+        })());
 
-            const response = await axios({
-                url: 'https://api.zenrows.com/v1/',
-                method: 'GET',
-                timeout: 8500, // We can safely wait 8.5 seconds because they run in parallel
-                params: {
-                    'url': targetUrl,
-                    'apikey': ZENROWS_API_KEY,
-                    'premium_proxy': 'true', 
-                },
-            });
+        // 3. Race them! Promise.any resolves the millisecond ONE of them succeeds.
+        const winner = await Promise.any(fetchPromises);
 
-            if (response.data && response.data.source) {
-                return { data: response.data, domain }; // Return the winner
-            }
-            throw new Error(`No video data on ${domain}`);
-        });
-
-        // Promise.any() resolves instantly when the FIRST successful response comes back
-        const { data: scrapeData, domain: successfulDomain } = await Promise.any(fetchPromises);
-
-        // Extract the Direct Link
-        const directLink = scrapeData.source[0].file || scrapeData.source[0].url; 
-
-        // Proxy the Manifest
+        // 4. Proxy the stream URL to bypass CORS blocks in the user's browser
         const protocol = req.headers['x-forwarded-proto'] || (req.headers.host.includes('localhost') ? 'http' : 'https');
         const proxyBase = `${protocol}://${req.headers.host}/api/proxy?url=`;
 
         return res.status(200).json({ 
             success: true, 
-            streamUrl: `${proxyBase}${encodeURIComponent(directLink)}`,
-            provider: `VidCloud (Bypassed via ${successfulDomain})`,
+            streamUrl: `${proxyBase}${encodeURIComponent(winner.link)}`,
+            provider: winner.provider,
             format: "m3u8"
         });
 
     } catch (error) {
-        console.error("All domains timed out or returned 404.");
+        // If it gets down here, it means EVERY single aggregator failed to find the movie or timed out.
+        console.error("All aggregators failed.");
         return res.status(500).json({ 
             success: false, 
-            error: "All streaming sources are currently offline or blocked for this title." 
+            error: "All streaming sources are currently offline or blocked for this title. Please try another movie." 
         });
     }
 }
