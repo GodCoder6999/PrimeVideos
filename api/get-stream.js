@@ -19,28 +19,45 @@ export default async function handler(req, res) {
 
         if (!imdbId) throw new Error("IMDb ID not found.");
 
-        const targetUrl = type === 'tv' 
-            ? `https://vidsrc.cc/vapi/episode/${imdbId}/${s}/${e}` 
-            : `https://vidsrc.cc/vapi/movie/${imdbId}`;
-
+        // IMPORTANT: Put your actual ZenRows API Key here
         const ZENROWS_API_KEY = "6bc46d18cdcb59931e895ba2658e883301541eea"; 
-        
-        const response = await axios({
-            url: 'https://api.zenrows.com/v1/',
-            method: 'GET',
-            timeout: 8500, // Force axios to give up before Vercel's 10s limit
-            params: {
-                'url': targetUrl,
-                'apikey': ZENROWS_API_KEY,
-                // Removed 'js_render' to drastically speed up the response
-                'premium_proxy': 'true', 
-            },
-        });
 
-        const scrapeData = response.data;
+        // We will try these domains in order. If one gives a 404, it moves to the next.
+        const domains = ['vidsrc.net', 'vidsrc.in', 'vidsrc.xyz', 'vidsrc.rip', 'vidsrc.pro'];
+        let scrapeData = null;
+        let successfulDomain = null;
+
+        for (const domain of domains) {
+            const targetUrl = type === 'tv' 
+                ? `https://${domain}/vapi/episode/${imdbId}/${s}/${e}` 
+                : `https://${domain}/vapi/movie/${imdbId}`;
+
+            try {
+                const response = await axios({
+                    url: 'https://api.zenrows.com/v1/',
+                    method: 'GET',
+                    timeout: 4000, // Short 4-second timeout so it quickly tries the next domain
+                    params: {
+                        'url': targetUrl,
+                        'apikey': ZENROWS_API_KEY,
+                        'premium_proxy': 'true', 
+                    },
+                });
+
+                // If we get valid JSON data back, stop the loop!
+                if (response.data && response.data.source) {
+                    scrapeData = response.data;
+                    successfulDomain = domain;
+                    break; 
+                }
+            } catch (err) {
+                // It threw a 404 or timed out. Log it and let the loop continue to the next domain.
+                console.log(`${domain} failed:`, err.response?.data?.title || err.message);
+            }
+        }
 
         if (!scrapeData || !scrapeData.source) {
-            throw new Error("Target site returned data, but no video files were found.");
+            throw new Error("All domains returned 404 or failed. The content might not be available.");
         }
 
         const directLink = scrapeData.source[0].file || scrapeData.source[0].url; 
@@ -51,12 +68,11 @@ export default async function handler(req, res) {
         return res.status(200).json({ 
             success: true, 
             streamUrl: `${proxyBase}${encodeURIComponent(directLink)}`,
-            provider: `VidCloud (Bypassed)`,
+            provider: `VidCloud (Bypassed via ${successfulDomain})`,
             format: "m3u8"
         });
 
     } catch (error) {
-        // This extracts the EXACT error from ZenRows or Axios instead of swallowing it
         const errorMessage = error.response?.data 
             ? JSON.stringify(error.response.data) 
             : error.message;
