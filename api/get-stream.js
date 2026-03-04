@@ -1,4 +1,3 @@
-// File: api/get-stream.js
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
@@ -8,7 +7,7 @@ export default async function handler(req, res) {
     const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5";
     
     // REPLACE THIS WITH YOUR TORBOX API KEY
-    const TB_API_KEY = "PASTE_YOUR_TORBOX_KEY_HERE"; 
+    const TB_API_KEY = "e6d1e168-3312-4de6-ac80-5480639e3b20"; 
 
     if (!type || !tmdbId) return res.status(400).json({ success: false, message: 'Missing parameters' });
 
@@ -57,12 +56,11 @@ export default async function handler(req, res) {
         
         const addData = await addRes.json();
         
-        // TorBox returns success: true or success: false
         if (!addData.success && !addData.detail?.includes("already exists")) {
             throw new Error(`TorBox rejected the magnet: ${JSON.stringify(addData)}`);
         }
 
-        // Step B: Check Torrent Status in your TorBox list
+        // Step B: Check Torrent Status
         const statusRes = await fetch("https://api.torbox.app/v1/api/torrents/mylist", {
             method: "GET",
             headers: { "Authorization": `Bearer ${TB_API_KEY}` }
@@ -71,14 +69,12 @@ export default async function handler(req, res) {
 
         if (!statusData.success) throw new Error("Failed to get TorBox torrent list.");
 
-        // Find the torrent we just added by its hash
         const myTorrent = statusData.data?.find(t => t.hash.toLowerCase() === hash);
         
         if (!myTorrent) {
             throw new Error("Torrent added successfully but hasn't appeared in TorBox list yet.");
         }
 
-        // Check if TorBox is still downloading the file
         if (myTorrent.download_state !== "completed" && myTorrent.download_state !== "cached") {
             return res.status(202).json({ 
                 success: false, 
@@ -87,11 +83,10 @@ export default async function handler(req, res) {
             });
         }
 
-        // Step C: Find the largest VIDEO file (the actual movie/episode)
+        // Step C: Find the largest VIDEO file
         const files = myTorrent.files || [];
         if (files.length === 0) throw new Error("TorBox finished, but no files were found.");
         
-        // Force TorBox to only look at actual video files (ignoring large .zip or .nfo files)
         const videoFiles = files.filter(f => {
             const name = (f.name || f.short_name || '').toLowerCase();
             return name.endsWith('.mp4') || name.endsWith('.mkv') || name.endsWith('.avi');
@@ -100,8 +95,7 @@ export default async function handler(req, res) {
         const targetFiles = videoFiles.length > 0 ? videoFiles : files;
         const bestFile = targetFiles.sort((a, b) => b.size - a.size)[0];
 
-        // Step D: Request the final playable stream link
-        // FIX: Passing the token in the URL parameter as TorBox prefers
+        // Step D: Request the final playable stream link safely
         const dlUrl = `https://api.torbox.app/v1/api/torrents/requestdl?token=${TB_API_KEY}&torrent_id=${myTorrent.id}&file_id=${bestFile.id}`;
         
         const dlRes = await fetch(dlUrl, {
@@ -109,16 +103,22 @@ export default async function handler(req, res) {
             headers: { "Authorization": `Bearer ${TB_API_KEY}` }
         });
         
-        const dlData = await dlRes.json();
+        const rawText = await dlRes.text();
+        let dlData;
+        
+        try {
+            dlData = JSON.parse(rawText);
+        } catch (parseError) {
+            throw new Error(`TorBox server crashed (Status: ${dlRes.status}). Response: ${rawText}`);
+        }
 
-        // FIX: Catch the EXACT error TorBox throws
         if (!dlData.success && !dlData.data) {
             throw new Error(`TorBox rejected the stream link. Reason: ${dlData.detail || JSON.stringify(dlData)}`);
         }
 
         const rawUrl = dlData.data;
 
-        // Route through your local proxy to bypass CORS/Mixed Content
+        // Route through your local proxy
         const protocol = req.headers['x-forwarded-proto'] || (req.headers.host.includes('localhost') ? 'http' : 'https');
         const proxyBase = `${protocol}://${req.headers.host}/api/proxy?url=`;
 
@@ -126,3 +126,8 @@ export default async function handler(req, res) {
             success: true, 
             streamUrl: `${proxyBase}${encodeURIComponent(rawUrl)}` 
         });
+
+    } catch (error) {
+        return res.status(500).json({ success: false, error: error.message });
+    }
+}
