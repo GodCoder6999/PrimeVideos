@@ -1,80 +1,46 @@
-import { gotScraping } from 'got-scraping';
+// File: api/streaming/get-stream.js
+import { checkDatabaseForManifest, publishTranscodeTask } from '../../lib/microservices';
 
 export default async function handler(req, res) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
-    if (req.method === 'OPTIONS') return res.status(200).end();
-
-    const { type, tmdbId, s, e } = req.query;
-
-    if (!type || !tmdbId) {
-        return res.status(400).json({ success: false, message: 'Missing parameters' });
-    }
+    const { type, id, season, episode } = req.query;
 
     try {
-        // 1. Convert TMDB ID to IMDb ID (Using standard fetch, TMDB doesn't block bots)
-        const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5";
-        const idRes = await fetch(`https://api.themoviedb.org/3/${type}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`);
-        const idData = await idRes.json();
-        const imdbId = idData.imdb_id;
+        // 1. Check Metadata/Database Service
+        // Does our system already have a transcoded ABS manifest for this content?
+        const existingStream = await checkDatabaseForManifest({ type, id, season, episode });
 
-        if (!imdbId) throw new Error("IMDb ID not found.");
-
-        // 2. The Domains
-        const domains = ['vidsrc.cc', 'vidsrc.rip', 'vidsrc.xyz', 'vidsrc.in', 'vidsrc.net', 'vidsrc.pro'];
-        let scrapeData = null;
-        let successfulDomain = null;
-
-        // 3. Match TLS/HTTP2 Fingerprints using Got Scraping
-        for (const domain of domains) {
-            try {
-                const searchUrl = type === 'tv' 
-                    ? `https://${domain}/vapi/episode/${imdbId}/${s}/${e}` 
-                    : `https://${domain}/vapi/movie/${imdbId}`;
-
-                // gotScraping AUTOMATICALLY spoofs the TLS handshake, ciphers, and HTTP/2 
-                // frames to look exactly like a real desktop browser.
-                const response = await gotScraping({
-                    url: searchUrl,
-                    responseType: 'json',
-                    headers: {
-                        "Referer": `https://${domain}/`
-                    },
-                    timeout: { request: 6000 } // Don't hang on dead domains
-                });
-                
-                // If Cloudflare lets us through, we get a 200 OK!
-                if (response.statusCode === 200 && response.body?.source) {
-                    scrapeData = response.body;
-                    successfulDomain = domain;
-                    break; 
-                }
-            } catch (err) {
-                console.log(`Cloudflare blocked ${domain} or it is offline. Trying next...`);
-            }
+        if (existingStream && existingStream.status === 'READY') {
+            // Content exists on our CDN/S3
+            return res.status(200).json({
+                success: true,
+                manifestUrl: existingStream.cdn_url, // e.g., https://cdn.yourdomain.com/hls/12345/master.m3u8
+                drm: existingStream.isEncrypted ? { licenseServer: existingStream.licenseServer } : null
+            });
         }
 
-        if (!scrapeData) {
-            throw new Error("Cloudflare's highest security level is active. TLS spoofing failed on all domains.");
+        if (existingStream && existingStream.status === 'PROCESSING') {
+            return res.status(202).json({
+                success: false,
+                status: 'processing',
+                message: 'Content is currently being transcoded by the FFmpeg workers.'
+            });
         }
 
-        // 4. Extract the Direct Link
-        const directLink = scrapeData.source[0].file || scrapeData.source[0].url; 
+        // 2. If not found, trigger the Discovery & Ingestion Microservice
+        // This pushes a task to RabbitMQ/Redis which your Python/Node scrapers will pick up
+        await publishTranscodeTask({
+            action: 'DISCOVER_AND_TRANSCODE',
+            payload: { type, id, season, episode }
+        });
 
-        if (!directLink) throw new Error(`Bypassed Cloudflare on ${successfulDomain}, but no video files were found.`);
-
-        // 5. Proxy the Manifest to bypass CORS in the browser
-        const protocol = req.headers['x-forwarded-proto'] || (req.headers.host.includes('localhost') ? 'http' : 'https');
-        const proxyBase = `${protocol}://${req.headers.host}/api/proxy?url=`;
-
-        return res.status(200).json({ 
-            success: true, 
-            streamUrl: `${proxyBase}${encodeURIComponent(directLink)}`,
-            provider: `VidCloud (TLS Spoof via ${successfulDomain})`,
-            format: "m3u8"
+        // Tell the player to wait/poll
+        return res.status(202).json({
+            success: false,
+            status: 'processing',
+            message: 'Content queued for discovery and ingestion.'
         });
 
     } catch (error) {
-        return res.status(500).json({ success: false, error: error.message });
+        return res.status(500).json({ success: false, message: 'Internal Orchestration Error' });
     }
 }
