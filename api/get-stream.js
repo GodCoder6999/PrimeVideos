@@ -7,9 +7,8 @@ export default async function handler(req, res) {
     const { type, tmdbId, s, e } = req.query;
     const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5";
     
-    // REPLACE THIS WITH YOUR ALLDEBRID API KEY
-    const AD_API_KEY = "GWYGgp4WbZazT153xWtJ"; 
-    const AD_AGENT = "prime"; // AllDebrid requires an agent name
+    // REPLACE THIS WITH YOUR TORBOX API KEY
+    const TB_API_KEY = "e6d1e168-3312-4de6-ac80-5480639e3b20"; 
 
     if (!type || !tmdbId) return res.status(400).json({ success: false, message: 'Missing parameters' });
 
@@ -36,83 +35,78 @@ export default async function handler(req, res) {
         const path = type === 'tv' ? `series/${imdbId}:${s}:${e}.json` : `movie/${imdbId}.json`;
         const tUrl = `https://torrentio.strem.fun/stream/${path}`;
         const kUrl = `https://knightcrawler.elfhosted.com/stream/${path}`;
-        const mUrl = `https://mediafusion.elfhosted.com/stream/${path}`;
 
-        const [tStreams, kStreams, mStreams] = await Promise.all([
-            fetchStream(tUrl), 
-            fetchStream(kUrl), 
-            fetchStream(mUrl)
-        ]);
-
-        const allStreams = [...tStreams, ...kStreams, ...mStreams].filter(st => st.infoHash);
+        const [tStreams, kStreams] = await Promise.all([fetchStream(tUrl), fetchStream(kUrl)]);
+        const allStreams = [...tStreams, ...kStreams].filter(st => st.infoHash);
         if (allStreams.length === 0) throw new Error("No streams found.");
 
         const bestStream = allStreams.find(st => !st.title?.toLowerCase().includes('hevc') && !st.title?.toLowerCase().includes('x265')) || allStreams[0];
         const hash = bestStream.infoHash.toLowerCase();
-
-        // 3. AllDebrid Flow
         const magnetLink = `magnet:?xt=urn:btih:${hash}`;
-        
-        // Step A: Upload Magnet to AllDebrid
-        const addUrl = `https://api.alldebrid.com/v4/magnet/upload?agent=${AD_AGENT}&apikey=${AD_API_KEY}&magnets[]=${encodeURIComponent(magnetLink)}`;
-        const addRes = await fetch(addUrl);
-        const addData = await addRes.json();
 
-        if (addData.status !== 'success') {
-            throw new Error(`AllDebrid rejected the magnet. Details: ${JSON.stringify(addData)}`);
+        // 3. TorBox Flow
+        // Step A: Add Torrent to TorBox
+        const addRes = await fetch("https://api.torbox.app/v1/api/torrents/createtorrent", {
+            method: "POST",
+            headers: { 
+                "Authorization": `Bearer ${TB_API_KEY}`,
+                "Content-Type": "application/x-www-form-urlencoded"
+            },
+            body: new URLSearchParams({ magnet: magnetLink })
+        });
+        
+        const addData = await addRes.json();
+        
+        // TorBox returns success: true or success: false
+        if (!addData.success && !addData.detail?.includes("already exists")) {
+            throw new Error(`TorBox rejected the magnet: ${JSON.stringify(addData)}`);
         }
 
-        const magnetId = addData.data.magnets[0].id;
-
-        // Step B: Check Magnet Status to get the file link
-        const statusUrl = `https://api.alldebrid.com/v4/magnet/status?agent=${AD_AGENT}&apikey=${AD_API_KEY}&id=${magnetId}`;
-        const statusRes = await fetch(statusUrl);
+        // Step B: Check Torrent Status in your TorBox list
+        const statusRes = await fetch("https://api.torbox.app/v1/api/torrents/mylist", {
+            method: "GET",
+            headers: { "Authorization": `Bearer ${TB_API_KEY}` }
+        });
         const statusData = await statusRes.json();
 
-        if (statusData.status !== 'success') throw new Error("Failed to get magnet status from AllDebrid.");
+        if (!statusData.success) throw new Error("Failed to get TorBox torrent list.");
 
-        const magnetInfo = statusData.data.magnets;
+        // Find the torrent we just added by its hash
+        const myTorrent = statusData.data?.find(t => t.hash.toLowerCase() === hash);
         
-        // statusCode 4 means "Ready" in AllDebrid
-        if (magnetInfo.statusCode !== 4) { 
-            return res.status(202).json({ success: false, isDownloading: true, message: "AllDebrid is downloading the torrent to their servers..." });
+        if (!myTorrent) {
+            throw new Error("Torrent added successfully but hasn't appeared in TorBox list yet.");
         }
 
-        if (!magnetInfo.links || magnetInfo.links.length === 0) {
-             throw new Error("AllDebrid finished downloading but found no playable video files.");
+        // Check if TorBox is still downloading the file
+        if (myTorrent.download_state !== "completed" && myTorrent.download_state !== "cached") {
+            return res.status(202).json({ 
+                success: false, 
+                isDownloading: true, 
+                message: `TorBox is downloading... Progress: ${myTorrent.progress || 0}%` 
+            });
         }
 
-        // Grab the largest file link (usually the main video file)
-        const fileLink = magnetInfo.links[0].link; 
+        // Step C: Find the largest file (the actual movie/episode)
+        const files = myTorrent.files || [];
+        if (files.length === 0) throw new Error("TorBox finished, but no files were found.");
+        
+        const bestFile = files.sort((a, b) => b.size - a.size)[0];
 
-        // Step C: Unrestrict the link to get the final playable stream URL
-        const unlockUrl = `https://api.alldebrid.com/v4/link/unlock?agent=${AD_AGENT}&apikey=${AD_API_KEY}&link=${encodeURIComponent(fileLink)}`;
-        const unlockRes = await fetch(unlockUrl);
-        const unlockData = await unlockRes.json();
+        // Step D: Request the final playable stream link
+        const dlRes = await fetch(`https://api.torbox.app/v1/api/torrents/requestdl?torrent_id=${myTorrent.id}&file_id=${bestFile.id}`, {
+            method: "GET",
+            headers: { "Authorization": `Bearer ${TB_API_KEY}` }
+        });
+        const dlData = await dlRes.json();
 
-        if (unlockData.status !== 'success') throw new Error(`AllDebrid failed to unlock link: ${unlockData.error?.message || 'Unknown Error'}`);
+        if (!dlData.success) throw new Error("TorBox failed to generate a stream link.");
 
-        const rawUrl = unlockData.data.link;
+        const rawUrl = dlData.data;
 
-        // NETMIRROR LOGIC: Rewrite Manifests / Route through Proxy
+        // Route through your local proxy to bypass CORS/Mixed Content
         const protocol = req.headers['x-forwarded-proto'] || (req.headers.host.includes('localhost') ? 'http' : 'https');
         const proxyBase = `${protocol}://${req.headers.host}/api/proxy?url=`;
-
-        if (rawUrl.includes('.m3u8')) {
-            const manifestRes = await fetch(rawUrl);
-            let manifestText = await manifestRes.text();
-            
-            const baseUrl = rawUrl.substring(0, rawUrl.lastIndexOf('/') + 1);
-
-            const updatedManifest = manifestText.replace(/^(?!#)(.*)$/gm, (match) => {
-                if (!match.trim()) return match;
-                const fullUrl = match.startsWith('http') ? match : `${baseUrl}${match}`;
-                return `${proxyBase}${encodeURIComponent(fullUrl)}`;
-            });
-
-            res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-            return res.status(200).send(updatedManifest);
-        }
 
         return res.status(200).json({ 
             success: true, 
