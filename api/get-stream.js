@@ -1,5 +1,8 @@
 import axios from 'axios';
 
+// Mimic a standard Chrome browser to bypass basic anti-bot firewalls
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
@@ -12,55 +15,104 @@ export default async function handler(req, res) {
     }
 
     try {
-        // 1. Fetch IMDb ID (Required by some aggregators)
+        // 1. Fetch IMDb ID (Crucial for some APIs)
         const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5";
         const tmdbRes = await axios.get(`https://api.themoviedb.org/3/${type}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`);
         const imdbId = tmdbRes.data.imdb_id;
 
-        // 2. Define our Aggregator Promises
+        if (!imdbId) throw new Error("IMDb ID not found.");
+
         const fetchPromises = [];
 
-        // --- Source 1: VidLink API (Currently very reliable) ---
+        // --- Source 1: VidLink API ---
         fetchPromises.push((async () => {
-            const url = type === 'tv' 
-                ? `https://vidlink.pro/api/video/tv/${tmdbId}/${s}/${e}`
-                : `https://vidlink.pro/api/video/movie/${tmdbId}`;
-            
-            const { data } = await axios.get(url, { timeout: 7000 });
-            const streamUrl = data?.stream_url || data?.source?.[0]?.file;
-            if (streamUrl) return { link: streamUrl, provider: "VidLink" };
-            throw new Error("VidLink failed");
+            try {
+                const url = type === 'tv' 
+                    ? `https://vidlink.pro/api/video/tv/${tmdbId}/${s}/${e}`
+                    : `https://vidlink.pro/api/video/movie/${tmdbId}`;
+                
+                const { data } = await axios.get(url, { 
+                    timeout: 7500,
+                    headers: { 'User-Agent': USER_AGENT, 'Referer': 'https://vidlink.pro/' }
+                });
+                
+                const streamUrl = data?.stream_url || data?.source?.[0]?.file || data?.sources?.[0]?.file;
+                if (streamUrl) return { link: streamUrl, provider: "VidLink" };
+                throw new Error("Stream data missing in response");
+            } catch (err) {
+                console.log(`[VidLink] Failed: ${err.message}`);
+                throw err;
+            }
         })());
 
         // --- Source 2: AutoEmbed API ---
-        if (imdbId) {
-            fetchPromises.push((async () => {
+        fetchPromises.push((async () => {
+            try {
                 const url = type === 'tv'
                     ? `https://autoembed.cc/api/getStreams?id=${imdbId}&s=${s}&e=${e}`
                     : `https://autoembed.cc/api/getStreams?id=${imdbId}`;
                 
-                const { data } = await axios.get(url, { timeout: 7000 });
-                const streamUrl = data?.data?.[0]?.file || data?.sources?.[0]?.file;
+                const { data } = await axios.get(url, { 
+                    timeout: 7500,
+                    headers: { 'User-Agent': USER_AGENT, 'Referer': 'https://autoembed.cc/' }
+                });
+                
+                const streamUrl = data?.data?.[0]?.file || data?.sources?.[0]?.file || data?.sources?.[0]?.url;
                 if (streamUrl) return { link: streamUrl, provider: "AutoEmbed" };
-                throw new Error("AutoEmbed failed");
-            })());
-        }
-
-        // --- Source 3: FlixQuest / Community API ---
-        fetchPromises.push((async () => {
-            let url = `https://flixquest-api.vercel.app/vidsrc/watch-${type}?tmdbId=${tmdbId}`;
-            if (type === 'tv') url += `&season=${s}&ep=${e}`;
-            
-            const { data } = await axios.get(url, { timeout: 7000 });
-            const streamUrl = data?.sources?.[0]?.url || data?.streamUrl;
-            if (streamUrl) return { link: streamUrl, provider: "FlixQuest" };
-            throw new Error("FlixQuest failed");
+                throw new Error("Stream data missing in response");
+            } catch (err) {
+                console.log(`[AutoEmbed] Failed: ${err.message}`);
+                throw err;
+            }
         })());
 
-        // 3. Race them! Promise.any resolves the millisecond ONE of them succeeds.
-        const winner = await Promise.any(fetchPromises);
+        // --- Source 3: VidSrc PRO API ---
+        fetchPromises.push((async () => {
+             try {
+                 const url = type === 'tv' 
+                    ? `https://vidsrc.pro/api/tv/${tmdbId}/${s}/${e}`
+                    : `https://vidsrc.pro/api/movie/${tmdbId}`;
+                    
+                const { data } = await axios.get(url, { 
+                    timeout: 7500,
+                    headers: { 'User-Agent': USER_AGENT, 'Referer': 'https://vidsrc.pro/' }
+                });
+                
+                const streamUrl = data?.stream_url || data?.source?.[0]?.file || data?.sources?.[0]?.file;
+                if (streamUrl) return { link: streamUrl, provider: "VidSrc PRO" };
+                throw new Error("Stream data missing in response");
+             } catch (err) {
+                 console.log(`[VidSrc PRO] Failed: ${err.message}`);
+                 throw err;
+             }
+        })());
+        
+        // --- Source 4: 8Stream Community API ---
+        fetchPromises.push((async () => {
+            try {
+                const url = type === 'tv' 
+                    ? `https://8-stream-api.vercel.app/api/tv?id=${imdbId}&s=${s}&e=${e}`
+                    : `https://8-stream-api.vercel.app/api/movie?id=${imdbId}`;
+                    
+                const { data } = await axios.get(url, { 
+                    timeout: 7500,
+                    headers: { 'User-Agent': USER_AGENT }
+                });
+                
+                const streamUrl = data?.url || data?.sources?.[0]?.url || data?.sources?.[0]?.file;
+                if (streamUrl) return { link: streamUrl, provider: "8StreamApi" };
+                throw new Error("Stream data missing in response");
+            } catch (err) {
+                 console.log(`[8StreamApi] Failed: ${err.message}`);
+                 throw err;
+            }
+        })());
 
-        // 4. Proxy the stream URL to bypass CORS blocks in the user's browser
+        // Race all sources at the exact same time
+        const winner = await Promise.any(fetchPromises);
+        console.log(`[SUCCESS] Stream found via ${winner.provider}`);
+
+        // Proxy the manifest to bypass CORS blocks in the browser
         const protocol = req.headers['x-forwarded-proto'] || (req.headers.host.includes('localhost') ? 'http' : 'https');
         const proxyBase = `${protocol}://${req.headers.host}/api/proxy?url=`;
 
@@ -72,8 +124,8 @@ export default async function handler(req, res) {
         });
 
     } catch (error) {
-        // If it gets down here, it means EVERY single aggregator failed to find the movie or timed out.
-        console.error("All aggregators failed.");
+        // This only fires if EVERY promise throws an error
+        console.error("[CRITICAL FAILURE] All aggregators exhausted.");
         return res.status(500).json({ 
             success: false, 
             error: "All streaming sources are currently offline or blocked for this title. Please try another movie." 
