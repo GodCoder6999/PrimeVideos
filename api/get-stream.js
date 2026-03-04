@@ -7,7 +7,7 @@ export default async function handler(req, res) {
     const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5";
     
     // REPLACE THIS WITH YOUR TORBOX API KEY
-    const TB_API_KEY = "PASTE_YOUR_TORBOX_KEY_HERE"; 
+    const TB_API_KEY = "e6d1e168-3312-4de6-ac80-5480639e3b20"; 
 
     if (!type || !tmdbId) return res.status(400).json({ success: false, message: 'Missing parameters' });
 
