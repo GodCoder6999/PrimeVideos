@@ -31,10 +31,10 @@ export default async function handler(req, res) {
 
         console.log(`[Remote Puppeteer] Connecting to Browserless for: ${targetUrl}`);
 
-        // 2. Connect to the Remote Browser (ZERO Vercel OS Errors)
+        // 2. Connect to the Remote Browser
         browser = await puppeteer.connect({
             browserWSEndpoint: `wss://chrome.browserless.io?token=${BROWSERLESS_API_KEY}`,
-            defaultViewport: { width: 1920, height: 1080 }
+            defaultViewport: { width: 1920, height: 1080 } // Set exact 1080p resolution for accurate clicking
         });
 
         const page = await browser.newPage();
@@ -47,7 +47,7 @@ export default async function handler(req, res) {
         page.on('request', (request) => {
             const url = request.url();
 
-            // Lock onto the m3u8 file the moment it's generated
+            // Lock onto the m3u8 file or the specific worker domain you found
             if (url.includes('.m3u8') || url.includes('fatherlessdad.workers.dev')) {
                 if (!url.includes('audio') && !url.includes('subtitles')) {
                     extractedM3u8 = url;
@@ -55,19 +55,35 @@ export default async function handler(req, res) {
                 }
             }
 
-            // Block heavy elements to keep the scrape under Vercel's timeout
-            if (['image', 'stylesheet', 'font', 'media'].includes(request.resourceType()) && !url.includes('.m3u8')) {
+            // ONLY block images and fonts. Do not block CSS or Media, otherwise the player won't render the play button!
+            if (['image', 'font'].includes(request.resourceType())) {
                 request.abort();
             } else {
                 request.continue();
             }
         });
 
-        // 4. Load the page and wait for the network request
-        await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 8000 }).catch(() => {});
+        // 4. Load the page
+        await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 7000 }).catch(() => {});
 
+        // 🚀 THE FIX: Simulating Human Interaction
+        // We wait a brief moment for the player to initialize, then click the center of the screen
+        console.log("[Puppeteer] Page loaded. Simulating Play button click...");
+        try {
+            await new Promise(r => setTimeout(r, 1000));
+            // Click the exact center of our 1920x1080 viewport
+            await page.mouse.click(960, 540); 
+            
+            // Wait 500ms and click again just in case the first click triggered an ad-overlay
+            await new Promise(r => setTimeout(r, 500));
+            await page.mouse.click(960, 540); 
+        } catch (clickErr) {
+            console.log("Mouse click failed, continuing anyway...");
+        }
+
+        // 5. Wait for the network request to fire after our click
         let waitLoops = 0;
-        while (!extractedM3u8 && waitLoops < 15) { 
+        while (!extractedM3u8 && waitLoops < 20) {  // Give it up to 4 seconds after the click to fetch the video
             await new Promise(r => setTimeout(r, 200));
             waitLoops++;
         }
@@ -75,10 +91,10 @@ export default async function handler(req, res) {
         await browser.close();
 
         if (!extractedM3u8) {
-            throw new Error("Page loaded, but no m3u8 was requested by the embed player.");
+            throw new Error("Clicked the play button, but the player still did not request the .m3u8 file.");
         }
 
-        // 5. Proxy the link back to your PrimePlayer
+        // 6. Proxy the link back to your PrimePlayer
         const protocol = req.headers['x-forwarded-proto'] || (req.headers.host.includes('localhost') ? 'http' : 'https');
         const proxyBase = `${protocol}://${req.headers.host}/api/proxy?url=`;
 
