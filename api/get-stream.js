@@ -23,7 +23,7 @@ export default async function handler(req, res) {
             ? `https://vidsrc.cc/vapi/episode/${imdbId}/${s}/${e}` 
             : `https://vidsrc.cc/vapi/movie/${imdbId}`;
 
-        const ZENROWS_API_KEY = "YOUR_ZENROWS_API_KEY"; 
+        const ZENROWS_API_KEY = "6bc46d18cdcb59931e895ba2658e883301541eea"; 
         
         const response = await axios({
             url: 'https://api.zenrows.com/v1/',
