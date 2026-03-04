@@ -1,4 +1,93 @@
-// Step C: Find the largest VIDEO file (the actual movie/episode)
+// File: api/get-stream.js
+export default async function handler(req, res) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+    if (req.method === 'OPTIONS') return res.status(200).end();
+
+    const { type, tmdbId, s, e } = req.query;
+    const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5";
+    
+    // REPLACE THIS WITH YOUR TORBOX API KEY
+    const TB_API_KEY = "PASTE_YOUR_TORBOX_KEY_HERE"; 
+
+    if (!type || !tmdbId) return res.status(400).json({ success: false, message: 'Missing parameters' });
+
+    try {
+        // 1. Get IMDb ID
+        const idRes = await fetch(`https://api.themoviedb.org/3/${type}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`);
+        const idData = await idRes.json();
+        const imdbId = idData.imdb_id;
+        
+        if (!imdbId) throw new Error("IMDb ID not found.");
+
+        // 2. Fetch streams from trackers
+        const fetchStream = async (url) => {
+            try {
+                const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+                if (!r.ok) return [];
+                const d = await r.json();
+                return d.streams || [];
+            } catch (error) { 
+                return []; 
+            }
+        };
+
+        const path = type === 'tv' ? `series/${imdbId}:${s}:${e}.json` : `movie/${imdbId}.json`;
+        const tUrl = `https://torrentio.strem.fun/stream/${path}`;
+        const kUrl = `https://knightcrawler.elfhosted.com/stream/${path}`;
+
+        const [tStreams, kStreams] = await Promise.all([fetchStream(tUrl), fetchStream(kUrl)]);
+        const allStreams = [...tStreams, ...kStreams].filter(st => st.infoHash);
+        if (allStreams.length === 0) throw new Error("No streams found.");
+
+        const bestStream = allStreams.find(st => !st.title?.toLowerCase().includes('hevc') && !st.title?.toLowerCase().includes('x265')) || allStreams[0];
+        const hash = bestStream.infoHash.toLowerCase();
+        const magnetLink = `magnet:?xt=urn:btih:${hash}`;
+
+        // 3. TorBox Flow
+        // Step A: Add Torrent to TorBox
+        const addRes = await fetch("https://api.torbox.app/v1/api/torrents/createtorrent", {
+            method: "POST",
+            headers: { 
+                "Authorization": `Bearer ${TB_API_KEY}`,
+                "Content-Type": "application/x-www-form-urlencoded"
+            },
+            body: new URLSearchParams({ magnet: magnetLink })
+        });
+        
+        const addData = await addRes.json();
+        
+        // TorBox returns success: true or success: false
+        if (!addData.success && !addData.detail?.includes("already exists")) {
+            throw new Error(`TorBox rejected the magnet: ${JSON.stringify(addData)}`);
+        }
+
+        // Step B: Check Torrent Status in your TorBox list
+        const statusRes = await fetch("https://api.torbox.app/v1/api/torrents/mylist", {
+            method: "GET",
+            headers: { "Authorization": `Bearer ${TB_API_KEY}` }
+        });
+        const statusData = await statusRes.json();
+
+        if (!statusData.success) throw new Error("Failed to get TorBox torrent list.");
+
+        // Find the torrent we just added by its hash
+        const myTorrent = statusData.data?.find(t => t.hash.toLowerCase() === hash);
+        
+        if (!myTorrent) {
+            throw new Error("Torrent added successfully but hasn't appeared in TorBox list yet.");
+        }
+
+        // Check if TorBox is still downloading the file
+        if (myTorrent.download_state !== "completed" && myTorrent.download_state !== "cached") {
+            return res.status(202).json({ 
+                success: false, 
+                isDownloading: true, 
+                message: `TorBox is downloading... Progress: ${myTorrent.progress || 0}%` 
+            });
+        }
+
+        // Step C: Find the largest VIDEO file (the actual movie/episode)
         const files = myTorrent.files || [];
         if (files.length === 0) throw new Error("TorBox finished, but no files were found.");
         
