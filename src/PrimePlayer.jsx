@@ -35,88 +35,70 @@ const PrimePlayer = ({ tmdbId, title, mediaType, season, episode }) => {
   const [showXRay, setShowXRay] = useState(false);
   const [uiVisible, setUiVisible] = useState(true);
 
-  // 1. Fetch Stream & Cast (CLIENT-SIDE EXECUTION BYPASS)
+  // 1. Fetch Stream & Cast (CLIENT-SIDE FREE HOSTER SCRAPER)
   useEffect(() => {
     let isMounted = true;
-    
-    // REPLACE WITH YOUR ALLEDBRID API KEY
-    const AD_API_KEY = "GWYGgp4WbZazT153xWtJ"; 
-    const AD_AGENT = "primevideos";
 
     const fetchData = async () => {
       try {
-        // Fetch Cast Data (Unchanged)
+        // Fetch Cast Data
         fetch(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}/credits?api_key=${TMDB_KEY}`)
             .then(res => res.json())
             .then(cData => { if (isMounted) setCast(cData.cast?.slice(0, 15) || []); });
 
         // Step A: Get IMDb ID
-        setDownloadProgressMsg("Resolving Movie ID...");
+        setDownloadProgressMsg("Resolving IMDb ID...");
         const idRes = await fetch(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}/external_ids?api_key=${TMDB_KEY}`);
         const idData = await idRes.json();
         const imdbId = idData.imdb_id;
+        
         if (!imdbId) throw new Error("IMDb ID not found");
 
-        // Step B: Scrape Torrentio DIRECTLY from the user's browser
-        setDownloadProgressMsg("Scraping Torrentio...");
-        const tUrl = mediaType === 'tv' 
-            ? `https://torrentio.strem.fun/stream/series/${imdbId}:${season}:${episode}.json` 
-            : `https://torrentio.strem.fun/stream/movie/${imdbId}.json`;
+        // Step B: Scrape Hosters directly from the Browser (Bypasses Vercel Cloudflare blocks)
+        setDownloadProgressMsg("Scraping Free Hosters (VidCloud/UpCloud)...");
+
+        // We use multiple domains to ensure at least one is online
+        const domains = ['vidsrc.cc', 'vidsrc.rip', 'vidsrc.in', 'vidsrc.net', 'vidsrc.xyz'];
         
-        const tRes = await fetch(tUrl);
-        const tData = await tRes.json();
-        const streams = tData.streams || [];
-        
-        // Strict MP4 filter to ensure the browser doesn't get a black MKV screen
-        let bestStream = streams.find(st => st.title?.toLowerCase().includes('mp4') && !st.title?.toLowerCase().includes('hevc'));
-        if (!bestStream) bestStream = streams[0]; // Fallback if no MP4 found
-        if (!bestStream) throw new Error("No streams found on Torrentio.");
-        
-        const hash = bestStream.infoHash.toLowerCase();
-        const magnet = `magnet:?xt=urn:btih:${hash}`;
+        const fetchHosterLink = async (domain, useAllOrigins = false) => {
+            const targetUrl = mediaType === 'tv' 
+                ? `https://${domain}/vapi/episode/${imdbId}/${season}/${episode}` 
+                : `https://${domain}/vapi/movie/${imdbId}`;
+            
+            // We use public CORS proxies because browsers block direct API calls to different domains
+            const proxyUrl = useAllOrigins 
+                ? `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`
+                : `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`;
+                
+            const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(8000) });
+            if (!res.ok) throw new Error("Blocked or Offline");
+            
+            const data = await res.json();
+            const directLink = data?.source?.[0]?.file || data?.source?.[0]?.url;
+            
+            if (!directLink) throw new Error("No video file found");
+            return directLink; // Returns the raw .m3u8 link
+        };
 
-        // Step C: Send Magnet to AllDebrid
-        setDownloadProgressMsg("Bypassing servers via AllDebrid...");
-        const addUrl = `https://api.alldebrid.com/v4/magnet/upload?agent=${AD_AGENT}&apikey=${AD_API_KEY}&magnets[]=${encodeURIComponent(magnet)}`;
-        const addRes = await fetch(addUrl);
-        const addData = await addRes.json();
-        
-        if (addData.status !== 'success') throw new Error("AllDebrid rejected magnet. Check API Key.");
-        const magnetId = addData.data.magnets[0].id;
+        // Step C: The Shotgun Race 
+        // Fires 10 requests at once. The first one to bypass Cloudflare and return an .m3u8 wins!
+        const tasks = [];
+        domains.forEach(d => {
+            tasks.push(fetchHosterLink(d, false)); // Try via corsproxy
+            tasks.push(fetchHosterLink(d, true));  // Try via allorigins
+        });
 
-        // Step D: Check AllDebrid Status
-        const statusUrl = `https://api.alldebrid.com/v4/magnet/status?agent=${AD_AGENT}&apikey=${AD_API_KEY}&id=${magnetId}`;
-        const statusRes = await fetch(statusUrl);
-        const statusData = await statusRes.json();
-        const magnetInfo = statusData.data.magnets;
+        const finalStreamUrl = await Promise.any(tasks);
 
-        // statusCode 4 = Ready to play
-        if (magnetInfo.statusCode !== 4) {
-            setDownloadProgressMsg("AllDebrid caching to their server (Retrying)...");
-            setTimeout(fetchData, 4000); // Check again in 4 seconds
-            return;
-        }
-
-        if (!magnetInfo.links || magnetInfo.links.length === 0) throw new Error("No video files found in torrent.");
-        const fileLink = magnetInfo.links[0].link; // Grab the main video file
-
-        // Step E: Unlock the final stream link
-        setDownloadProgressMsg("Generating final stream URL...");
-        const unlockUrl = `https://api.alldebrid.com/v4/link/unlock?agent=${AD_AGENT}&apikey=${AD_API_KEY}&link=${encodeURIComponent(fileLink)}`;
-        const unlockRes = await fetch(unlockUrl);
-        const unlockData = await unlockRes.json();
-        
-        if (unlockData.status !== 'success') throw new Error("Failed to unlock stream link.");
-
-        // Stream is ready! Pass it to the video player and remove the loading spinner
+        // Step D: Send the .m3u8 directly to your HLS.js video player
         if (isMounted) {
-            setStreamUrl(unlockData.data.link);
+            setStreamUrl(finalStreamUrl);
             setIsFetching(false);
         }
 
       } catch (err) {
         if (isMounted) {
-            setError(err.message);
+            setError("All free scrapers are currently blocked by Cloudflare. Please try again later.");
             setIsFetching(false);
         }
       }
@@ -125,7 +107,6 @@ const PrimePlayer = ({ tmdbId, title, mediaType, season, episode }) => {
     fetchData();
     return () => { isMounted = false; };
   }, [tmdbId, mediaType, season, episode]);
-
   // 3. HLS Setup & Teardown
   useEffect(() => {
     if (!streamUrl || !videoRef.current) return;
