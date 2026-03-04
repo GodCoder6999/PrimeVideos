@@ -7,7 +7,7 @@ export default async function handler(req, res) {
     const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5";
     
     // REPLACE THIS WITH YOUR TORBOX API KEY
-    const TB_API_KEY = "e6d1e168-3312-4de6-ac80-5480639e3b20"; 
+    const TB_API_KEY = "PASTE_YOUR_TORBOX_KEY_HERE"; 
 
     if (!type || !tmdbId) return res.status(400).json({ success: false, message: 'Missing parameters' });
 
@@ -39,7 +39,18 @@ export default async function handler(req, res) {
         const allStreams = [...tStreams, ...kStreams].filter(st => st.infoHash);
         if (allStreams.length === 0) throw new Error("No streams found.");
 
-        const bestStream = allStreams.find(st => !st.title?.toLowerCase().includes('hevc') && !st.title?.toLowerCase().includes('x265')) || allStreams[0];
+        // Find a stream that explicitly says MP4, avoiding HEVC/x265 formats
+        let bestStream = allStreams.find(st => 
+            !st.title?.toLowerCase().includes('hevc') && 
+            !st.title?.toLowerCase().includes('x265') && 
+            st.title?.toLowerCase().includes('mp4')
+        );
+
+        // Fallback if no specific mp4 is found
+        if (!bestStream) {
+            bestStream = allStreams.find(st => !st.title?.toLowerCase().includes('hevc') && !st.title?.toLowerCase().includes('x265')) || allStreams[0];
+        }
+
         const hash = bestStream.infoHash.toLowerCase();
         const magnetLink = `magnet:?xt=urn:btih:${hash}`;
 
@@ -87,12 +98,18 @@ export default async function handler(req, res) {
         const files = myTorrent.files || [];
         if (files.length === 0) throw new Error("TorBox finished, but no files were found.");
         
-        const videoFiles = files.filter(f => {
+        // STRICT BROWSER FILTER: Browsers cannot play .mkv files natively. 
+        // We MUST prioritize .mp4 files so the screen doesn't go black.
+        const mp4Files = files.filter(f => (f.name || f.short_name || '').toLowerCase().endsWith('.mp4'));
+        
+        // If no MP4 exists, fallback to whatever video is available (hoping the browser handles it)
+        let targetFiles = mp4Files.length > 0 ? mp4Files : files.filter(f => {
             const name = (f.name || f.short_name || '').toLowerCase();
-            return name.endsWith('.mp4') || name.endsWith('.mkv') || name.endsWith('.avi');
+            return name.endsWith('.mkv') || name.endsWith('.avi');
         });
         
-        const targetFiles = videoFiles.length > 0 ? videoFiles : files;
+        if (targetFiles.length === 0) targetFiles = files; // Absolute fallback
+
         const bestFile = targetFiles.sort((a, b) => b.size - a.size)[0];
 
         // Step D: Request the final playable stream link safely
@@ -118,13 +135,11 @@ export default async function handler(req, res) {
 
         const rawUrl = dlData.data;
 
-        // Route through your local proxy
-        const protocol = req.headers['x-forwarded-proto'] || (req.headers.host.includes('localhost') ? 'http' : 'https');
-        const proxyBase = `${protocol}://${req.headers.host}/api/proxy?url=`;
-
+        // CRITICAL FIX: DO NOT PROXY THE URL.
+        // Send the raw, high-speed TorBox CDN link directly to the frontend player.
         return res.status(200).json({ 
             success: true, 
-            streamUrl: `${proxyBase}${encodeURIComponent(rawUrl)}` 
+            streamUrl: rawUrl 
         });
 
     } catch (error) {
