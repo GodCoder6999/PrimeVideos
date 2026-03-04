@@ -40,7 +40,7 @@ const PrimePlayer = ({ tmdbId, title, mediaType, season, episode }) => {
     let isMounted = true;
     
     // REPLACE WITH YOUR ALLEDBRID API KEY
-    const AD_API_KEY = "PASTE_YOUR_ALLDEBRID_KEY_HERE"; 
+    const AD_API_KEY = "GWYGgp4WbZazT153xWtJ"; 
     const AD_AGENT = "primevideos";
 
     const fetchData = async () => {
