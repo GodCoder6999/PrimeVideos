@@ -35,60 +35,96 @@ const PrimePlayer = ({ tmdbId, title, mediaType, season, episode }) => {
   const [showXRay, setShowXRay] = useState(false);
   const [uiVisible, setUiVisible] = useState(true);
 
-  // 1. Fetch Stream & Cast
+  // 1. Fetch Stream & Cast (CLIENT-SIDE EXECUTION BYPASS)
   useEffect(() => {
     let isMounted = true;
+    
+    // REPLACE WITH YOUR ALLEDBRID API KEY
+    const AD_API_KEY = "PASTE_YOUR_ALLDEBRID_KEY_HERE"; 
+    const AD_AGENT = "primevideos";
+
     const fetchData = async () => {
       try {
-        const [sRes, cRes] = await Promise.all([
-          fetch(`/api/get-stream?type=${mediaType}&tmdbId=${tmdbId}&s=${season}&e=${episode}`),
-          fetch(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}/credits?api_key=${TMDB_KEY}`)
-        ]);
-        const sData = await sRes.json();
-        const cData = await cRes.json();
+        // Fetch Cast Data (Unchanged)
+        fetch(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}/credits?api_key=${TMDB_KEY}`)
+            .then(res => res.json())
+            .then(cData => { if (isMounted) setCast(cData.cast?.slice(0, 15) || []); });
 
-        if (!isMounted) return;
+        // Step A: Get IMDb ID
+        setDownloadProgressMsg("Resolving Movie ID...");
+        const idRes = await fetch(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}/external_ids?api_key=${TMDB_KEY}`);
+        const idData = await idRes.json();
+        const imdbId = idData.imdb_id;
+        if (!imdbId) throw new Error("IMDb ID not found");
 
-        if (sData.success) {
-          setStreamUrl(sData.streamUrl);
-          setCast(cData.cast?.slice(0, 15) || []);
-          setIsFetching(false);
-        } else if (sData.isDownloading) {
-          setDownloadProgressMsg(sData.message || "Caching to server..."); // UPDATE UI TEXT
-          setTimeout(fetchData, 3000);
-        } else {
-          setError(sData.error || "Failed to locate stream.");
-          setIsFetching(false);
+        // Step B: Scrape Torrentio DIRECTLY from the user's browser
+        setDownloadProgressMsg("Scraping Torrentio...");
+        const tUrl = mediaType === 'tv' 
+            ? `https://torrentio.strem.fun/stream/series/${imdbId}:${season}:${episode}.json` 
+            : `https://torrentio.strem.fun/stream/movie/${imdbId}.json`;
+        
+        const tRes = await fetch(tUrl);
+        const tData = await tRes.json();
+        const streams = tData.streams || [];
+        
+        // Strict MP4 filter to ensure the browser doesn't get a black MKV screen
+        let bestStream = streams.find(st => st.title?.toLowerCase().includes('mp4') && !st.title?.toLowerCase().includes('hevc'));
+        if (!bestStream) bestStream = streams[0]; // Fallback if no MP4 found
+        if (!bestStream) throw new Error("No streams found on Torrentio.");
+        
+        const hash = bestStream.infoHash.toLowerCase();
+        const magnet = `magnet:?xt=urn:btih:${hash}`;
+
+        // Step C: Send Magnet to AllDebrid
+        setDownloadProgressMsg("Bypassing servers via AllDebrid...");
+        const addUrl = `https://api.alldebrid.com/v4/magnet/upload?agent=${AD_AGENT}&apikey=${AD_API_KEY}&magnets[]=${encodeURIComponent(magnet)}`;
+        const addRes = await fetch(addUrl);
+        const addData = await addRes.json();
+        
+        if (addData.status !== 'success') throw new Error("AllDebrid rejected magnet. Check API Key.");
+        const magnetId = addData.data.magnets[0].id;
+
+        // Step D: Check AllDebrid Status
+        const statusUrl = `https://api.alldebrid.com/v4/magnet/status?agent=${AD_AGENT}&apikey=${AD_API_KEY}&id=${magnetId}`;
+        const statusRes = await fetch(statusUrl);
+        const statusData = await statusRes.json();
+        const magnetInfo = statusData.data.magnets;
+
+        // statusCode 4 = Ready to play
+        if (magnetInfo.statusCode !== 4) {
+            setDownloadProgressMsg("AllDebrid caching to their server (Retrying)...");
+            setTimeout(fetchData, 4000); // Check again in 4 seconds
+            return;
         }
+
+        if (!magnetInfo.links || magnetInfo.links.length === 0) throw new Error("No video files found in torrent.");
+        const fileLink = magnetInfo.links[0].link; // Grab the main video file
+
+        // Step E: Unlock the final stream link
+        setDownloadProgressMsg("Generating final stream URL...");
+        const unlockUrl = `https://api.alldebrid.com/v4/link/unlock?agent=${AD_AGENT}&apikey=${AD_API_KEY}&link=${encodeURIComponent(fileLink)}`;
+        const unlockRes = await fetch(unlockUrl);
+        const unlockData = await unlockRes.json();
+        
+        if (unlockData.status !== 'success') throw new Error("Failed to unlock stream link.");
+
+        // Stream is ready! Pass it to the video player and remove the loading spinner
+        if (isMounted) {
+            setStreamUrl(unlockData.data.link);
+            setIsFetching(false);
+        }
+
       } catch (err) {
-        if (isMounted) setIsFetching(false);
+        if (isMounted) {
+            setError(err.message);
+            setIsFetching(false);
+        }
       }
     };
+
     fetchData();
     return () => { isMounted = false; };
   }, [tmdbId, mediaType, season, episode]);
-
-  // 2. Save Progress
-  useEffect(() => {
-    if (!videoRef.current || isFetching) return;
-    const saveProgress = () => {
-      const video = videoRef.current;
-      if (video.currentTime === 0) return;
-      const allProgress = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
-      const key = `${mediaType === 'tv' ? 't' : 'm'}${tmdbId}`;
-      allProgress[key] = {
-        id: tmdbId,
-        type: mediaType,
-        last_updated: Date.now(),
-        progress: { watched: video.currentTime, duration: video.duration },
-        last_season_watched: season,
-        last_episode_watched: episode
-      };
-      localStorage.setItem('vidFastProgress', JSON.stringify(allProgress));
-    };
-    const interval = setInterval(saveProgress, 5000);
-    return () => { saveProgress(); clearInterval(interval); };
-  }, [tmdbId, mediaType, season, episode, isFetching]);
 
   // 3. HLS Setup & Teardown
   useEffect(() => {
