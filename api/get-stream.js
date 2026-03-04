@@ -12,77 +12,58 @@ export default async function handler(req, res) {
     }
 
     try {
-        // 1. Get the actual Movie Title and Year from TMDB
+        // 1. Get the Title and Year from TMDB
         const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5";
-        const tmdbUrl = type === 'tv' 
-            ? `https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${TMDB_API_KEY}` 
-            : `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${TMDB_API_KEY}`;
-            
-        const tmdbRes = await axios.get(tmdbUrl);
+        const tmdbRes = await axios.get(`https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}`);
+        
         const title = type === 'tv' ? tmdbRes.data.name : tmdbRes.data.title;
         const year = type === 'tv' 
             ? tmdbRes.data.first_air_date?.split('-')[0] 
             : tmdbRes.data.release_date?.split('-')[0];
 
-        if (!title) throw new Error("Could not find title for this TMDB ID.");
+        if (!title) throw new Error("Could not find title.");
 
-        console.log(`[OD Scraper] Hunting for: ${title} (${year})`);
+        console.log(`[DuckDuckGo OD] Hunting for: ${title} (${year})`);
 
-        // 2. 🛑 PASTE YOUR GOOGLE API CREDENTIALS HERE 🛑
-        const GOOGLE_API_KEY = "YOUR_GOOGLE_API_KEY";
-        const GOOGLE_CX_ID = "YOUR_SEARCH_ENGINE_CX_ID";
+        // 2. The Search Query (Looking for exposed mp4/mkv files)
+        const dorkQuery = `intitle:"index of" +(mp4|mkv) +"${title}" +"${year}"`;
+        const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(dorkQuery)}`;
 
-        // 3. Construct the Google Dork
-        // We force "https" to prevent browser Mixed Content errors, and look for mp4/mkv
-        const dorkQuery = `inurl:https intitle:"index of" +(mp4|mkv) +"${title}" +"${year}" -inurl:(jsp|pl|php|html|aspx|htm|cf|shtml)`;
+        // 3. Scrape DuckDuckGo (No API Key Required!)
+        const { data } = await axios.get(ddgUrl, {
+            headers: { 
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'Accept-Language': 'en-US,en;q=0.9'
+            },
+            timeout: 8000
+        });
 
-        // 4. Execute the Search
-        const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_API_KEY}&cx=${GOOGLE_CX_ID}&q=${encodeURIComponent(dorkQuery)}`;
-        const searchRes = await axios.get(searchUrl);
+        // 4. Extract the hidden links from DuckDuckGo's HTML
+        // DuckDuckGo wraps search results in a redirect link (e.g., //duckduckgo.com/l/?uddg=https://...)
+        // This Regex pulls the actual direct URL out of that wrapper.
+        const links = [...data.matchAll(/uddg=([^&]+)/g)].map(match => decodeURIComponent(match[1]));
 
-        const items = searchRes.data.items || [];
-
-        if (items.length === 0) {
-            throw new Error("Google found no Open Directories for this title.");
-        }
-
-        // 5. Aggressive Link Extraction
-        // We scan the search results (both titles and snippets) for the direct video link
-        let directVideoUrl = null;
-        
-        for (const item of items) {
-            // Check the main link
-            if (item.link.match(/\.(mp4|mkv)$/i)) {
-                directVideoUrl = item.link;
-                break;
-            }
-            
-            // Check the snippet (sometimes the direct file link is in the text preview)
-            const snippetMatch = item.snippet.match(/https?:\/\/[^\s"'<>]+\.(mp4|mkv)/i);
-            if (snippetMatch) {
-                directVideoUrl = snippetMatch[0];
-                break;
-            }
-        }
+        // 5. Find the first link that is actually a video file
+        const directVideoUrl = links.find(link => link.match(/\.(mp4|mkv|avi)$/i));
 
         if (!directVideoUrl) {
-             throw new Error("Found directories, but could not extract a direct .mp4 or .mkv link from the search snippet.");
+            throw new Error("No raw video files found on the open internet for this title.");
         }
 
-        console.log(`[SUCCESS] Found OD Link: ${directVideoUrl}`);
+        console.log(`[SUCCESS] Found Raw File: ${directVideoUrl}`);
 
         return res.status(200).json({ 
             success: true, 
             streamUrl: directVideoUrl,
-            provider: "Open Directory Scraper",
-            format: directVideoUrl.endsWith('.mkv') ? "mkv" : "mp4" // Let the frontend know it's a raw file, not m3u8
+            provider: "Open Directory (Direct File)",
+            format: directVideoUrl.endsWith('.mkv') ? "mkv" : "mp4" 
         });
 
     } catch (error) {
-        console.error("[OD Error]:", error.message);
+        console.error("[Search Error]:", error.message);
         return res.status(500).json({ 
             success: false, 
-            error: `Failed to locate an Open Directory for this title.` 
+            error: "Could not find a direct raw file for this movie." 
         });
     }
 }
