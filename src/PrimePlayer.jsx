@@ -35,7 +35,7 @@ const PrimePlayer = ({ tmdbId, title, mediaType, season, episode }) => {
   const [showXRay, setShowXRay] = useState(false);
   const [uiVisible, setUiVisible] = useState(true);
 
-  // 1. Fetch Stream & Cast (CLIENT-SIDE FREE HOSTER SCRAPER)
+  // 1. Fetch Stream & Cast (OPEN COMMUNITY API SCRAPER)
   useEffect(() => {
     let isMounted = true;
 
@@ -47,47 +47,57 @@ const PrimePlayer = ({ tmdbId, title, mediaType, season, episode }) => {
             .then(cData => { if (isMounted) setCast(cData.cast?.slice(0, 15) || []); });
 
         // Step A: Get IMDb ID
-        setDownloadProgressMsg("Resolving IMDb ID...");
+        setDownloadProgressMsg("Resolving Movie IDs...");
         const idRes = await fetch(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}/external_ids?api_key=${TMDB_KEY}`);
         const idData = await idRes.json();
         const imdbId = idData.imdb_id;
         
         if (!imdbId) throw new Error("IMDb ID not found");
 
-        // Step B: Scrape Hosters directly from the Browser (Bypasses Vercel Cloudflare blocks)
-        setDownloadProgressMsg("Scraping Free Hosters (VidCloud/UpCloud)...");
+        setDownloadProgressMsg("Connecting to Open Streaming APIs...");
 
-        // We use multiple domains to ensure at least one is online
-        const domains = ['vidsrc.cc', 'vidsrc.rip', 'vidsrc.in', 'vidsrc.net', 'vidsrc.xyz'];
-        
-        const fetchHosterLink = async (domain, useAllOrigins = false) => {
-            const targetUrl = mediaType === 'tv' 
-                ? `https://${domain}/vapi/episode/${imdbId}/${season}/${episode}` 
-                : `https://${domain}/vapi/movie/${imdbId}`;
-            
-            // We use public CORS proxies because browsers block direct API calls to different domains
-            const proxyUrl = useAllOrigins 
-                ? `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`
-                : `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`;
-                
-            const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(8000) });
-            if (!res.ok) throw new Error("Blocked or Offline");
-            
-            const data = await res.json();
-            const directLink = data?.source?.[0]?.file || data?.source?.[0]?.url;
-            
-            if (!directLink) throw new Error("No video file found");
-            return directLink; // Returns the raw .m3u8 link
-        };
-
-        // Step C: The Shotgun Race 
-        // Fires 10 requests at once. The first one to bypass Cloudflare and return an .m3u8 wins!
+        // Step B: The Open API Race
+        // We bypass Cloudflare by querying open-source wrapper APIs that have CORS natively enabled.
         const tasks = [];
-        domains.forEach(d => {
-            tasks.push(fetchHosterLink(d, false)); // Try via corsproxy
-            tasks.push(fetchHosterLink(d, true));  // Try via allorigins
-        });
+        
+        // API 1: FlixQuest (VidSrc Provider)
+        const flixVidSrc = mediaType === 'tv' 
+            ? `https://flixquest-api.vercel.app/vidsrc/watch-tv?tmdbId=${tmdbId}&season=${season}&episode=${episode}`
+            : `https://flixquest-api.vercel.app/vidsrc/watch-movie?tmdbId=${tmdbId}`;
+        
+        tasks.push(
+            fetch(flixVidSrc, { signal: AbortSignal.timeout(8000) })
+                .then(r => r.json())
+                .then(d => { if (d?.sources?.[0]?.url) return d.sources[0].url; throw new Error("No link"); })
+        );
 
+        // API 2: FlixQuest (ShowBox Provider)
+        const flixShowBox = mediaType === 'tv' 
+            ? `https://flixquest-api.vercel.app/showbox/watch-tv?tmdbId=${tmdbId}&season=${season}&episode=${episode}`
+            : `https://flixquest-api.vercel.app/showbox/watch-movie?tmdbId=${tmdbId}`;
+        
+        tasks.push(
+            fetch(flixShowBox, { signal: AbortSignal.timeout(8000) })
+                .then(r => r.json())
+                .then(d => { if (d?.sources?.[0]?.url) return d.sources[0].url; throw new Error("No link"); })
+        );
+
+        // API 3: SuperEmbed JSON API
+        const seUrl = `https://seapi.link/?type=${mediaType === 'tv' ? 'tmdb_tv' : 'tmdb'}&id=${tmdbId}`;
+        tasks.push(
+            fetch(seUrl, { signal: AbortSignal.timeout(8000) })
+                .then(r => r.json())
+                .then(d => { if (d?.url) return d.url; throw new Error("No link"); })
+        );
+
+        // API 4: VidSrc Community Wrapper
+        tasks.push(
+            fetch(`https://vidsrc-api.onrender.com/${imdbId}`, { signal: AbortSignal.timeout(8000) })
+                .then(r => r.json())
+                .then(d => { if (d?.source) return d.source; throw new Error("No link"); })
+        );
+
+        // Step C: The first API to return a valid .m3u8 stream wins
         const finalStreamUrl = await Promise.any(tasks);
 
         // Step D: Send the .m3u8 directly to your HLS.js video player
@@ -98,7 +108,7 @@ const PrimePlayer = ({ tmdbId, title, mediaType, season, episode }) => {
 
       } catch (err) {
         if (isMounted) {
-            setError("All free scrapers are currently blocked by Cloudflare. Please try again later.");
+            setError("All free APIs are currently unreachable. The hosters might be down.");
             setIsFetching(false);
         }
       }
@@ -107,6 +117,7 @@ const PrimePlayer = ({ tmdbId, title, mediaType, season, episode }) => {
     fetchData();
     return () => { isMounted = false; };
   }, [tmdbId, mediaType, season, episode]);
+  
   // 3. HLS Setup & Teardown
   useEffect(() => {
     if (!streamUrl || !videoRef.current) return;
