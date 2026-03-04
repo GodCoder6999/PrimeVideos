@@ -1,5 +1,6 @@
-import puppeteer from 'puppeteer-core';
 import axios from 'axios';
+
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -12,106 +13,70 @@ export default async function handler(req, res) {
         return res.status(400).json({ success: false, message: 'Missing parameters' });
     }
 
-    let browser = null;
-
     try {
-        // 1. Get IMDb ID
+        // 1. Fetch IMDb ID (Required by some endpoints)
         const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5";
         const tmdbRes = await axios.get(`https://api.themoviedb.org/3/${type}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`);
         const imdbId = tmdbRes.data.imdb_id;
 
-        if (!imdbId) throw new Error("IMDb ID not found.");
+        const fetchPromises = [];
 
-        const targetUrl = type === 'tv' 
-            ? `https://vidfast.pro/embed/tv/${imdbId}/${s}/${e}` 
-            : `https://vidfast.pro/embed/movie/${imdbId}`;
+        // --- SOURCE 1: VidLink API (Highly Reliable JSON) ---
+        fetchPromises.push((async () => {
+            const url = type === 'tv' 
+                ? `https://vidlink.pro/api/video/tv/${tmdbId}/${s}/${e}` 
+                : `https://vidlink.pro/api/video/movie/${tmdbId}`;
+            const { data } = await axios.get(url, { headers: { 'User-Agent': USER_AGENT, 'Referer': 'https://vidlink.pro/' }});
+            const link = data?.stream_url || data?.source?.[0]?.file;
+            if (link?.includes('.m3u8')) return { link, provider: 'VidLink' };
+            throw new Error('VidLink failed');
+        })());
 
-        // 🛑 PASTE YOUR BROWSERLESS API KEY HERE 🛑
-        const BROWSERLESS_API_KEY = "2U5Uo4hDU4WLtHLbfa6adecd9f34e90147cec50222fca3ab0";
-
-        console.log(`[Remote Puppeteer] Connecting to Browserless for: ${targetUrl}`);
-
-        // 2. Connect to the Remote Browser
-        browser = await puppeteer.connect({
-            browserWSEndpoint: `wss://chrome.browserless.io?token=${BROWSERLESS_API_KEY}`,
-            defaultViewport: { width: 1920, height: 1080 } // Set exact 1080p resolution for accurate clicking
-        });
-
-        const page = await browser.newPage();
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
-
-        // 3. The Extension-Style Interceptor
-        await page.setRequestInterception(true);
-        let extractedM3u8 = null;
-
-        page.on('request', (request) => {
-            const url = request.url();
-
-            // Lock onto the m3u8 file or the specific worker domain you found
-            if (url.includes('.m3u8') || url.includes('fatherlessdad.workers.dev')) {
-                if (!url.includes('audio') && !url.includes('subtitles')) {
-                    extractedM3u8 = url;
-                    console.log(`[HIT] Stream grabbed: ${url.substring(0, 60)}...`);
-                }
-            }
-
-            // ONLY block images and fonts. Do not block CSS or Media, otherwise the player won't render the play button!
-            if (['image', 'font'].includes(request.resourceType())) {
-                request.abort();
-            } else {
-                request.continue();
-            }
-        });
-
-        // 4. Load the page
-        await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 7000 }).catch(() => {});
-
-        // 🚀 THE FIX: Simulating Human Interaction
-        // We wait a brief moment for the player to initialize, then click the center of the screen
-        console.log("[Puppeteer] Page loaded. Simulating Play button click...");
-        try {
-            await new Promise(r => setTimeout(r, 1000));
-            // Click the exact center of our 1920x1080 viewport
-            await page.mouse.click(960, 540); 
-            
-            // Wait 500ms and click again just in case the first click triggered an ad-overlay
-            await new Promise(r => setTimeout(r, 500));
-            await page.mouse.click(960, 540); 
-        } catch (clickErr) {
-            console.log("Mouse click failed, continuing anyway...");
+        // --- SOURCE 2: AutoEmbed API ---
+        if (imdbId) {
+            fetchPromises.push((async () => {
+                const url = type === 'tv' 
+                    ? `https://autoembed.cc/api/getStreams?id=${imdbId}&s=${s}&e=${e}` 
+                    : `https://autoembed.cc/api/getStreams?id=${imdbId}`;
+                const { data } = await axios.get(url, { headers: { 'User-Agent': USER_AGENT, 'Referer': 'https://autoembed.cc/' }});
+                const link = data?.data?.[0]?.file || data?.sources?.[0]?.file;
+                if (link?.includes('.m3u8')) return { link, provider: 'AutoEmbed' };
+                throw new Error('AutoEmbed failed');
+            })());
         }
 
-        // 5. Wait for the network request to fire after our click
-        let waitLoops = 0;
-        while (!extractedM3u8 && waitLoops < 20) {  // Give it up to 4 seconds after the click to fetch the video
-            await new Promise(r => setTimeout(r, 200));
-            waitLoops++;
+        // --- SOURCE 3: 8Stream API ---
+        if (imdbId) {
+            fetchPromises.push((async () => {
+                const url = type === 'tv' 
+                    ? `https://8-stream-api.vercel.app/api/tv?id=${imdbId}&s=${s}&e=${e}` 
+                    : `https://8-stream-api.vercel.app/api/movie?id=${imdbId}`;
+                const { data } = await axios.get(url, { headers: { 'User-Agent': USER_AGENT }});
+                const link = data?.url || data?.sources?.[0]?.url;
+                if (link?.includes('.m3u8')) return { link, provider: '8Stream' };
+                throw new Error('8Stream failed');
+            })());
         }
 
-        await browser.close();
+        // Race them to get the fastest valid .m3u8 link
+        const winner = await Promise.any(fetchPromises);
 
-        if (!extractedM3u8) {
-            throw new Error("Clicked the play button, but the player still did not request the .m3u8 file.");
-        }
-
-        // 6. Proxy the link back to your PrimePlayer
+        // Proxy the link back to your PrimePlayer
         const protocol = req.headers['x-forwarded-proto'] || (req.headers.host.includes('localhost') ? 'http' : 'https');
         const proxyBase = `${protocol}://${req.headers.host}/api/proxy?url=`;
 
         return res.status(200).json({ 
             success: true, 
-            streamUrl: `${proxyBase}${encodeURIComponent(extractedM3u8)}`,
-            provider: "VidFast (Remote Extraction)",
+            streamUrl: `${proxyBase}${encodeURIComponent(winner.link)}`,
+            provider: winner.provider,
             format: "m3u8"
         });
 
     } catch (error) {
-        if (browser) await browser.close();
-        console.error("[Extraction Error]:", error.message);
-        
+        console.error("All APIs exhausted.");
         return res.status(500).json({ 
             success: false, 
-            error: `Failed to extract stream: ${error.message}` 
+            error: "Content currently unavailable from upstream providers." 
         });
     }
 }
