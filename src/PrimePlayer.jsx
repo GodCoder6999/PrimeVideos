@@ -1,49 +1,65 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 
-export default function VidFastPlayer({ type, tmdbId, season, episode }) {
-    const [embedUrl, setEmbedUrl] = useState(null);
-    const [error, setError] = useState(false);
+export default function EmbedPlayer({ type, tmdbId, season, episode }) {
+  const [imdbId, setImdbId] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        async function fetchEmbed() {
-            try {
-                // 1. Convert TMDB ID to IMDB ID directly from the browser
-                const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5"; 
-                const res = await axios.get(`https://api.themoviedb.org/3/${type}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`);
-                const imdbId = res.data.imdb_id;
-
-                if (!imdbId) throw new Error("IMDb ID not found");
-
-                // 2. Construct the exact VidFast Embed URL
-                const targetUrl = type === 'tv' 
-                    ? `https://vidfast.pro/embed/tv/${imdbId}/${season}/${episode}` 
-                    : `https://vidfast.pro/embed/movie/${imdbId}`;
-
-                setEmbedUrl(targetUrl);
-            } catch (err) {
-                console.error("Failed to load player data:", err);
-                setError(true);
-            }
+  useEffect(() => {
+    // 1. We quickly convert the TMDB ID to an IMDB ID since VidFast prefers it
+    async function fetchImdbId() {
+      try {
+        const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5"; 
+        const res = await fetch(`https://api.themoviedb.org/3/${type}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`);
+        const data = await res.json();
+        
+        if (data.imdb_id) {
+          setImdbId(data.imdb_id);
         }
+      } catch (error) {
+        console.error("Failed to fetch IMDB ID:", error);
+      } finally {
+        setLoading(false);
+      }
+    }
 
-        if (tmdbId) {
-            fetchEmbed();
-        }
-    }, [type, tmdbId, season, episode]);
+    if (tmdbId) {
+      fetchImdbId();
+    }
+  }, [type, tmdbId]);
 
-    if (error) return <div className="text-white text-center p-10">Movie not available.</div>;
-    if (!embedUrl) return <div className="text-white text-center p-10">Loading Player...</div>;
-
+  if (loading) {
     return (
-        <div className="w-full h-full aspect-video bg-black rounded-lg overflow-hidden shadow-xl">
-            <iframe 
-                src={embedUrl}
-                className="w-full h-full border-0"
-                allowFullScreen
-                title="VidFast Player"
-                referrerPolicy="origin"
-            ></iframe>
-        </div>
+      <div className="w-full aspect-video bg-black flex items-center justify-center text-white">
+        Loading Player...
+      </div>
     );
+  }
+
+  if (!imdbId) {
+    return (
+      <div className="w-full aspect-video bg-black flex items-center justify-center text-white">
+        Media not available.
+      </div>
+    );
+  }
+
+  // 2. Construct the VidFast URL
+  const embedUrl = type === 'tv' 
+    ? `https://vidfast.pro/embed/tv/${imdbId}/${season}/${episode}` 
+    : `https://vidfast.pro/embed/movie/${imdbId}`;
+
+  return (
+    <div className="w-full aspect-video bg-black rounded-lg overflow-hidden shadow-2xl">
+      <iframe
+        src={embedUrl}
+        width="100%"
+        height="100%"
+        frameBorder="0"
+        allowFullScreen
+        title="Movie Player"
+        // This is crucial: it stops the iframe from knowing it's embedded on your site, preventing blocks
+        referrerPolicy="origin" 
+      ></iframe>
+    </div>
+  );
 }
