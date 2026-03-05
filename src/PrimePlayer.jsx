@@ -10,7 +10,7 @@ export default function PrimePlayer({ type, tmdbId, season, episode }) {
 
     // 🛑 PASTE YOUR LIVE RENDER URL HERE ONCE DEPLOYED 🛑
     // Example: "https://my-scraper-api.onrender.com"
-    const RENDER_BACKEND_URL = "YOUR_RENDER_APP_URL"; 
+    const RENDER_BACKEND_URL = "https://primevideos.onrender.com"; 
     const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5"; 
 
     // 1. Fetch the Stream URL from your Render Backend
@@ -28,8 +28,8 @@ export default function PrimePlayer({ type, tmdbId, season, episode }) {
 
                 // Step B: Construct the exact VidFast URL to scrape
                 const targetVidFastUrl = type === 'tv' 
-                    ? `https://vidfast.pro/embed/tv/${imdbId}/${season}/${episode}` 
-                    : `https://vidfast.pro/embed/movie/${imdbId}`;
+                    ? `https://vidfast.pro/tv/${imdbId}/${season}/${episode}` 
+                    : `https://vidfast.pro/movie/${imdbId}`;
 
                 console.log("Asking Render Server to scrape:", targetVidFastUrl);
 
