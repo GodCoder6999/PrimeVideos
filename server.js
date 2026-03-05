@@ -3,7 +3,6 @@ import cors from 'cors';
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 
-// 1. Use Stealth, but REMOVE the Adblocker. We need the video host scripts to run!
 puppeteer.use(StealthPlugin());
 
 const app = express();
@@ -44,50 +43,74 @@ app.get('/api/get-stream', async (req, res) => {
                 '--window-size=1920,1080'
             ]
         });
+
+        // 🚀 THE POPUP ASSASSIN
+        // This listens for any new tabs attempting to open and violently closes them.
+        browser.on('targetcreated', async (target) => {
+            if (target.type() === 'page') {
+                const newPage = await target.page();
+                // If it's a popup and not our main page, kill it.
+                if (newPage) {
+                    console.log("🔪 [Security] Intercepted and destroyed popup ad.");
+                    await newPage.close();
+                }
+            }
+        });
         
-        const page = await browser.newPage();
+        const page = await (await browser.pages())[0]; // Ensure we are on the original tab
         await page.authenticate({ username: PROXY_USERNAME, password: PROXY_PASSWORD });
         await page.setViewport({ width: 1920, height: 1080 });
         
         let extractedM3u8 = null;
         await page.setRequestInterception(true);
 
-        // 2. Pure Sniffing: No blocking. Let the CSS and UI render perfectly.
         page.on('request', (request) => {
             const url = request.url();
             if (url.includes('.m3u8') && !url.includes('audio') && !url.includes('subtitles')) {
                 extractedM3u8 = url;
-                console.log(`[HIT] Found stream!`);
+                console.log(`[HIT] Found stream: ${url}`);
             }
             request.continue(); 
         });
 
-        // 3. Network Idle ensures all scripts and iframes have finished loading
         await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 45000 }).catch(() => {});
 
         console.log("[Scraper] Page fully rendered. Executing UI bypass...");
         await new Promise(r => setTimeout(r, 2000));
         
-        try {
+        // Dynamic DOM Targeting instead of blind coordinates
+        // Look for common play button elements or standard iframes
+        const iframeElement = await page.$('iframe');
+        
+        if (iframeElement) {
+            console.log("[Scraper] Found video iframe. Clicking dead center of the element.");
+            const box = await iframeElement.boundingBox();
+            if (box) {
+                // Click the center of the iframe itself, no matter where it is on screen
+                await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+                await new Promise(r => setTimeout(r, 1500));
+                // Click again in case the first click triggered the popup we just destroyed
+                await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+            }
+        } else {
+            console.log("[Scraper] No iframe found. Falling back to viewport center.");
             await page.mouse.click(960, 540); 
-            await new Promise(r => setTimeout(r, 1000));
+            await new Promise(r => setTimeout(r, 1500));
             await page.mouse.click(960, 540); 
-        } catch (e) {
-            console.log("Click skipped.");
         }
 
         let waitLoops = 0;
-        while (!extractedM3u8 && waitLoops < 50) {
-            await new Promise(r => setTimeout(r, 200));
+        while (!extractedM3u8 && waitLoops < 60) {
+            await new Promise(r => setTimeout(r, 250)); // Wait up to 15 seconds after clicking
             waitLoops++;
         }
 
         if (!extractedM3u8) {
-            const screenshotBuffer = await page.screenshot({ type: 'jpeg', quality: 50 });
+            const screenshotBuffer = await page.screenshot({ type: 'jpeg', quality: 60 });
             await browser.close();
             return res.status(500).json({
                 success: false, 
-                error: "Target loaded, CSS rendered, but m3u8 failed.",
+                error: "Target loaded and clicked, but m3u8 failed.",
                 debugImage: `data:image/jpeg;base64,${screenshotBuffer.toString('base64')}`
             });
         }
@@ -108,4 +131,4 @@ app.get('/api/get-stream', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Scraper on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Advanced Scraper on port ${PORT}`));
