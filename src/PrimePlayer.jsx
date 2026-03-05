@@ -26,10 +26,10 @@ export default function PrimePlayer({ type, tmdbId, season, episode }) {
 
                 if (!imdbId) throw new Error("IMDb ID not found for this title.");
 
-                // Step B: Construct the exact VidFast URL to scrape
+                // Step B: Construct the EXACT VidFast URL to scrape (NO /embed/!)
                 const targetVidFastUrl = type === 'tv' 
-                    ? `https://vidfast.pro/tv/${imdbId}/${season}/${episode}` 
-                    : `https://vidfast.pro/movie/${imdbId}`;
+                    ? `https://vidfast.pro/tv/${imdbId}/${season}/${episode}?autoPlay=true` 
+                    : `https://vidfast.pro/movie/${imdbId}?autoPlay=true`;
 
                 console.log("Asking Render Server to scrape:", targetVidFastUrl);
 
