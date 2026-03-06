@@ -1,6 +1,79 @@
+import express from 'express';
+import cors from 'cors';
+import axios from 'axios';
 import { URL } from 'url';
 
-// The Advanced M3U8 Rewriting Proxy
+const app = express();
+app.use(cors({ origin: '*' }));
+
+app.get('/', (req, res) => res.send('🚀 Ultimate Scraper & Proxy is Live!'));
+
+// 🛑 REPLACE WITH YOUR ACTUAL KEY FROM SCRAPINGBEE DASHBOARD
+const SCRAPINGBEE_API_KEY = 'YOUR_SCRAPINGBEE_API_KEY';
+
+// ==========================================
+// ROUTE 1: The Network Sniffer (Finds the m3u8)
+// ==========================================
+app.get('/api/get-stream', async (req, res) => {
+    const { targetUrl } = req.query;
+    if (!targetUrl) return res.status(400).json({ error: 'Missing targetUrl' });
+
+    try {
+        console.log(`[Enterprise-Bee] Sniffing network for: ${targetUrl}`);
+
+        const response = await axios.get('https://app.scrapingbee.com/api/v1/', {
+            params: {
+                'api_key': SCRAPINGBEE_API_KEY,
+                'url': targetUrl,
+                'render_js': 'true',
+                'json_response': 'true',
+                'block_ads': 'true',
+                'premium_proxy': 'true',
+                'country_code': 'us',
+                'wait_for': 'video',
+                'js_scenario': JSON.stringify({
+                    "instructions": [
+                        {"wait": 3000},
+                        {"click": "body"}
+                    ]
+                })
+            }
+        });
+
+        const networkLogs = [
+            ...response.data.xhr_responses,
+            ...response.data.request_responses
+        ];
+
+        const m3u8Link = networkLogs.find(log => 
+            log.url.includes('.m3u8') && 
+            !log.url.includes('audio') && 
+            !log.url.includes('subtitles')
+        );
+
+        if (!m3u8Link) {
+            throw new Error("Cloudflare bypassed, but the player did not request an m3u8 file.");
+        }
+
+        console.log("🚀 Stream Captured:", m3u8Link.url);
+
+        return res.status(200).json({ 
+            success: true, 
+            streamUrl: m3u8Link.url 
+        });
+
+    } catch (error) {
+        console.error("[Bee Error]:", error.response?.data || error.message);
+        return res.status(500).json({ 
+            success: false, 
+            error: "The sniffer could not find the stream." 
+        });
+    }
+});
+
+// ==========================================
+// ROUTE 2: The M3U8 Rewriting Proxy (Bypasses CORS)
+// ==========================================
 app.get('/api/proxy-stream', async (req, res) => {
     const targetUrl = req.query.url;
     
@@ -9,47 +82,34 @@ app.get('/api/proxy-stream', async (req, res) => {
     }
 
     try {
-        // 1. Fetch the raw m3u8 file from the external host
         const response = await axios.get(targetUrl, {
             headers: {
-                // Spoof headers to bypass basic protections
                 'Referer': new URL(targetUrl).origin,
                 'Origin': new URL(targetUrl).origin,
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
             },
-            responseType: 'text' // We need the raw text to rewrite it
+            responseType: 'text'
         });
 
         const m3u8Content = response.data;
-        
-        // 2. The Base URL is needed to resolve relative paths inside the m3u8
         const baseUrl = targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1);
-        
-        // 3. The URL of YOUR Render proxy so we can loop requests back through it
         const myProxyUrl = `${req.protocol}://${req.get('host')}/api/proxy-stream?url=`;
 
-        // 4. Read the file line by line and rewrite the URLs
         const rewrittenManifest = m3u8Content.split('\n').map(line => {
             const trimmedLine = line.trim();
             
-            // If the line is empty or is a tag (starts with #), leave it alone
             if (!trimmedLine || trimmedLine.startsWith('#')) {
                 return line;
             }
 
-            // If it's a URL (chunk or sub-playlist), we need to proxy it
             let absoluteChunkUrl = trimmedLine;
-            
-            // Convert relative URLs to absolute URLs
             if (!trimmedLine.startsWith('http')) {
                 absoluteChunkUrl = new URL(trimmedLine, baseUrl).href;
             }
 
-            // Return the chunk wrapped in YOUR proxy URL
             return `${myProxyUrl}${encodeURIComponent(absoluteChunkUrl)}`;
         }).join('\n');
 
-        // 5. Send the modified manifest back to your React player
         res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.send(rewrittenManifest);
@@ -57,7 +117,6 @@ app.get('/api/proxy-stream', async (req, res) => {
     } catch (error) {
         console.error('[Proxy Error]:', error.message);
         
-        // If the request was for a .ts video chunk (binary data), handle it differently
         if (targetUrl.includes('.ts')) {
              try {
                  const chunkStream = await axios.get(targetUrl, { responseType: 'stream' });
@@ -67,7 +126,9 @@ app.get('/api/proxy-stream', async (req, res) => {
                  return res.status(500).send('Chunk proxy failed');
              }
         }
-        
         res.status(500).send('Proxy failed to fetch the stream.');
     }
 });
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 Dedicated Server running on port ${PORT}`));
