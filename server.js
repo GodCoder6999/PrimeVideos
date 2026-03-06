@@ -1,134 +1,85 @@
 import express from 'express';
-import cors from 'cors';
 import axios from 'axios';
+import cors from 'cors';
 import { URL } from 'url';
 
 const app = express();
 app.use(cors({ origin: '*' }));
 
-app.get('/', (req, res) => res.send('🚀 Ultimate Scraper & Proxy is Live!'));
+const SCRAPINGBEE_API_KEY = 'YOUR_API_KEY';
 
-// 🛑 REPLACE WITH YOUR ACTUAL KEY FROM SCRAPINGBEE DASHBOARD
-const SCRAPINGBEE_API_KEY = 'YOUR_SCRAPINGBEE_API_KEY';
+// 1. Source Aggregation (Inspired by sites.json)
+const PROVIDERS = [
+    { name: 'VidFast', url: (id) => `https://vidfast.pro/movie/${id}` },
+    { name: 'VidSrc',  url: (id) => `https://vidsrc.to/embed/movie/${id}` },
+    { name: 'VidScr',  url: (id) => `https://vidscr.me/embed/movie/${id}` }
+];
 
-// ==========================================
-// ROUTE 1: The Network Sniffer (Finds the m3u8)
-// ==========================================
+// --- CORE AGGREGATOR ---
 app.get('/api/get-stream', async (req, res) => {
-    const { targetUrl } = req.query;
-    if (!targetUrl) return res.status(400).json({ error: 'Missing targetUrl' });
+    const { tmdbId } = req.query; // Use TMDB ID for universal mapping
+    if (!tmdbId) return res.status(400).json({ error: 'Missing tmdbId' });
 
-    try {
-        console.log(`[Enterprise-Bee] Sniffing network for: ${targetUrl}`);
+    for (const provider of PROVIDERS) {
+        try {
+            console.log(`[Aggregator] Trying ${provider.name}...`);
+            const targetUrl = provider.url(tmdbId);
 
-        const response = await axios.get('https://app.scrapingbee.com/api/v1/', {
-            params: {
-                'api_key': SCRAPINGBEE_API_KEY,
-                'url': targetUrl,
-                'render_js': 'true',
-                'json_response': 'true',
-                'block_ads': 'true',
-                'premium_proxy': 'true',
-                'country_code': 'us',
-                'wait_for': 'video',
-                'js_scenario': JSON.stringify({
-                    "instructions": [
-                        {"wait": 3000},
-                        {"click": "body"}
-                    ]
-                })
+            const response = await axios.get('https://app.scrapingbee.com/api/v1/', {
+                params: {
+                    'api_key': SCRAPINGBEE_API_KEY,
+                    'url': targetUrl,
+                    'render_js': 'true',
+                    'json_response': 'true',
+                    'premium_proxy': 'true',
+                    'js_scenario': JSON.stringify({ "instructions": [{"wait": 4000}, {"click": "body"}] })
+                },
+                timeout: 30000 
+            });
+
+            const logs = [...(response.data.xhr_responses || []), ...(response.data.request_responses || [])];
+            const m3u8 = logs.find(l => l.url?.includes('.m3u8') && !l.url.includes('audio'));
+
+            if (m3u8) {
+                console.log(`✅ Success with ${provider.name}`);
+                return res.json({ success: true, provider: provider.name, streamUrl: m3u8.url });
             }
-        });
-
-        const networkLogs = [
-            ...response.data.xhr_responses,
-            ...response.data.request_responses
-        ];
-
-        const m3u8Link = networkLogs.find(log => 
-            log.url.includes('.m3u8') && 
-            !log.url.includes('audio') && 
-            !log.url.includes('subtitles')
-        );
-
-        if (!m3u8Link) {
-            throw new Error("Cloudflare bypassed, but the player did not request an m3u8 file.");
+        } catch (e) {
+            console.log(`❌ ${provider.name} failed, trying next...`);
         }
-
-        console.log("🚀 Stream Captured:", m3u8Link.url);
-
-        return res.status(200).json({ 
-            success: true, 
-            streamUrl: m3u8Link.url 
-        });
-
-    } catch (error) {
-        console.error("[Bee Error]:", error.response?.data || error.message);
-        return res.status(500).json({ 
-            success: false, 
-            error: "The sniffer could not find the stream." 
-        });
     }
+
+    res.status(404).json({ success: false, error: "All sources exhausted." });
 });
 
-// ==========================================
-// ROUTE 2: The M3U8 Rewriting Proxy (Bypasses CORS)
-// ==========================================
+// --- MANIFEST REWRITING PROXY ---
 app.get('/api/proxy-stream', async (req, res) => {
     const targetUrl = req.query.url;
-    
-    if (!targetUrl) {
-        return res.status(400).send('Target URL is required');
-    }
-
     try {
         const response = await axios.get(targetUrl, {
-            headers: {
-                'Referer': new URL(targetUrl).origin,
-                'Origin': new URL(targetUrl).origin,
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-            },
+            headers: { 'Referer': new URL(targetUrl).origin, 'User-Agent': 'Mozilla/5.0...' },
             responseType: 'text'
         });
 
-        const m3u8Content = response.data;
         const baseUrl = targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1);
-        const myProxyUrl = `${req.protocol}://${req.get('host')}/api/proxy-stream?url=`;
+        const myProxy = `${req.protocol}://${req.get('host')}/api/proxy-stream?url=`;
 
-        const rewrittenManifest = m3u8Content.split('\n').map(line => {
-            const trimmedLine = line.trim();
-            
-            if (!trimmedLine || trimmedLine.startsWith('#')) {
-                return line;
-            }
-
-            let absoluteChunkUrl = trimmedLine;
-            if (!trimmedLine.startsWith('http')) {
-                absoluteChunkUrl = new URL(trimmedLine, baseUrl).href;
-            }
-
-            return `${myProxyUrl}${encodeURIComponent(absoluteChunkUrl)}`;
+        const rewritten = response.data.split('\n').map(line => {
+            if (!line.trim() || line.startsWith('#')) return line;
+            const absolute = line.startsWith('http') ? line : new URL(line, baseUrl).href;
+            return `${myProxy}${encodeURIComponent(absolute)}`;
         }).join('\n');
 
         res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.send(rewrittenManifest);
-
-    } catch (error) {
-        console.error('[Proxy Error]:', error.message);
-        
+        res.send(rewritten);
+    } catch (e) {
+        // Fallback for .ts chunks (stream binary data)
         if (targetUrl.includes('.ts')) {
-             try {
-                 const chunkStream = await axios.get(targetUrl, { responseType: 'stream' });
-                 chunkStream.data.pipe(res);
-                 return;
-             } catch(e) {
-                 return res.status(500).send('Chunk proxy failed');
-             }
+            const stream = await axios.get(targetUrl, { responseType: 'stream' });
+            return stream.data.pipe(res);
         }
-        res.status(500).send('Proxy failed to fetch the stream.');
+        res.status(500).send("Proxy Error");
     }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Dedicated Server running on port ${PORT}`));
+app.listen(3000, () => console.log('🚀 100% Resilient Server Live'));
