@@ -9,7 +9,7 @@ const Hls = window.Hls;
 
 // --- CONFIGURATION ---
 const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5";
-const BASE_URL = "https://api.themoviedb.org/3";
+const BASE_URL = `/api/proxy?url=${encodeURIComponent("https://api.themoviedb.org/3")}`;
 const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
 const IMAGE_ORIGINAL_URL = "https://image.tmdb.org/t/p/original";
 const VIDFAST_BASE = "https://vidfast.pro";
@@ -145,7 +145,7 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
   try {
     const baseDir = mediaType === 'tv' ? 'tvs' : 'movies';
     const baseUrl = `https://a.111477.xyz/${baseDir}/`;
-    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(baseUrl)}`;
+    const proxyUrl = `/api/proxy?url=${encodeURIComponent(baseUrl)}`;
     const response = await fetch(proxyUrl);
     if (!response.ok) throw new Error("Directory fetch failed");
     const html = await response.text();
@@ -786,8 +786,7 @@ const SportsPage = () => {
     logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR-sN5te7jsC9YTazKRH6RgQCxTAqs60oWZMw&s",
     group: "Cricket",
     parentGroup: "Sports",
-    url: "https://corsproxy.io/?" + encodeURIComponent("https://live15p.hotstar.com/hls/live/2116748/inallow-icct20wc-2026/ben/1540062322/15mindvrm0118ba48ab59034e4b9dbc9285e29e083507february2026/master_apmf_360_1.m3u8")
-  };
+  
 
   const CATEGORIES_TREE = {
     'All': [],
@@ -810,7 +809,7 @@ const SportsPage = () => {
   const [activeTab, setActiveTab] = useState('iptv');
   const [dlhdQuery, setDlhdQuery] = useState("");
 
-  const PLAYLIST_URL = 'https://iptv-org.github.io/iptv/index.m3u';
+  const PLAYLIST_URL = `/api/proxy?url=${encodeURIComponent('https://iptv-org.github.io/iptv/index.m3u')}`;
   const normalizeCategory = (groupName) => {
     if (!groupName) return 'Entertainment';
     const lower = groupName.toLowerCase();
