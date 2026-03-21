@@ -4,6 +4,12 @@
   "outputDirectory": "frontend/dist",
   "installCommand": "echo skip",
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
+    { "source": "/api/get-stream", "destination": "/api/get-stream" },
+    { "source": "/api/proxy",      "destination": "/api/proxy"      },
+    { "source": "/(.*)",           "destination": "/index.html"     }
+  ],
+  "functions": {
+    "api/get-stream.js": { "maxDuration": 30 },
+    "api/proxy.js":      { "maxDuration": 15 }
+  }
 }
