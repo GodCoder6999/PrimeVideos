@@ -246,21 +246,25 @@ const getTheme = (isPrimeOnly) => ({
 const useInfiniteRows = (type = 'movie', isPrimeOnly = true) => {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
-  // Use a ref to track which categories have been used (no repetition)
-  const usedIndicesRef = useRef(new Set());
+  // nextIdx tracks position in the shuffled deck — never resets mid-session
+  const nextIdxRef = useRef(0);
   const deckRef = useRef([]);
+  const modeKeyRef = useRef(''); // detect mode/type changes to reset
 
-  // Build URL for a given category
-  const getUrl = useCallback((category, pageNum = 1) => {
-    const targetType = category.type || (type === 'all' ? 'movie' : type);
+  const modeKey = `${type}-${isPrimeOnly}`;
 
-    // If category has a direct endpoint (for "Trending" etc. in Everything mode)
+  // Build the TMDB fetch URL for a category (always includes Prime filter when isPrimeOnly)
+  const buildUrl = (category, targetType, pageNum = 1) => {
     if (category.endpoint) {
+      // Direct endpoint (e.g. trending) — no provider filter needed, it's not Prime mode
       return `/${category.endpoint}?api_key=${TMDB_API_KEY}&page=${pageNum}`;
     }
-
     if (isPrimeOnly) {
-      let base = `/discover/${targetType}?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&page=${pageNum}`;
+      // STRICT: every discover call must include watch provider filter
+      let base = `/discover/${targetType}?api_key=${TMDB_API_KEY}`
+        + `&with_watch_providers=9%7C119`  // 9=Prime, 119=Prime India
+        + `&watch_region=IN`
+        + `&page=${pageNum}`;
       if (category.sort) base += `&sort_by=${category.sort}`;
       else if (category.year) base += `&primary_release_year=${category.year}&sort_by=popularity.desc`;
       else if (category.genre) base += `&with_genres=${category.genre}&sort_by=popularity.desc`;
@@ -273,73 +277,71 @@ const useInfiniteRows = (type = 'movie', isPrimeOnly = true) => {
       else base += `&sort_by=${category.sort || 'popularity.desc'}`;
       return base;
     }
-  }, [type, isPrimeOnly]);
+  };
+
+  // Reset and rebuild deck whenever mode/type changes
+  if (modeKeyRef.current !== modeKey) {
+    modeKeyRef.current = modeKey;
+    nextIdxRef.current = 0;
+
+    const fullDeck = isPrimeOnly ? [...PRIME_CATEGORY_DECK] : [...EVERYTHING_CATEGORY_DECK];
+    const filteredDeck = type === 'all' ? fullDeck : fullDeck.filter(item => item.type === type);
+    // Fisher-Yates shuffle for true randomness
+    for (let i = filteredDeck.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [filteredDeck[i], filteredDeck[j]] = [filteredDeck[j], filteredDeck[i]];
+    }
+    deckRef.current = filteredDeck;
+  }
 
   // Initialize rows on mount / mode change
   useEffect(() => {
-    usedIndicesRef.current = new Set();
-
-    // Pick the right deck
-    const fullDeck = isPrimeOnly ? [...PRIME_CATEGORY_DECK] : [...EVERYTHING_CATEGORY_DECK];
-    // Filter by type if not 'all'
-    const filteredDeck = type === 'all'
-      ? fullDeck
-      : fullDeck.filter(item => item.type === type);
-
-    // Shuffle once
-    const shuffled = [...filteredDeck].sort(() => Math.random() - 0.5);
-    deckRef.current = shuffled;
-
-    // Build initial hero + top10 rows
+    nextIdxRef.current = 0;
     const heroType = type === 'all' ? 'movie' : type;
+
     const heroUrl = isPrimeOnly
-      ? `/discover/${heroType}?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc&page=1`
+      ? `/discover/${heroType}?api_key=${TMDB_API_KEY}&with_watch_providers=9%7C119&watch_region=IN&sort_by=popularity.desc&page=1`
       : `/trending/${heroType}/day?api_key=${TMDB_API_KEY}`;
 
     const topUrl = isPrimeOnly
-      ? `/discover/${heroType}?api_key=${TMDB_API_KEY}&with_watch_providers=${PRIME_PROVIDER_IDS}&watch_region=${PRIME_REGION}&sort_by=popularity.desc&page=1`
+      ? `/discover/${heroType}?api_key=${TMDB_API_KEY}&with_watch_providers=9%7C119&watch_region=IN&sort_by=popularity.desc&page=2`
       : `/${heroType}/top_rated?api_key=${TMDB_API_KEY}`;
 
-    const heroTitle = type === 'tv' ? "Trending TV Shows" : type === 'movie' ? "Trending Movies" : isPrimeOnly ? "Prime Picks" : "Trending Now";
-    const top10Title = isPrimeOnly ? "Top 10 on Prime" : "Top 10 Globally";
+    const heroTitle = type === 'tv' ? "New on Prime TV" : type === 'movie' ? "New on Prime Movies" : "New on Prime";
+    const top10Title = isPrimeOnly ? "Top 10 on Prime India" : "Top 10 Globally";
 
     setRows([
       { id: 'trending_hero', title: heroTitle, fetchUrl: heroUrl, variant: 'standard', itemType: heroType },
       { id: 'top_10', title: top10Title, fetchUrl: topUrl, variant: 'ranked', itemType: heroType },
     ]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [type, isPrimeOnly]);
 
   const loadMore = useCallback(() => {
-    if (loading || deckRef.current.length === 0) return;
-
+    if (loading) return;
     const deck = deckRef.current;
-    const used = usedIndicesRef.current;
-
-    // Find next 3 unused categories
-    const nextBatch = [];
-    for (let i = 0; i < deck.length && nextBatch.length < 3; i++) {
-      if (!used.has(i)) {
-        used.add(i);
-        nextBatch.push({ category: deck[i], idx: i });
-      }
-    }
-
-    if (nextBatch.length === 0) return; // All categories used — stop loading
+    const idx = nextIdxRef.current;
+    if (idx >= deck.length) return; // exhausted all unique categories
 
     setLoading(true);
-    const newRows = nextBatch.map(({ category }, i) => ({
-      id: `row-${Date.now()}-${i}`,
-      title: category.label,
-      fetchUrl: getUrl(category, 1),
-      variant: category.variant,
-      itemType: category.type
-    }));
+    const batch = deck.slice(idx, idx + 3);
+    nextIdxRef.current = idx + 3;
 
-    setTimeout(() => {
-      setRows(prev => [...prev, ...newRows]);
-      setLoading(false);
-    }, 400);
-  }, [loading, getUrl]);
+    const newRows = batch.map((category, i) => {
+      const targetType = category.type || (type === 'all' ? 'movie' : type);
+      return {
+        id: `row-${modeKey}-${idx + i}`,   // stable unique id — no Date.now() drift
+        title: category.label,
+        fetchUrl: buildUrl(category, targetType, 1),
+        variant: category.variant,
+        itemType: targetType,
+      };
+    });
+
+    setRows(prev => [...prev, ...newRows]);
+    setLoading(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, type, isPrimeOnly]);
 
   return { rows, loadMore, loading };
 };
@@ -999,7 +1001,12 @@ const SportsPlayer = () => {
   );
 };
 
-// --- ROW Component with Prime-only filtering for the "Row" data fetch ---
+// Global seen-IDs set — shared across ALL Row instances in a session
+// so the same movie never appears in two different rows
+const _seenIds = new Set();
+const resetSeenIds = () => _seenIds.clear();
+
+// --- ROW Component ---
 const Row = ({ title, fetchUrl, data = null, variant = 'standard', itemType = 'movie', isPrimeOnly }) => {
   const [movies, setMovies] = useState([]);
   const [hoveredId, setHoveredId] = useState(null);
@@ -1008,21 +1015,59 @@ const Row = ({ title, fetchUrl, data = null, variant = 'standard', itemType = 'm
   const theme = getTheme(isPrimeOnly);
 
   useEffect(() => {
-    if (data) { setMovies(data); return; }
+    if (data) {
+      // For "Continue Watching" passed data — no dedup/filter needed
+      setMovies(data);
+      return;
+    }
 
     const fetchMovies = async () => {
       try {
         const res = await fetch(`${BASE_URL}${fetchUrl}`);
         const json = await res.json();
-        const validResults = (json.results || []).filter(m => m.backdrop_path || m.poster_path);
-        setMovies(validResults);
+        let results = (json.results || []).filter(m => m.backdrop_path || m.poster_path);
+
+        if (isPrimeOnly) {
+          // Per-item Prime verification: check each result has Prime flatrate in IN
+          // We batch-check in parallel (max 8 at once) for speed
+          const verified = [];
+          const BATCH = 8;
+          for (let i = 0; i < results.length && verified.length < 20; i += BATCH) {
+            const slice = results.slice(i, i + BATCH);
+            const checks = await Promise.all(slice.map(async (item) => {
+              const mType = item.media_type || itemType || 'movie';
+              try {
+                const r = await fetch(
+                  `${BASE_URL}/${mType}/${item.id}/watch/providers?api_key=${TMDB_API_KEY}`
+                );
+                const d = await r.json();
+                const flatrate = d.results?.IN?.flatrate || [];
+                const hasPrime = flatrate.some(p => p.provider_id === 9 || p.provider_id === 119);
+                return hasPrime ? item : null;
+              } catch (_) {
+                return null;
+              }
+            }));
+            checks.forEach(item => { if (item) verified.push(item); });
+          }
+          results = verified;
+        }
+
+        // Deduplicate: skip items already shown in another row this session
+        const fresh = results.filter(m => {
+          if (_seenIds.has(m.id)) return false;
+          _seenIds.add(m.id);
+          return true;
+        });
+
+        setMovies(fresh);
       } catch (err) {
         console.error(err);
       }
     };
 
     fetchMovies();
-  }, [fetchUrl, data]);
+  }, [fetchUrl, data, isPrimeOnly, itemType]);
 
   const handleHover = (id) => { if (timeoutRef.current) clearTimeout(timeoutRef.current); timeoutRef.current = setTimeout(() => setHoveredId(id), 400); };
   const handleLeave = () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); setHoveredId(null); };
@@ -1771,6 +1816,8 @@ const Home = ({ isPrimeOnly }) => {
   const { rows, loadMore } = useInfiniteRows('all', isPrimeOnly);
   const [history, setHistory] = useState([]);
 
+  useEffect(() => { resetSeenIds(); }, [isPrimeOnly]);
+
   useEffect(() => {
     const rawProgress = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
     const historyArray = Object.values(rawProgress)
@@ -1820,6 +1867,7 @@ const Home = ({ isPrimeOnly }) => {
 
 const MoviesPage = ({ isPrimeOnly }) => {
   const { rows, loadMore } = useInfiniteRows('movie', isPrimeOnly);
+  useEffect(() => { resetSeenIds(); }, [isPrimeOnly]);
   return (
     <>
       <Hero isPrimeOnly={isPrimeOnly} />
@@ -1835,6 +1883,7 @@ const MoviesPage = ({ isPrimeOnly }) => {
 
 const TVPage = ({ isPrimeOnly }) => {
   const { rows, loadMore } = useInfiniteRows('tv', isPrimeOnly);
+  useEffect(() => { resetSeenIds(); }, [isPrimeOnly]);
   return (
     <>
       <Hero isPrimeOnly={isPrimeOnly} />
