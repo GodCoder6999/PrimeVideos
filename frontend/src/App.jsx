@@ -299,16 +299,18 @@ const useInfiniteRows = (type = 'movie', isPrimeOnly = true) => {
     nextIdxRef.current = 0;
     const heroType = type === 'all' ? 'movie' : type;
 
+    // Use separate pages so hero and top-10 rows show different content
     const heroUrl = isPrimeOnly
       ? `/discover/${heroType}?api_key=${TMDB_API_KEY}&with_watch_providers=9%7C119&watch_region=IN&sort_by=popularity.desc&page=1`
       : `/trending/${heroType}/day?api_key=${TMDB_API_KEY}`;
 
+    // Top-10 uses vote_average sort so it's genuinely different content from hero
     const topUrl = isPrimeOnly
-      ? `/discover/${heroType}?api_key=${TMDB_API_KEY}&with_watch_providers=9%7C119&watch_region=IN&sort_by=popularity.desc&page=2`
+      ? `/discover/${heroType}?api_key=${TMDB_API_KEY}&with_watch_providers=9%7C119&watch_region=IN&sort_by=vote_average.desc&vote_count.gte=200&page=1`
       : `/${heroType}/top_rated?api_key=${TMDB_API_KEY}`;
 
-    const heroTitle = type === 'tv' ? "New on Prime TV" : type === 'movie' ? "New on Prime Movies" : "New on Prime";
-    const top10Title = isPrimeOnly ? "Top 10 on Prime India" : "Top 10 Globally";
+    const heroTitle = type === 'tv' ? "Popular on Prime TV" : type === 'movie' ? "Popular on Prime" : "Popular on Prime";
+    const top10Title = isPrimeOnly ? "Top Rated on Prime" : "Top 10 Globally";
 
     setRows([
       { id: 'trending_hero', title: heroTitle, fetchUrl: heroUrl, variant: 'standard', itemType: heroType },
@@ -327,12 +329,15 @@ const useInfiniteRows = (type = 'movie', isPrimeOnly = true) => {
     const batch = deck.slice(idx, idx + 3);
     nextIdxRef.current = idx + 3;
 
+    // Each row gets its own page number (idx+3, idx+4, idx+5...) so TMDB
+    // returns a different set of results for every row — no content overlap
     const newRows = batch.map((category, i) => {
       const targetType = category.type || (type === 'all' ? 'movie' : type);
+      const pageNum = Math.floor((idx + i) / deck.length) + Math.max(2, ((idx + i) % 5) + 1);
       return {
-        id: `row-${modeKey}-${idx + i}`,   // stable unique id — no Date.now() drift
+        id: `row-${modeKey}-${idx + i}`,
         title: category.label,
-        fetchUrl: buildUrl(category, targetType, 1),
+        fetchUrl: buildUrl(category, targetType, pageNum),
         variant: category.variant,
         itemType: targetType,
       };
@@ -1007,6 +1012,8 @@ const _seenIds = new Set();
 const resetSeenIds = () => _seenIds.clear();
 
 // --- ROW Component ---
+// Note: Prime filtering is done at the URL level via &with_watch_providers=9|119&watch_region=IN
+// DO NOT add per-item provider checks here — it causes hundreds of extra API calls and kills performance
 const Row = ({ title, fetchUrl, data = null, variant = 'standard', itemType = 'movie', isPrimeOnly }) => {
   const [movies, setMovies] = useState([]);
   const [hoveredId, setHoveredId] = useState(null);
@@ -1016,7 +1023,6 @@ const Row = ({ title, fetchUrl, data = null, variant = 'standard', itemType = 'm
 
   useEffect(() => {
     if (data) {
-      // For "Continue Watching" passed data — no dedup/filter needed
       setMovies(data);
       return;
     }
@@ -1025,35 +1031,9 @@ const Row = ({ title, fetchUrl, data = null, variant = 'standard', itemType = 'm
       try {
         const res = await fetch(`${BASE_URL}${fetchUrl}`);
         const json = await res.json();
-        let results = (json.results || []).filter(m => m.backdrop_path || m.poster_path);
+        const results = (json.results || []).filter(m => m.backdrop_path || m.poster_path);
 
-        if (isPrimeOnly) {
-          // Per-item Prime verification: check each result has Prime flatrate in IN
-          // We batch-check in parallel (max 8 at once) for speed
-          const verified = [];
-          const BATCH = 8;
-          for (let i = 0; i < results.length && verified.length < 20; i += BATCH) {
-            const slice = results.slice(i, i + BATCH);
-            const checks = await Promise.all(slice.map(async (item) => {
-              const mType = item.media_type || itemType || 'movie';
-              try {
-                const r = await fetch(
-                  `${BASE_URL}/${mType}/${item.id}/watch/providers?api_key=${TMDB_API_KEY}`
-                );
-                const d = await r.json();
-                const flatrate = d.results?.IN?.flatrate || [];
-                const hasPrime = flatrate.some(p => p.provider_id === 9 || p.provider_id === 119);
-                return hasPrime ? item : null;
-              } catch (_) {
-                return null;
-              }
-            }));
-            checks.forEach(item => { if (item) verified.push(item); });
-          }
-          results = verified;
-        }
-
-        // Deduplicate: skip items already shown in another row this session
+        // Deduplicate across rows — skip any ID already shown in another row
         const fresh = results.filter(m => {
           if (_seenIds.has(m.id)) return false;
           _seenIds.add(m.id);
@@ -1067,7 +1047,7 @@ const Row = ({ title, fetchUrl, data = null, variant = 'standard', itemType = 'm
     };
 
     fetchMovies();
-  }, [fetchUrl, data, isPrimeOnly, itemType]);
+  }, [fetchUrl, data]);
 
   const handleHover = (id) => { if (timeoutRef.current) clearTimeout(timeoutRef.current); timeoutRef.current = setTimeout(() => setHoveredId(id), 400); };
   const handleLeave = () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); setHoveredId(null); };
