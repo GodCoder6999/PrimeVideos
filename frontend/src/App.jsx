@@ -18,6 +18,47 @@ const VIDFAST_BASE = "https://vidfast.pro";
 const PRIME_PROVIDER_IDS = "9|119";
 const PRIME_REGION = "IN";
 
+// --- PRIME PROVIDER CACHE ---
+// Caches per-item provider checks so each TMDB ID is only ever fetched once
+// across the entire session. Map<id, boolean>
+const _primeCache = new Map();
+
+async function checkIsPrime(id, mediaType) {
+  const key = `${mediaType}-${id}`;
+  if (_primeCache.has(key)) return _primeCache.get(key);
+  try {
+    const res = await fetch(
+      `${BASE_URL}/${mediaType}/${id}/watch/providers?api_key=${TMDB_API_KEY}`
+    );
+    const data = await res.json();
+    const flatrate = data.results?.IN?.flatrate || [];
+    const result = flatrate.some(p => p.provider_id === 9 || p.provider_id === 119);
+    _primeCache.set(key, result);
+    return result;
+  } catch (_) {
+    // On error, assume not Prime so we don't pollute rows
+    _primeCache.set(key, false);
+    return false;
+  }
+}
+
+// Parallel-verify a list of items against Prime, 6 at a time
+// Returns a filtered array of only Prime items
+async function filterPrimeItems(items, mediaType) {
+  const CONCURRENCY = 6;
+  const results = [];
+  for (let i = 0; i < items.length; i += CONCURRENCY) {
+    const slice = items.slice(i, i + CONCURRENCY);
+    const checks = await Promise.all(
+      slice.map(item => checkIsPrime(item.id, item.media_type || mediaType || 'movie'))
+    );
+    slice.forEach((item, idx) => { if (checks[idx]) results.push(item); });
+  }
+  return results;
+}
+
+
+
 const VIDFAST_ORIGINS = [
   'https://vidfast.pro', 'https://vidfast.in', 'https://vidfast.io',
   'https://vidfast.me', 'https://vidfast.net', 'https://vidfast.pm', 'https://vidfast.xyz'
@@ -401,19 +442,10 @@ const Navbar = ({ isPrimeOnly }) => {
         results = results.filter(i => i.media_type === 'movie' || i.media_type === 'tv');
 
         if (isPrimeOnly) {
-          const filtered = [];
-          for (const item of results) {
-            if (filtered.length >= 4) break;
-            try {
-              const pRes = await fetch(`${BASE_URL}/${item.media_type}/${item.id}/watch/providers?api_key=${TMDB_API_KEY}`);
-              const pData = await pRes.json();
-              const providers = pData.results?.[PRIME_REGION]?.flatrate || [];
-              if (providers.some(p => p.provider_id.toString() === "9" || p.provider_id.toString() === "119")) {
-                filtered.push(item);
-              }
-            } catch(e) {}
-          }
-          setSuggestions({ text: filtered.map(i => i.title || i.name).slice(0, 3), visual: filtered });
+          // Use cached parallel checker — fast on repeat keystrokes
+          const filtered = await filterPrimeItems(results.slice(0, 12), 'movie');
+          const top = filtered.slice(0, 4);
+          setSuggestions({ text: top.map(i => i.title || i.name).slice(0, 3), visual: top });
         } else {
           setSuggestions({ text: results.map(i => i.title || i.name).slice(0, 3), visual: results.slice(0, 4) });
         }
@@ -1002,26 +1034,52 @@ const SportsPlayer = () => {
 };
 
 // --- ROW COMPONENT ---
-// Fetches directly from TMDB. Prime filtering is handled at URL level
-// via &with_watch_providers=9|119&watch_region=IN on every discover call.
-// No per-item API calls — keeps rows fast and fully populated.
+// Strategy for Prime mode:
+//   1. Fetch from TMDB discover (already filtered by watch_providers at URL level)
+//   2. Show results immediately so row is populated
+//   3. In the background, run per-item Prime verification using the cached checkIsPrime()
+//   4. Silently remove any non-Prime items — row shrinks slightly but is always correct
+// Everything mode: just show results, no verification needed.
 const Row = ({ title, fetchUrl, data = null, variant = 'standard', itemType = 'movie', isPrimeOnly }) => {
   const [movies, setMovies] = useState([]);
+  const [verified, setVerified] = useState(false); // true once Prime check is done
   const [hoveredId, setHoveredId] = useState(null);
   const rowRef = useRef(null);
   const timeoutRef = useRef(null);
+  const abortRef = useRef(false);
   const theme = getTheme(isPrimeOnly);
 
   useEffect(() => {
-    if (data) { setMovies(data); return; }
+    abortRef.current = false;
+    if (data) { setMovies(data); setVerified(true); return; }
+
     fetch(`${BASE_URL}${fetchUrl}`)
       .then(res => res.json())
-      .then(json => {
+      .then(async (json) => {
+        if (abortRef.current) return;
         const valid = (json.results || []).filter(m => m.backdrop_path || m.poster_path);
+
+        if (!isPrimeOnly) {
+          // Everything mode — show all results immediately, no verification
+          setMovies(valid);
+          setVerified(true);
+          return;
+        }
+
+        // Prime mode — show immediately (TMDB filter is ~70% accurate)
         setMovies(valid);
+
+        // Then verify in background and trim to confirmed Prime items
+        const primeItems = await filterPrimeItems(valid, itemType);
+        if (!abortRef.current) {
+          setMovies(primeItems);
+          setVerified(true);
+        }
       })
       .catch(err => console.error(err));
-  }, [fetchUrl, data]);
+
+    return () => { abortRef.current = true; };
+  }, [fetchUrl, data, isPrimeOnly, itemType]);
 
   const handleHover = (id) => { if (timeoutRef.current) clearTimeout(timeoutRef.current); timeoutRef.current = setTimeout(() => setHoveredId(id), 400); };
   const handleLeave = () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); setHoveredId(null); };
@@ -1029,13 +1087,15 @@ const Row = ({ title, fetchUrl, data = null, variant = 'standard', itemType = 'm
   const slideRight = () => { if (rowRef.current) rowRef.current.scrollBy({ left: 800, behavior: 'smooth' }); };
   const displayMovies = variant === 'ranked' ? movies.slice(0, 10) : movies;
 
-  if (!data && displayMovies.length === 0) return null;
+  // Only hide row if verified and still empty (avoids flash of empty during verification)
+  if (verified && !data && displayMovies.length === 0) return null;
 
   return (
     <div className="mb-6 pl-4 md:pl-12 relative z-20 group/row animate-row-enter hover:z-30 transition-all duration-300">
       <h3 className="text-[19px] font-bold text-white mb-2 flex items-center gap-2">
         {variant === 'ranked' ? <span className={theme.color}>Top 10</span> : <span className={theme.color}>{theme.name}</span>}
         {' '}{title}
+        {isPrimeOnly && !verified && <span className="w-3 h-3 border-2 border-[#00A8E1] border-t-transparent rounded-full animate-spin ml-1 opacity-60" />}
         <ChevronRight size={18} className="text-[#8197a4] opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer"/>
       </h3>
       <div className="relative">
@@ -1180,35 +1240,71 @@ const SearchResults = ({ isPrimeOnly }) => {
   const query = new URLSearchParams(useLocation().search).get('q');
   const theme = getTheme(isPrimeOnly);
   const navigate = useNavigate();
+
   useEffect(() => {
-    if (query) {
-      setLoading(true); setMovies([]);
-      fetch(`${BASE_URL}/search/multi?api_key=${TMDB_API_KEY}&query=${query}`).then(res => res.json()).then(async (data) => {
-        let results = data.results || [];
-        if (isPrimeOnly) {
-          const filteredResults = [];
-          for (const item of results) {
-            const mediaType = item.media_type || 'movie'; if (mediaType !== 'movie' && mediaType !== 'tv') continue;
-            try {
-              const providerRes = await fetch(`${BASE_URL}/${mediaType}/${item.id}/watch/providers?api_key=${TMDB_API_KEY}`);
-              const providerData = await providerRes.json();
-              const inProviders = providerData.results?.[PRIME_REGION]?.flatrate || [];
-              if (inProviders.some(p => p.provider_id.toString() === "9" || p.provider_id.toString() === "119")) { filteredResults.push(item); }
-              await new Promise(r => setTimeout(r, 50));
-            } catch (e) {}
-          }
-          setMovies(filteredResults);
-        } else { setMovies(results); }
+    if (!query) return;
+    setLoading(true);
+    setMovies([]);
+
+    const run = async () => {
+      try {
+        // Fetch multiple pages to have enough candidates after filtering
+        const pages = isPrimeOnly ? [1, 2, 3] : [1];
+        const allResults = [];
+        for (const page of pages) {
+          const res = await fetch(`${BASE_URL}/search/multi?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(query)}&page=${page}`);
+          const data = await res.json();
+          (data.results || [])
+            .filter(i => i.media_type === 'movie' || i.media_type === 'tv')
+            .forEach(i => allResults.push(i));
+        }
+
+        if (!isPrimeOnly) {
+          // Everything mode — show all results
+          setMovies(allResults);
+          setLoading(false);
+          return;
+        }
+
+        // Prime mode — show unfiltered immediately so user sees results fast
+        setMovies(allResults.filter(m => m.poster_path));
+
+        // Then verify in parallel using cache (fast on repeat searches)
+        const primeItems = await filterPrimeItems(allResults, 'movie');
+        setMovies(primeItems.filter(m => m.poster_path));
         setLoading(false);
-      });
-    }
+      } catch (e) {
+        console.error("Search error:", e);
+        setLoading(false);
+      }
+    };
+
+    run();
   }, [query, isPrimeOnly]);
 
   return (
     <div className="pt-28 px-8 min-h-screen">
-      <h2 className="text-white text-2xl mb-6 flex items-center gap-2">Results for "{query}" {loading && <Loader className="animate-spin ml-2" size={20} />}</h2>
+      <div className="flex items-center gap-3 mb-6">
+        <h2 className="text-white text-2xl">
+          {isPrimeOnly ? 'Prime results for' : 'Results for'} <span className="text-[#00A8E1]">"{query}"</span>
+        </h2>
+        {loading && <Loader className="animate-spin text-[#00A8E1]" size={20} />}
+        {!loading && movies.length === 0 && query && (
+          <span className="text-gray-500 text-sm">No {isPrimeOnly ? 'Prime ' : ''}results found</span>
+        )}
+      </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-        {movies.map(m => (m.poster_path && (<div key={m.id} className="cursor-pointer" onClick={() => navigate(`/detail/${m.media_type || 'movie'}/${m.id}`)}><img src={`${IMAGE_BASE_URL}${m.poster_path}`} className={`rounded-md hover:scale-105 transition-transform border-2 border-transparent hover:${theme.border}`} alt={m.title} /></div>)))}
+        {movies.map(m => (m.poster_path && (
+          <div key={m.id} className="cursor-pointer group" onClick={() => navigate(`/detail/${m.media_type || 'movie'}/${m.id}`)}>
+            <div className="relative rounded-md overflow-hidden border-2 border-transparent group-hover:border-[#00A8E1] transition-all">
+              <img src={`${IMAGE_BASE_URL}${m.poster_path}`} className="w-full hover:scale-105 transition-transform" alt={m.title || m.name} />
+              {isPrimeOnly && (
+                <div className="absolute top-1 left-1 bg-[#00A8E1] text-white text-[8px] font-black px-1 py-0.5 rounded-sm uppercase tracking-wider">Prime</div>
+              )}
+            </div>
+            <div className="mt-1.5 text-xs font-bold text-gray-300 truncate">{m.title || m.name}</div>
+          </div>
+        )))}
       </div>
     </div>
   );
