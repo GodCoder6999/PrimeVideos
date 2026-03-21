@@ -9,7 +9,7 @@ const Hls = window.Hls;
 
 // --- CONFIGURATION ---
 const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5";
-const BASE_URL = `/api/proxy?url=${encodeURIComponent("https://api.themoviedb.org/3")}`;
+const BASE_URL = "https://api.themoviedb.org/3";
 const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
 const IMAGE_ORIGINAL_URL = "https://image.tmdb.org/t/p/original";
 const VIDFAST_BASE = "https://vidfast.pro";
@@ -182,55 +182,64 @@ async function get111477Downloads({ mediaItem, mediaType = 'movie' }) {
 }
 
 // --- CATEGORY DECK ---
-// Separate decks for Prime and Everything modes to avoid repetition
+// Two separate decks so Prime mode and Everything mode never share the same labels
 const PRIME_CATEGORY_DECK = [
   { type: 'movie', label: "Action-Packed Thrillers", genre: 28, variant: 'standard' },
-  { type: 'tv', label: "Binge-Worthy TV Dramas", genre: 18, variant: 'standard' },
-  { type: 'movie', label: "Laugh Out Loud", genre: 35, variant: 'vertical' },
-  { type: 'movie', label: "Sci-Fi Masterpieces", genre: 878, variant: 'standard' },
-  { type: 'movie', label: "Horror Nights", genre: 27, variant: 'vertical' },
-  { type: 'tv', label: "Animated Adventures", genre: 16, variant: 'standard' },
-  { type: 'movie', label: "Fantasy Worlds", genre: 14, variant: 'standard' },
-  { type: 'movie', label: "Crime & Punishment", genre: 80, variant: 'standard' },
-  { type: 'movie', label: "Romance & Heartbreak", genre: 10749, variant: 'vertical' },
-  { type: 'tv', label: "Mystery & Suspense", genre: 9648, variant: 'standard' },
-  { type: 'movie', label: "War & Peace", genre: 10752, variant: 'standard' },
-  { type: 'movie', label: "Western Classics", genre: 37, variant: 'vertical' },
-  { type: 'movie', label: "Documentaries", genre: 99, variant: 'standard' },
-  { type: 'movie', label: "Family Fun Night", genre: 10751, variant: 'standard' },
-  { type: 'movie', label: "Mind-Bending Movies", genre: 9648, variant: 'standard' },
-  { type: 'movie', label: "Asian Cinema Hits", region: 'KR', variant: 'standard' },
-  { type: 'tv', label: "Reality & Talk Shows", genre: 10764, variant: 'standard' },
-  { type: 'movie', label: "Award-Winning Films", sort: 'vote_average.desc', variant: 'standard' },
+  { type: 'tv',    label: "Binge-Worthy TV Dramas",  genre: 18, variant: 'standard' },
+  { type: 'movie', label: "Laugh Out Loud",           genre: 35, variant: 'vertical' },
+  { type: 'movie', label: "Sci-Fi Masterpieces",      genre: 878, variant: 'standard' },
+  { type: 'movie', label: "Horror Nights",            genre: 27, variant: 'vertical' },
+  { type: 'tv',    label: "Animated Adventures",      genre: 16, variant: 'standard' },
+  { type: 'movie', label: "Fantasy Worlds",           genre: 14, variant: 'standard' },
+  { type: 'movie', label: "Crime & Punishment",       genre: 80, variant: 'standard' },
+  { type: 'movie', label: "Romance & Heartbreak",     genre: 10749, variant: 'vertical' },
+  { type: 'tv',    label: "Mystery & Suspense",       genre: 9648, variant: 'standard' },
+  { type: 'movie', label: "War & Peace",              genre: 10752, variant: 'standard' },
+  { type: 'movie', label: "Western Classics",         genre: 37, variant: 'vertical' },
+  { type: 'movie', label: "Documentaries",            genre: 99, variant: 'standard' },
+  { type: 'movie', label: "Family Fun Night",         genre: 10751, variant: 'standard' },
+  { type: 'movie', label: "Award-Winning Films",      sort: 'vote_average.desc', variant: 'standard' },
+  { type: 'tv',    label: "Reality & Lifestyle",      genre: 10764, variant: 'standard' },
+  { type: 'movie', label: "Asian Cinema Hits",        genre: 18, variant: 'standard' },
+  { type: 'movie', label: "Blockbuster Hits",         sort: 'revenue.desc', variant: 'standard' },
 ];
 
 const EVERYTHING_CATEGORY_DECK = [
-  { type: 'movie', label: "Trending Movies", endpoint: 'trending/movie/day', variant: 'standard' },
-  { type: 'tv', label: "Trending TV Shows", endpoint: 'trending/tv/day', variant: 'standard' },
-  { type: 'movie', label: "Action Blockbusters", genre: 28, variant: 'standard' },
-  { type: 'tv', label: "Drama Series", genre: 18, variant: 'standard' },
-  { type: 'movie', label: "Comedy Gold", genre: 35, variant: 'vertical' },
-  { type: 'movie', label: "Sci-Fi Universe", genre: 878, variant: 'standard' },
-  { type: 'movie', label: "Spine-Chilling Horror", genre: 27, variant: 'vertical' },
-  { type: 'tv', label: "Animated Worlds", genre: 16, variant: 'standard' },
-  { type: 'movie', label: "Golden Classics", year: 1995, variant: 'vertical' },
-  { type: 'movie', label: "Critically Acclaimed", sort: 'vote_average.desc', variant: 'standard' },
-  { type: 'movie', label: "Fantasy & Adventure", genre: 14, variant: 'standard' },
-  { type: 'movie', label: "Crime Thrillers", genre: 80, variant: 'standard' },
-  { type: 'movie', label: "Romantic Films", genre: 10749, variant: 'vertical' },
-  { type: 'tv', label: "Mystery & Thriller Shows", genre: 9648, variant: 'standard' },
-  { type: 'movie', label: "War Epics", genre: 10752, variant: 'standard' },
-  { type: 'movie', label: "Western Adventures", genre: 37, variant: 'vertical' },
-  { type: 'movie', label: "Documentaries", genre: 99, variant: 'standard' },
-  { type: 'movie', label: "Family Favorites", genre: 10751, variant: 'standard' },
-  { type: 'movie', label: "Korean Cinema", region: 'KR', variant: 'standard' },
-  { type: 'movie', label: "Superhero Films", genre: 28, sort: 'revenue.desc', variant: 'standard' },
-  { type: 'tv', label: "Talk & Variety Shows", genre: 10767, variant: 'standard' },
-  { type: 'movie', label: "Animated Features", genre: 16, variant: 'vertical' },
-  { type: 'tv', label: "Crime TV Shows", genre: 80, variant: 'standard' },
-  { type: 'movie', label: "History & Biopics", genre: 36, variant: 'standard' },
-  { type: 'movie', label: "Music Films", genre: 10402, variant: 'vertical' },
+  { type: 'movie', label: "Trending Movies",          endpoint: 'trending/movie/day', variant: 'standard' },
+  { type: 'tv',    label: "Trending TV Shows",        endpoint: 'trending/tv/day', variant: 'standard' },
+  { type: 'movie', label: "Action Blockbusters",      genre: 28, variant: 'standard' },
+  { type: 'tv',    label: "Drama Series",             genre: 18, variant: 'standard' },
+  { type: 'movie', label: "Comedy Gold",              genre: 35, variant: 'vertical' },
+  { type: 'movie', label: "Sci-Fi Universe",          genre: 878, variant: 'standard' },
+  { type: 'movie', label: "Spine-Chilling Horror",    genre: 27, variant: 'vertical' },
+  { type: 'tv',    label: "Animated Worlds",          genre: 16, variant: 'standard' },
+  { type: 'movie', label: "Golden Classics",          year: 1990, variant: 'vertical' },
+  { type: 'movie', label: "Critically Acclaimed",     sort: 'vote_average.desc', variant: 'standard' },
+  { type: 'movie', label: "Fantasy & Adventure",      genre: 14, variant: 'standard' },
+  { type: 'movie', label: "Crime Thrillers",          genre: 80, variant: 'standard' },
+  { type: 'movie', label: "Romantic Films",           genre: 10749, variant: 'vertical' },
+  { type: 'tv',    label: "Mystery & Thriller Shows", genre: 9648, variant: 'standard' },
+  { type: 'movie', label: "War Epics",                genre: 10752, variant: 'standard' },
+  { type: 'movie', label: "Western Adventures",       genre: 37, variant: 'vertical' },
+  { type: 'movie', label: "Documentaries",            genre: 99, variant: 'standard' },
+  { type: 'movie', label: "Family Favorites",         genre: 10751, variant: 'standard' },
+  { type: 'movie', label: "Korean Cinema",            genre: 18, sort: 'vote_average.desc', variant: 'standard' },
+  { type: 'movie', label: "Box Office Champions",     sort: 'revenue.desc', variant: 'standard' },
+  { type: 'tv',    label: "Talk & Variety Shows",     genre: 10767, variant: 'standard' },
+  { type: 'movie', label: "Animated Features",        genre: 16, variant: 'vertical' },
+  { type: 'tv',    label: "Crime TV Shows",           genre: 80, variant: 'standard' },
+  { type: 'movie', label: "History & Biopics",        genre: 36, variant: 'standard' },
+  { type: 'movie', label: "Music Films",              genre: 10402, variant: 'vertical' },
 ];
+
+const shuffleDeck = (array) => {
+  const a = [...array];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+};
 
 const getTheme = (isPrimeOnly) => ({
   color: isPrimeOnly ? "text-[#00A8E1]" : "text-[#E50914]",
@@ -246,25 +255,21 @@ const getTheme = (isPrimeOnly) => ({
 const useInfiniteRows = (type = 'movie', isPrimeOnly = true) => {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
-  // nextIdx tracks position in the shuffled deck — never resets mid-session
-  const nextIdxRef = useRef(0);
-  const deckRef = useRef([]);
-  const modeKeyRef = useRef(''); // detect mode/type changes to reset
+  const [deck, setDeck] = useState([]);
+  const [deckIndex, setDeckIndex] = useState(0);
 
-  const modeKey = `${type}-${isPrimeOnly}`;
+  // Build URL — Prime mode always injects watch provider filter
+  const getUrl = (category, pageNum) => {
+    const targetType = category.type || (type === 'all' ? 'movie' : type);
 
-  // Build the TMDB fetch URL for a category (always includes Prime filter when isPrimeOnly)
-  const buildUrl = (category, targetType, pageNum = 1) => {
+    // Direct endpoint (e.g. trending) — no provider filter needed
     if (category.endpoint) {
-      // Direct endpoint (e.g. trending) — no provider filter needed, it's not Prime mode
       return `/${category.endpoint}?api_key=${TMDB_API_KEY}&page=${pageNum}`;
     }
+
     if (isPrimeOnly) {
-      // STRICT: every discover call must include watch provider filter
-      let base = `/discover/${targetType}?api_key=${TMDB_API_KEY}`
-        + `&with_watch_providers=9%7C119`  // 9=Prime, 119=Prime India
-        + `&watch_region=IN`
-        + `&page=${pageNum}`;
+      // STRICT: every discover call includes Prime Video India filter
+      let base = `/discover/${targetType}?api_key=${TMDB_API_KEY}&with_watch_providers=9%7C119&watch_region=IN&page=${pageNum}`;
       if (category.sort) base += `&sort_by=${category.sort}`;
       else if (category.year) base += `&primary_release_year=${category.year}&sort_by=popularity.desc`;
       else if (category.genre) base += `&with_genres=${category.genre}&sort_by=popularity.desc`;
@@ -279,74 +284,64 @@ const useInfiniteRows = (type = 'movie', isPrimeOnly = true) => {
     }
   };
 
-  // Reset and rebuild deck whenever mode/type changes
-  if (modeKeyRef.current !== modeKey) {
-    modeKeyRef.current = modeKey;
-    nextIdxRef.current = 0;
-
-    const fullDeck = isPrimeOnly ? [...PRIME_CATEGORY_DECK] : [...EVERYTHING_CATEGORY_DECK];
-    const filteredDeck = type === 'all' ? fullDeck : fullDeck.filter(item => item.type === type);
-    // Fisher-Yates shuffle for true randomness
-    for (let i = filteredDeck.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [filteredDeck[i], filteredDeck[j]] = [filteredDeck[j], filteredDeck[i]];
-    }
-    deckRef.current = filteredDeck;
-  }
-
-  // Initialize rows on mount / mode change
   useEffect(() => {
-    nextIdxRef.current = 0;
+    // Pick and shuffle the right deck for this mode
+    const rawDeck = isPrimeOnly ? [...PRIME_CATEGORY_DECK] : [...EVERYTHING_CATEGORY_DECK];
+    const typeDeck = type === 'all' ? rawDeck : rawDeck.filter(item => item.type === type);
+    const shuffled = shuffleDeck(typeDeck);
+    setDeck(shuffled);
+    setDeckIndex(0);
+
+    // Initial two rows use a different sort so they never overlap with each other
     const heroType = type === 'all' ? 'movie' : type;
 
-    // Use separate pages so hero and top-10 rows show different content
     const heroUrl = isPrimeOnly
       ? `/discover/${heroType}?api_key=${TMDB_API_KEY}&with_watch_providers=9%7C119&watch_region=IN&sort_by=popularity.desc&page=1`
       : `/trending/${heroType}/day?api_key=${TMDB_API_KEY}`;
 
-    // Top-10 uses vote_average sort so it's genuinely different content from hero
+    // Top-10 deliberately uses vote_average so content differs from popularity hero
     const topUrl = isPrimeOnly
-      ? `/discover/${heroType}?api_key=${TMDB_API_KEY}&with_watch_providers=9%7C119&watch_region=IN&sort_by=vote_average.desc&vote_count.gte=200&page=1`
+      ? `/discover/${heroType}?api_key=${TMDB_API_KEY}&with_watch_providers=9%7C119&watch_region=IN&sort_by=vote_average.desc&vote_count.gte=500&page=1`
       : `/${heroType}/top_rated?api_key=${TMDB_API_KEY}`;
 
-    const heroTitle = type === 'tv' ? "Popular on Prime TV" : type === 'movie' ? "Popular on Prime" : "Popular on Prime";
+    const heroTitle = type === 'tv' ? "Popular TV on Prime" : type === 'movie' ? "Popular Movies on Prime" : "Popular on Prime";
     const top10Title = isPrimeOnly ? "Top Rated on Prime" : "Top 10 Globally";
 
     setRows([
-      { id: 'trending_hero', title: heroTitle, fetchUrl: heroUrl, variant: 'standard', itemType: heroType },
-      { id: 'top_10', title: top10Title, fetchUrl: topUrl, variant: 'ranked', itemType: heroType },
+      { id: 'hero', title: heroTitle, fetchUrl: heroUrl, variant: 'standard', itemType: heroType },
+      { id: 'top10', title: top10Title, fetchUrl: topUrl, variant: 'ranked', itemType: heroType },
     ]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [type, isPrimeOnly]);
 
   const loadMore = useCallback(() => {
-    if (loading) return;
-    const deck = deckRef.current;
-    const idx = nextIdxRef.current;
-    if (idx >= deck.length) return; // exhausted all unique categories
-
+    if (loading || deck.length === 0) return;
     setLoading(true);
-    const batch = deck.slice(idx, idx + 3);
-    nextIdxRef.current = idx + 3;
 
-    // Each row gets its own page number (idx+3, idx+4, idx+5...) so TMDB
-    // returns a different set of results for every row — no content overlap
-    const newRows = batch.map((category, i) => {
-      const targetType = category.type || (type === 'all' ? 'movie' : type);
-      const pageNum = Math.floor((idx + i) / deck.length) + Math.max(2, ((idx + i) % 5) + 1);
-      return {
-        id: `row-${modeKey}-${idx + i}`,
-        title: category.label,
-        fetchUrl: buildUrl(category, targetType, pageNum),
-        variant: category.variant,
-        itemType: targetType,
-      };
-    });
+    // Grab next 3 from deck, cycling with modulo
+    // Use (deckIndex / deck.length) + 1 as page number so each cycle of the deck
+    // fetches a new TMDB page — different content, no repeated titles
+    const pageNum = Math.floor(deckIndex / deck.length) + 2; // start at page 2 (page 1 used by hero/top10)
+    const nextThree = [0, 1, 2].map(i => deck[(deckIndex + i) % deck.length]);
 
-    setRows(prev => [...prev, ...newRows]);
-    setLoading(false);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, type, isPrimeOnly]);
+    const newRows = nextThree.map((category, i) => ({
+      id: `row-${deckIndex}-${i}-${isPrimeOnly}`,  // stable unique id
+      title: category.label,
+      fetchUrl: getUrl(category, pageNum),
+      variant: category.variant,
+      itemType: category.type || (type === 'all' ? 'movie' : type),
+    }));
+
+    setTimeout(() => {
+      setRows(prev => {
+        // Guard: never add a row whose title already exists
+        const existingTitles = new Set(prev.map(r => r.title));
+        const fresh = newRows.filter(r => !existingTitles.has(r.title));
+        return [...prev, ...fresh];
+      });
+      setDeckIndex(prev => prev + 3);
+      setLoading(false);
+    }, 400);
+  }, [loading, deck, deckIndex, isPrimeOnly, type]);
 
   return { rows, loadMore, loading };
 };
@@ -658,7 +653,7 @@ const SportsPage = () => {
   const [activeTab, setActiveTab] = useState('iptv');
   const [dlhdQuery, setDlhdQuery] = useState("");
 
-  const PLAYLIST_URL = `/api/proxy?url=${encodeURIComponent('https://iptv-org.github.io/iptv/index.m3u')}`;
+  const PLAYLIST_URL = 'https://iptv-org.github.io/iptv/index.m3u';
   const normalizeCategory = (groupName) => {
     if (!groupName) return 'Entertainment';
     const lower = groupName.toLowerCase();
@@ -1006,14 +1001,10 @@ const SportsPlayer = () => {
   );
 };
 
-// Global seen-IDs set — shared across ALL Row instances in a session
-// so the same movie never appears in two different rows
-const _seenIds = new Set();
-const resetSeenIds = () => _seenIds.clear();
-
-// --- ROW Component ---
-// Note: Prime filtering is done at the URL level via &with_watch_providers=9|119&watch_region=IN
-// DO NOT add per-item provider checks here — it causes hundreds of extra API calls and kills performance
+// --- ROW COMPONENT ---
+// Fetches directly from TMDB. Prime filtering is handled at URL level
+// via &with_watch_providers=9|119&watch_region=IN on every discover call.
+// No per-item API calls — keeps rows fast and fully populated.
 const Row = ({ title, fetchUrl, data = null, variant = 'standard', itemType = 'movie', isPrimeOnly }) => {
   const [movies, setMovies] = useState([]);
   const [hoveredId, setHoveredId] = useState(null);
@@ -1022,31 +1013,14 @@ const Row = ({ title, fetchUrl, data = null, variant = 'standard', itemType = 'm
   const theme = getTheme(isPrimeOnly);
 
   useEffect(() => {
-    if (data) {
-      setMovies(data);
-      return;
-    }
-
-    const fetchMovies = async () => {
-      try {
-        const res = await fetch(`${BASE_URL}${fetchUrl}`);
-        const json = await res.json();
-        const results = (json.results || []).filter(m => m.backdrop_path || m.poster_path);
-
-        // Deduplicate across rows — skip any ID already shown in another row
-        const fresh = results.filter(m => {
-          if (_seenIds.has(m.id)) return false;
-          _seenIds.add(m.id);
-          return true;
-        });
-
-        setMovies(fresh);
-      } catch (err) {
-        console.error(err);
-      }
-    };
-
-    fetchMovies();
+    if (data) { setMovies(data); return; }
+    fetch(`${BASE_URL}${fetchUrl}`)
+      .then(res => res.json())
+      .then(json => {
+        const valid = (json.results || []).filter(m => m.backdrop_path || m.poster_path);
+        setMovies(valid);
+      })
+      .catch(err => console.error(err));
   }, [fetchUrl, data]);
 
   const handleHover = (id) => { if (timeoutRef.current) clearTimeout(timeoutRef.current); timeoutRef.current = setTimeout(() => setHoveredId(id), 400); };
@@ -1055,7 +1029,7 @@ const Row = ({ title, fetchUrl, data = null, variant = 'standard', itemType = 'm
   const slideRight = () => { if (rowRef.current) rowRef.current.scrollBy({ left: 800, behavior: 'smooth' }); };
   const displayMovies = variant === 'ranked' ? movies.slice(0, 10) : movies;
 
-  if (displayMovies.length === 0) return null;
+  if (!data && displayMovies.length === 0) return null;
 
   return (
     <div className="mb-6 pl-4 md:pl-12 relative z-20 group/row animate-row-enter hover:z-30 transition-all duration-300">
@@ -1067,7 +1041,11 @@ const Row = ({ title, fetchUrl, data = null, variant = 'standard', itemType = 'm
       <div className="relative">
         <button onClick={slideLeft} className="absolute left-0 top-[40%] -translate-y-1/2 z-[60] w-12 h-full bg-gradient-to-r from-black/80 to-transparent opacity-0 group-hover/row:opacity-100 transition-opacity duration-300 flex items-center justify-start pl-3 hover:w-16 cursor-pointer"><ChevronLeft size={40} className="text-white hover:scale-125 transition-transform" /></button>
         <div ref={rowRef} className={`row-container ${variant === 'vertical' ? 'vertical' : ''} scrollbar-hide`}>
-          {displayMovies.map((movie, index) => ( <MovieCard key={movie.id} movie={movie} variant={variant} itemType={itemType} rank={index + 1} isHovered={hoveredId === movie.id} onHover={handleHover} onLeave={handleLeave} isPrimeOnly={isPrimeOnly} isFirst={index === 0} isLast={index === displayMovies.length - 1} /> ))}
+          {displayMovies.map((movie, index) => (
+            <MovieCard key={movie.id} movie={movie} variant={variant} itemType={itemType} rank={index + 1}
+              isHovered={hoveredId === movie.id} onHover={handleHover} onLeave={handleLeave}
+              isPrimeOnly={isPrimeOnly} isFirst={index === 0} isLast={index === displayMovies.length - 1} />
+          ))}
         </div>
         <button onClick={slideRight} className="absolute right-0 top-[40%] -translate-y-1/2 z-[60] w-12 h-full bg-gradient-to-l from-black/80 to-transparent opacity-0 group-hover/row:opacity-100 transition-opacity duration-300 flex items-center justify-end pr-3 hover:w-16 cursor-pointer"><ChevronRight size={40} className="text-white hover:scale-125 transition-transform" /></button>
       </div>
@@ -1796,8 +1774,6 @@ const Home = ({ isPrimeOnly }) => {
   const { rows, loadMore } = useInfiniteRows('all', isPrimeOnly);
   const [history, setHistory] = useState([]);
 
-  useEffect(() => { resetSeenIds(); }, [isPrimeOnly]);
-
   useEffect(() => {
     const rawProgress = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
     const historyArray = Object.values(rawProgress)
@@ -1847,7 +1823,6 @@ const Home = ({ isPrimeOnly }) => {
 
 const MoviesPage = ({ isPrimeOnly }) => {
   const { rows, loadMore } = useInfiniteRows('movie', isPrimeOnly);
-  useEffect(() => { resetSeenIds(); }, [isPrimeOnly]);
   return (
     <>
       <Hero isPrimeOnly={isPrimeOnly} />
@@ -1863,7 +1838,6 @@ const MoviesPage = ({ isPrimeOnly }) => {
 
 const TVPage = ({ isPrimeOnly }) => {
   const { rows, loadMore } = useInfiniteRows('tv', isPrimeOnly);
-  useEffect(() => { resetSeenIds(); }, [isPrimeOnly]);
   return (
     <>
       <Hero isPrimeOnly={isPrimeOnly} />
