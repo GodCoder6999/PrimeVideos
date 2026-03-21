@@ -1,15 +1,8 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// No dev proxy needed — /api/* calls go to Vercel serverless functions.
+// In local dev, run `vercel dev` instead of `vite` so the functions are available.
 export default defineConfig({
   plugins: [react()],
-  server: {
-    proxy: {
-      '/api': {
-        target: 'http://localhost:3000', // Point this to your local backend server
-        changeOrigin: true,
-        secure: false,
-      },
-    },
-  },
 })
