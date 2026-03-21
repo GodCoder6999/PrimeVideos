@@ -1,4 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import Hls from 'hls.js';
+import {
+  resolveTitle,
+  detectQuality,
+  selectBestFiles,
+  fetchSubfolder,
+  safeUrl,
+} from './reelstreamResolver';
 
 // ─── ICONS (inline SVGs matching Prime Video exactly) ──────────────────────
 const SubtitlesIcon = () => (
@@ -176,11 +184,19 @@ export default function PrimePlayer({
   const [isDraggingVolume, setIsDraggingVolume] = useState(false);
 
   // ── Stream state ────────────────────────────────────────────────────────
-  const [mode, setMode] = useState('loading'); // 'loading' | 'hls' | 'iframe'
-  const [embedUrl, setEmbedUrl] = useState('');
-  const [imdbId, setImdbId] = useState(null);
+  // mode: 'loading' | 'hls' | 'direct' | 'iframe'
+  const [mode, setMode] = useState('loading');
+  const [hlsUrl, setHlsUrl] = useState(null);
+  const [provider, setProvider] = useState('');
+  const [directFiles, setDirectFiles] = useState([]);   // [{name,url,quality}] sorted highest first
+  const [directIdx, setDirectIdx] = useState(0);
+  const [directError, setDirectError] = useState(null);
+  const [resolverStatus, setResolverStatus] = useState('');
+  const [embeds, setEmbeds] = useState([]);
   const [embedIdx, setEmbedIdx] = useState(0);
-  const [embedLoaded, setEmbedLoaded] = useState(false);
+  const [embedPhase, setEmbedPhase] = useState('loading'); // 'loading'|'playing'|'failed'
+  const [imdbId, setImdbId] = useState(null);
+  const iframeTimerRef = useRef(null);
 
   // ── UI panel state ──────────────────────────────────────────────────────
   const [activePanel, setActivePanel] = useState(null); // null | 'subtitles' | 'quality' | 'volume'
@@ -208,60 +224,205 @@ export default function PrimePlayer({
     ? [0.16, 0.33, 0.5, 0.66, 0.83].map(p => p * duration)
     : [];
 
-  // ─── FETCH METADATA & BUILD EMBEDS ──────────────────────────────────────
+  // ─── EMBED LIST BUILDER ──────────────────────────────────────────────────
+  const buildEmbeds = (tid, iid, mType, s, e) => {
+    const tv = mType === 'tv';
+    const list = [];
+    if (iid) {
+      list.push({ name: 'VidSrc.xyz', url: tv ? `https://vidsrc.xyz/embed/tv?imdb=${iid}&season=${s}&episode=${e}` : `https://vidsrc.xyz/embed/movie?imdb=${iid}` });
+      list.push({ name: 'VidFast',    url: tv ? `https://vidfast.pro/tv/${iid}/${s}/${e}?autoPlay=true` : `https://vidfast.pro/movie/${iid}?autoPlay=true` });
+      list.push({ name: 'VidSrc.me',  url: tv ? `https://vidsrc.me/embed/tv?imdb=${iid}&season=${s}&episode=${e}` : `https://vidsrc.me/embed/movie?imdb=${iid}` });
+    }
+    list.push({ name: 'Videasy',    url: tv ? `https://player.videasy.net/tv/${tid}/${s}/${e}` : `https://player.videasy.net/movie/${tid}` });
+    list.push({ name: 'AutoEmbed',  url: tv ? `https://autoembed.cc/tv/tmdb/${tid}-${s}-${e}` : `https://autoembed.cc/movie/tmdb/${tid}` });
+    list.push({ name: 'EmbedSu',    url: tv ? `https://embed.su/embed/tv/${tid}/${s}/${e}` : `https://embed.su/embed/movie/${tid}` });
+    list.push({ name: 'VidSrc.in',  url: tv ? `https://vidsrc.in/embed/tv?tmdb=${tid}&season=${s}&episode=${e}` : `https://vidsrc.in/embed/movie?tmdb=${tid}` });
+    list.push({ name: '2Embed',     url: tv ? `https://www.2embed.cc/embedtv/${tid}&s=${s}&e=${e}` : `https://www.2embed.cc/embed/${tid}` });
+    list.push({ name: 'SuperEmbed', url: tv ? `https://multiembed.mov/?video_id=${tid}&tmdb=1&s=${s}&e=${e}` : `https://multiembed.mov/?video_id=${tid}&tmdb=1` });
+    return list;
+  };
+
+  // ─── MAIN INIT — 3-TIER RESOLUTION ──────────────────────────────────────
+  // Tier 0: Backend /api/get-stream (HLS scraper)
+  // Tier 1: REELSTREAM open-directory resolver → direct <video> play
+  // Tier 2: Iframe embeds fallback
   useEffect(() => {
     if (!tmdbId) return;
+
+    // Reset all state
     setMode('loading');
-    setEmbedLoaded(false);
+    setHlsUrl(null);
+    setProvider('');
+    setDirectFiles([]);
+    setDirectIdx(0);
+    setDirectError(null);
+    setResolverStatus('');
+    setEmbeds([]);
+    setEmbedIdx(0);
+    setEmbedPhase('loading');
+    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
 
     (async () => {
+      // ── Fetch metadata (IMDB ID + cast for X-Ray) ────────────────────────
+      let iid = null;
+      let titleStr = title;
+      let yearStr = '';
       try {
         const r = await fetch(
           `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids,credits`
         );
         const d = await r.json();
-        const iid = d.imdb_id || d.external_ids?.imdb_id || null;
+        iid = d.imdb_id || d.external_ids?.imdb_id || null;
+        titleStr = d.title || d.name || title;
+        yearStr = (d.release_date || d.first_air_date || '').slice(0, 4);
         setImdbId(iid);
-        setMovieTitle(d.title || d.name || title);
-
-        // Build cast for X-Ray
+        setMovieTitle(titleStr);
         const cast = (d.credits?.cast || []).slice(0, 12).map(p => ({
-          id: p.id,
-          name: p.name,
-          character: p.character,
-          profile: p.profile_path
-            ? `https://image.tmdb.org/t/p/w185${p.profile_path}`
-            : null,
+          id: p.id, name: p.name, character: p.character,
+          profile: p.profile_path ? `https://image.tmdb.org/t/p/w185${p.profile_path}` : null,
         }));
         setXrayCast(cast);
+      } catch (_) {}
 
-        // Build embed URL
-        const tv = mediaType === 'tv';
-        let url = '';
-        if (iid) {
-          url = tv
-            ? `https://vidsrc.xyz/embed/tv?imdb=${iid}&season=${season}&episode=${episode}`
-            : `https://vidsrc.xyz/embed/movie?imdb=${iid}`;
-        } else {
-          url = tv
-            ? `https://autoembed.cc/tv/tmdb/${tmdbId}-${season}-${episode}`
-            : `https://autoembed.cc/movie/tmdb/${tmdbId}`;
+      const embedList = buildEmbeds(tmdbId, iid, mediaType, season, episode);
+      setEmbeds(embedList);
+
+      // ── Tier 0: Backend HLS scraper ──────────────────────────────────────
+      try {
+        const params = new URLSearchParams({ tmdbId, mediaType, season, episode });
+        const res = await fetch(`/api/get-stream?${params}`);
+        const data = await res.json();
+        if (data.success && data.streamUrl) {
+          setHlsUrl(data.proxyUrl || `/api/proxy?url=${encodeURIComponent(data.streamUrl)}`);
+          setProvider(data.provider || 'Direct HLS');
+          setMode('hls');
+          return;
         }
-        setEmbedUrl(url);
-        setMode('iframe');
+      } catch (_) {}
+
+      // ── Tier 1: REELSTREAM open-directory index resolver ─────────────────
+      try {
+        setResolverStatus('Searching open directory index…');
+        const result = await resolveTitle({
+          tmdbId, mediaType, title: titleStr, year: yearStr, season, episode,
+        });
+
+        let videos = result.videos;
+
+        // For TV: drill into season folder if needed
+        if (!videos.length && result.folders.length && mediaType === 'tv') {
+          const seasonNum = Number(season) || 1;
+          const target = result.folders.find(f =>
+            new RegExp(`season.?${seasonNum}|s${String(seasonNum).padStart(2,'0')}`, 'i').test(f.name)
+          ) || result.folders[0];
+          if (target) {
+            const sub = await fetchSubfolder(target.url);
+            videos = sub.videos || [];
+            if (episode && videos.length) {
+              const epNum = String(episode).padStart(2, '0');
+              const filtered = videos.filter(v => new RegExp(`[Ee]${epNum}`, 'i').test(v.name));
+              if (filtered.length) videos = filtered;
+            }
+          }
+        }
+
+        if (videos.length) {
+          const bestFiles = selectBestFiles(videos);
+          // Reverse so index 0 = highest quality
+          const ordered = [...bestFiles].reverse().map(f => ({
+            ...f,
+            quality: f.quality || detectQuality(f.name) || 'SD',
+            url: safeUrl(f.url),
+          }));
+          setDirectFiles(ordered);
+          setDirectIdx(0);
+          setResolverStatus('');
+          setMode('direct');
+          return;
+        }
       } catch (e) {
-        console.error(e);
-        // Fallback embed
-        const tv = mediaType === 'tv';
-        setEmbedUrl(
-          tv
-            ? `https://autoembed.cc/tv/tmdb/${tmdbId}-${season}-${episode}`
-            : `https://autoembed.cc/movie/tmdb/${tmdbId}`
-        );
-        setMode('iframe');
+        console.warn('[PrimePlayer] Resolver failed:', e.message);
+        setResolverStatus('');
       }
+
+      // ── Tier 2: Iframe embeds ─────────────────────────────────────────────
+      setMode('iframe');
     })();
+
+    return () => {
+      if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+    };
   }, [tmdbId, mediaType, season, episode]);
+
+  // ─── HLS SETUP ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (mode !== 'hls' || !hlsUrl || !videoRef.current) return;
+    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+    const vid = videoRef.current;
+
+    if (Hls.isSupported()) {
+      const hls = new Hls({ enableWorker: true, backBufferLength: 60 });
+      hlsRef.current = hls;
+      hls.loadSource(hlsUrl);
+      hls.attachMedia(vid);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        vid.play().catch(() => {});
+        setPlaying(true);
+      });
+      hls.on(Hls.Events.ERROR, (_, d) => {
+        if (d.fatal) {
+          setTimeout(() => { setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading'); }, 2000);
+        }
+      });
+    } else if (vid.canPlayType('application/vnd.apple.mpegurl')) {
+      vid.src = hlsUrl;
+      vid.addEventListener('loadedmetadata', () => { vid.play().catch(() => {}); setPlaying(true); });
+    } else {
+      setMode('iframe');
+    }
+    return () => { hlsRef.current?.destroy(); hlsRef.current = null; };
+  }, [hlsUrl, mode]);
+
+  // ─── DIRECT MODE: load file when idx changes ─────────────────────────────
+  useEffect(() => {
+    if (mode !== 'direct' || !videoRef.current || !directFiles.length) return;
+    const vid = videoRef.current;
+    const file = directFiles[directIdx];
+    if (!file) return;
+    vid.pause();
+    vid.src = safeUrl(file.url);
+    vid.load();
+    setDirectError(null);
+    const onMeta = () => { vid.play().catch(() => {}); setPlaying(true); };
+    vid.addEventListener('loadedmetadata', onMeta, { once: true });
+    return () => vid.removeEventListener('loadedmetadata', onMeta);
+  }, [mode, directIdx, directFiles]);
+
+  // ─── DIRECT MODE: error → try lower quality → give up → iframe ──────────
+  useEffect(() => {
+    if (mode !== 'direct' || !videoRef.current) return;
+    const vid = videoRef.current;
+    const onErr = () => {
+      const e = vid.error;
+      if (!e || e.code === 1) return;
+      if (directIdx < directFiles.length - 1) { setDirectIdx(i => i + 1); return; }
+      setDirectError('Could not play this file. Switching to embed player…');
+      setTimeout(() => { setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading'); setDirectError(null); }, 2500);
+    };
+    vid.addEventListener('error', onErr);
+    return () => vid.removeEventListener('error', onErr);
+  }, [mode, directIdx, directFiles]);
+
+  // ─── IFRAME TIMEOUT ──────────────────────────────────────────────────────
+  useEffect(() => {
+    if (mode !== 'iframe' || embedPhase !== 'loading') return;
+    clearTimeout(iframeTimerRef.current);
+    iframeTimerRef.current = setTimeout(() => {
+      if (embedIdx < embeds.length - 1) setEmbedIdx(i => i + 1);
+      else setEmbedPhase('failed');
+    }, 15000);
+    return () => clearTimeout(iframeTimerRef.current);
+  }, [mode, embedPhase, embedIdx, embeds.length]);
 
   // ─── CONTROLS AUTO-HIDE ──────────────────────────────────────────────────
   const resetControlsTimer = useCallback(() => {
@@ -451,24 +612,11 @@ export default function PrimePlayer({
   const bufferedPct = duration > 0 ? (buffered / duration) * 100 : 0;
   const VolumeIcon = muted || volume === 0 ? VolumeMuteIcon : volume < 0.5 ? VolumeMidIcon : VolumeHighIcon;
 
-  const embeds = [
-    imdbId && `https://vidsrc.xyz/embed/${mediaType === 'tv' ? `tv?imdb=${imdbId}&season=${season}&episode=${episode}` : `movie?imdb=${imdbId}`}`,
-    `https://autoembed.cc/${mediaType === 'tv' ? `tv/tmdb/${tmdbId}-${season}-${episode}` : `movie/tmdb/${tmdbId}`}`,
-    `https://embed.su/embed/${mediaType === 'tv' ? `tv/${tmdbId}/${season}/${episode}` : `movie/${tmdbId}`}`,
-    imdbId && `https://vidsrc.me/embed/${mediaType === 'tv' ? `tv?imdb=${imdbId}&season=${season}&episode=${episode}` : `movie?imdb=${imdbId}`}`,
-    `https://multiembed.mov/?video_id=${tmdbId}&tmdb=1${mediaType === 'tv' ? `&s=${season}&e=${episode}` : ''}`,
-  ].filter(Boolean);
+  const curEmbed = embeds[embedIdx];
+  const curDirect = directFiles[directIdx];
+  const isVideoMode = mode === 'hls' || mode === 'direct';
 
-  const tryNextEmbed = () => {
-    const next = embedIdx + 1;
-    if (next < embeds.length) {
-      setEmbedIdx(next);
-      setEmbedUrl(embeds[next]);
-      setEmbedLoaded(false);
-    }
-  };
-
-  // ─── RENDER ──────────────────────────────────────────────────────────────
+    // ─── RENDER ──────────────────────────────────────────────────────────────
   return (
     <div
       ref={containerRef}
@@ -604,63 +752,82 @@ export default function PrimePlayer({
         @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
 
-      {/* ── VIDEO ELEMENT (HLS mode) ── */}
-      {mode === 'hls' && (
-        <video
-          ref={videoRef}
-          style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
-          playsInline
-          onClick={(e) => { e.stopPropagation(); togglePlay(); }}
-        />
+      {/* ── SHARED <video> ELEMENT — used for both HLS and Direct modes ── */}
+      <video
+        ref={videoRef}
+        style={{
+          width: '100%', height: '100%', objectFit: 'contain', display: 'block',
+          visibility: isVideoMode ? 'visible' : 'hidden',
+        }}
+        playsInline
+        preload="metadata"
+        onClick={(e) => { e.stopPropagation(); if (isVideoMode) togglePlay(); }}
+      />
+
+      {/* ── DIRECT MODE: error overlay ── */}
+      {mode === 'direct' && directError && (
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.92)', zIndex: 8 }}>
+          <div style={{ color: '#f87171', fontSize: 15, marginBottom: 16, textAlign: 'center', maxWidth: 320 }}>{directError}</div>
+          <div className="spin" />
+        </div>
       )}
 
-      {/* ── IFRAME (embed mode) ── */}
+      {/* ── IFRAME MODE ── */}
       {mode === 'iframe' && (
         <>
-          {!embedLoaded && (
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', zIndex: 2 }}>
-              <div className="spin" />
+          {/* Loading/failed overlays */}
+          {embedPhase === 'loading' && (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#000', zIndex: 6, pointerEvents: 'none' }}>
+              <div className="spin" style={{ marginBottom: 16 }} />
+              <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>{curEmbed?.name || 'Loading…'}</div>
             </div>
           )}
-          <iframe
-            ref={iframeRef}
-            key={embedUrl}
-            src={embedUrl}
-            style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
-            allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-            allowFullScreen
-            referrerPolicy="no-referrer"
-            onLoad={() => setEmbedLoaded(true)}
-          />
-          {/* Try next source overlay */}
-          {embedLoaded && (
-            <div style={{
-              position: 'absolute', bottom: 80, right: 16, zIndex: 20,
-              opacity: showControls ? 1 : 0, transition: 'opacity 0.3s',
-              pointerEvents: showControls ? 'auto' : 'none',
-            }}>
-              {embedIdx < embeds.length - 1 && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); tryNextEmbed(); }}
-                  style={{
-                    background: 'rgba(0,0,0,0.7)', border: '1px solid rgba(255,255,255,0.2)',
-                    color: 'rgba(255,255,255,0.7)', padding: '6px 14px', borderRadius: 6,
-                    cursor: 'pointer', fontSize: 12, fontWeight: 600,
-                    backdropFilter: 'blur(8px)',
-                  }}
-                >
-                  Not loading? Try next source →
-                </button>
-              )}
+          {embedPhase === 'failed' && (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#000', zIndex: 6 }}>
+              <div style={{ color: '#f87171', fontSize: 16, fontWeight: 600, marginBottom: 8 }}>All sources failed</div>
+              <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, marginBottom: 20 }}>This title may not be available right now.</div>
+              <button onClick={() => { setEmbedIdx(0); setEmbedPhase('loading'); }}
+                style={{ background: '#00A8E1', border: 'none', color: '#fff', padding: '8px 24px', borderRadius: 6, cursor: 'pointer', fontWeight: 700 }}>
+                Retry
+              </button>
+            </div>
+          )}
+
+          {curEmbed && embedPhase !== 'failed' && (
+            <iframe
+              ref={iframeRef}
+              key={`${embedIdx}-${tmdbId}-${season}-${episode}`}
+              src={curEmbed.url}
+              style={{ width: '100%', height: '100%', border: 'none', display: 'block', opacity: embedPhase === 'playing' ? 1 : 0, transition: 'opacity 0.4s' }}
+              allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope"
+              allowFullScreen
+              referrerPolicy="no-referrer"
+              onLoad={() => { clearTimeout(iframeTimerRef.current); setEmbedPhase('playing'); }}
+              title={movieTitle}
+            />
+          )}
+
+          {/* Source switcher nudge */}
+          {embedPhase === 'playing' && embedIdx < embeds.length - 1 && showControls && (
+            <div style={{ position: 'absolute', bottom: 72, right: 16, zIndex: 20 }}>
+              <button
+                onClick={(e) => { e.stopPropagation(); clearTimeout(iframeTimerRef.current); setEmbedIdx(i => i + 1); setEmbedPhase('loading'); }}
+                style={{ background: 'rgba(0,0,0,0.7)', border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.6)', padding: '5px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, backdropFilter: 'blur(8px)' }}
+              >
+                Not playing? Try next source →
+              </button>
             </div>
           )}
         </>
       )}
 
-      {/* ── LOADING ── */}
+      {/* ── GLOBAL LOADING (resolver searching) ── */}
       {mode === 'loading' && (
-        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div className="spin" />
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#000', zIndex: 8 }}>
+          <div className="spin" style={{ marginBottom: 16 }} />
+          <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, animation: 'pulse 1.5s infinite' }}>
+            {resolverStatus || 'Finding stream…'}
+          </div>
         </div>
       )}
 
@@ -871,6 +1038,55 @@ export default function PrimePlayer({
               {isFullscreen ? <ExitFullscreenIcon /> : <FullscreenIcon />}
             </button>
 
+            {/* Source/Quality badge for video modes */}
+            {(mode === 'hls' || mode === 'direct') && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginRight: 4 }}>
+                {/* Mode badge */}
+                <div style={{
+                  fontSize: 9, fontWeight: 800, letterSpacing: 0.8,
+                  padding: '2px 7px', borderRadius: 4, border: '1px solid',
+                  color: mode === 'direct' ? '#4ade80' : '#00A8E1',
+                  borderColor: mode === 'direct' ? 'rgba(74,222,128,0.5)' : 'rgba(0,168,225,0.5)',
+                  background: mode === 'direct' ? 'rgba(74,222,128,0.1)' : 'rgba(0,168,225,0.1)',
+                  textTransform: 'uppercase',
+                }}>
+                  {mode === 'direct' ? (curDirect?.quality || 'Direct') : (provider || 'HLS')}
+                </div>
+                {/* Quality switcher for direct mode */}
+                {mode === 'direct' && directFiles.length > 1 && (
+                  <div style={{ position: 'relative' }}>
+                    <button
+                      className="prime-btn"
+                      onClick={(e) => { e.stopPropagation(); setActivePanel(activePanel === 'directQuality' ? null : 'directQuality'); }}
+                      style={{ fontSize: 11, fontWeight: 700, padding: '3px 8px', color: 'rgba(255,255,255,0.7)' }}
+                    >
+                      Quality ▾
+                    </button>
+                    {activePanel === 'directQuality' && (
+                      <div className="panel" style={{ right: 0, width: 200 }} onClick={e => e.stopPropagation()}>
+                        <div style={{ padding: '14px 16px 8px' }}>
+                          <div style={{ color: '#fff', fontSize: 15, fontWeight: 700, marginBottom: 12 }}>Quality</div>
+                          {directFiles.map((f, i) => (
+                            <div key={i}
+                              style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 4px', cursor: 'pointer' }}
+                              onClick={() => { setDirectIdx(i); setActivePanel(null); }}
+                            >
+                              <div style={{ width: 20 }}>{directIdx === i && <CheckIcon />}</div>
+                              <div>
+                                <div style={{ color: directIdx === i ? '#fff' : 'rgba(255,255,255,0.8)', fontSize: 14, fontWeight: directIdx === i ? 700 : 400 }}>
+                                  {f.quality || 'SD'}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Separator */}
             <div style={{ width: 1, height: 28, background: 'rgba(255,255,255,0.25)', margin: '0 8px' }} />
 
@@ -916,8 +1132,8 @@ export default function PrimePlayer({
           </div>
         )}
 
-        {/* ── CENTER CONTROLS (HLS mode only — iframe has its own controls) ── */}
-        {mode === 'hls' && (
+        {/* ── CENTER CONTROLS (video modes — iframe has its own controls) ── */}
+        {isVideoMode && (
           <div style={{
             position: 'absolute', top: '50%', left: '50%',
             transform: 'translate(-50%, -50%)',
@@ -966,11 +1182,11 @@ export default function PrimePlayer({
           <div
             ref={progressBarRef}
             className="progress-track"
-            style={{ marginBottom: 10, cursor: mode === 'hls' ? 'pointer' : 'default' }}
-            onMouseDown={mode === 'hls' ? onProgressMouseDown : undefined}
-            onMouseMove={mode === 'hls' ? onProgressMouseMove : undefined}
-            onMouseUp={mode === 'hls' ? onProgressMouseUp : undefined}
-            onMouseLeave={mode === 'hls' ? onProgressMouseLeave : undefined}
+            style={{ marginBottom: 10, cursor: isVideoMode ? 'pointer' : 'default' }}
+            onMouseDown={isVideoMode ? onProgressMouseDown : undefined}
+            onMouseMove={isVideoMode ? onProgressMouseMove : undefined}
+            onMouseUp={isVideoMode ? onProgressMouseUp : undefined}
+            onMouseLeave={isVideoMode ? onProgressMouseLeave : undefined}
             onClick={e => e.stopPropagation()}
           >
             {/* Buffered */}
