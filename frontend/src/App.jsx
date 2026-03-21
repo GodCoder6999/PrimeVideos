@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useLocation, useParams, Link } from 'react-router-dom';
 import { Search, Play, Info, Plus, ChevronRight, ChevronLeft, Download, Share2, CheckCircle2, ThumbsUp, ChevronDown, Grip, Loader, List, ArrowLeft, X, Volume2, VolumeX, Trophy, Signal, Clock, Ban, Eye, Bookmark, TrendingUp, Monitor } from 'lucide-react';
-import ShakaPlayerUI from './ShakaPlayerUI';
 import PrimePlayer from './PrimePlayer';
 
 // --- GLOBAL HLS REFERENCE ---
@@ -1822,46 +1821,18 @@ const Player = () => {
   const { type, id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-
   const queryParams = new URLSearchParams(location.search);
   const season = Number(queryParams.get('season')) || 1;
   const episode = Number(queryParams.get('episode')) || 1;
 
-  const [mediaDetails, setMediaDetails] = useState(null);
-
-  useEffect(() => {
-    const fetchDetails = async () => {
-      try {
-        const res = await fetch(`${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}`);
-        const data = await res.json();
-        setMediaDetails(data);
-      } catch (e) {
-        console.error("Error fetching details:", e);
-      }
-    };
-    fetchDetails();
-  }, [type, id]);
-
-  if (!mediaDetails) {
-    return (
-      <div className="fixed inset-0 bg-black z-[200] flex items-center justify-center">
-         <div className="w-12 h-12 border-4 border-[#00A8E1] border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    );
-  }
-
-  const title = mediaDetails.title || mediaDetails.name;
-
   return (
-    <div className="fixed inset-0 bg-black z-[200] overflow-hidden" style={{ transform: 'translateZ(0)' }}>
-        <PrimePlayer 
-            tmdbId={id}
-            title={title} 
-            mediaType={type} 
-            season={season} 
-            episode={episode} 
-        />
-    </div>
+    <PrimePlayer
+      tmdbId={id}
+      mediaType={type}
+      season={season}
+      episode={episode}
+      onClose={() => navigate(-1)}
+    />
   );
 };
 
