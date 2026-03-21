@@ -786,6 +786,8 @@ const SportsPage = () => {
     logo: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR-sN5te7jsC9YTazKRH6RgQCxTAqs60oWZMw&s",
     group: "Cricket",
     parentGroup: "Sports",
+    url: "",
+};
   
 
   const CATEGORIES_TREE = {
