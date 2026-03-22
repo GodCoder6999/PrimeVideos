@@ -300,7 +300,33 @@ export default function PrimePlayer({
         }
       } catch (_) {}
 
-      // ── Tier 1: REELSTREAM open-directory index resolver ─────────────────
+      // ── Tier 1: Multi-provider parallel API (VidZee + MP4Hydra + Vixsrc + SoaperTV) ──
+      // All 4 providers fire in parallel on the server — typically resolves in 1-3s
+      try {
+        setResolverStatus('Searching fast stream providers…');
+        const params = new URLSearchParams({ tmdbId, type: mediaType, season, episode });
+        const res  = await fetch(`/api/multi-stream?${params}`, { signal: AbortSignal.timeout(12000) });
+        const data = await res.json();
+        if (data.success && data.streams?.length) {
+          // Map provider streams to our directFiles format
+          const ordered = data.streams.map(s => ({
+            name: s.name,
+            url:  s.url,
+            quality: s.quality || 'Auto',
+            provider: s.provider,
+          }));
+          setDirectFiles(ordered);
+          setDirectIdx(0);
+          setResolverStatus('');
+          setMode('direct');
+          return;
+        }
+      } catch (e) {
+        console.warn('[PrimePlayer] Multi-stream failed:', e.message);
+        setResolverStatus('');
+      }
+
+      // ── Tier 2: REELSTREAM open-directory index resolver ─────────────────
       try {
         setResolverStatus('Searching open directory index…');
         const result = await resolveTitle({
@@ -341,11 +367,11 @@ export default function PrimePlayer({
           return;
         }
       } catch (e) {
-        console.warn('[PrimePlayer] Resolver failed:', e.message);
+        console.warn('[PrimePlayer] Index resolver failed:', e.message);
         setResolverStatus('');
       }
 
-      // ── Tier 2: Iframe embeds ─────────────────────────────────────────────
+      // ── Tier 3: Iframe embeds ─────────────────────────────────────────────
       setMode('iframe');
     })();
 
@@ -1050,7 +1076,7 @@ export default function PrimePlayer({
                   background: mode === 'direct' ? 'rgba(74,222,128,0.1)' : 'rgba(0,168,225,0.1)',
                   textTransform: 'uppercase',
                 }}>
-                  {mode === 'direct' ? (curDirect?.quality || 'Direct') : (provider || 'HLS')}
+                  {mode === 'direct' ? (curDirect?.provider ? (curDirect.provider + ' ' + (curDirect.quality || '')).trim() : (curDirect?.quality || 'Direct')) : (provider || 'HLS')}
                 </div>
                 {/* Quality switcher for direct mode */}
                 {mode === 'direct' && directFiles.length > 1 && (
