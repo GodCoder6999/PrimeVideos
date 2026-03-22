@@ -602,15 +602,15 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         .pp-src-badge{display:inline-block;font-size:9px;font-weight:800;letter-spacing:.6px;padding:2px 6px;border-radius:3px;border:1px solid rgba(163,163,163,.35);color:#A3A3A3;text-transform:uppercase}
       `}</style>
 
-      {/* VIDEO ELEMENT */}
+      {/* VIDEO ELEMENT — always visible; iframe overlays it via position:absolute */}
       <video
         ref={videoRef}
-        style={{ width:'100%', height:'100%', objectFit:'contain', display:'block', visibility: isVideoMode ? 'visible' : 'hidden' }}
+        style={{ width:'100%', height:'100%', objectFit:'contain', display:'block' }}
         playsInline preload="metadata"
         onClick={e => { e.stopPropagation(); togglePlay(); }}
       />
 
-      {/* IFRAME MODE */}
+      {/* IFRAME MODE — absolute overlay on top of the video element */}
       {mode === 'iframe' && (
         <>
           {embedPhase === 'loading' && (
@@ -631,10 +631,20 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
               ref={iframeRef}
               key={`${embedIdx}-${tmdbId}-${season}-${episode}`}
               src={curEmbed.url}
-              style={{ width:'100%', height:'100%', border:'none', display:'block', opacity: embedPhase === 'playing' ? 1 : 0, transition:'opacity .4s' }}
+              style={{
+                position:'absolute', inset:0,
+                width:'100%', height:'100%',
+                border:'none', display:'block',
+                zIndex:5,
+                /* Always visible — no opacity:0 hiding that causes audio-only playback */
+                opacity:1,
+              }}
               allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
               allowFullScreen referrerPolicy="no-referrer"
-              onLoad={() => { clearTimeout(iframeTimer.current); iframeTimer.current = setTimeout(() => setEmbedPhase('playing'), 1500); }}
+              onLoad={() => {
+                clearTimeout(iframeTimer.current);
+                iframeTimer.current = setTimeout(() => setEmbedPhase('playing'), 800);
+              }}
               title={movieTitle}
             />
           )}
@@ -649,9 +659,9 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         </>
       )}
 
-      {/* GLOBAL SPINNER */}
+      {/* GLOBAL SPINNER — black bg only during initial 'loading' state, transparent when buffering mid-playback */}
       {(mode === 'loading' || (isVideoMode && bufSpinner)) && (
-        <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', background: mode==='loading'?'#000':'transparent', zIndex:8, pointerEvents:'none', gap:14 }}>
+        <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', background: mode === 'loading' ? '#000' : 'transparent', zIndex:8, pointerEvents:'none', gap:14 }}>
           <div className="pp-spin" />
           {mode === 'loading' && <div style={{ color:C, fontSize:12, opacity:.55 }}>{statusMsg}</div>}
         </div>
