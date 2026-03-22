@@ -6,7 +6,7 @@ import {
   selectBestFiles,
   fetchSubfolder,
   safeUrl,
-} from './reelstreamResolver';
+} from './openDirResolver';
 
 // ─── ICONS (inline SVGs matching Prime Video exactly) ──────────────────────
 const SubtitlesIcon = () => (
