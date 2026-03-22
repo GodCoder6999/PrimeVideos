@@ -792,13 +792,13 @@ export default function PrimePlayer({
     >
       <style>{`
         :root {
-          --c: #A3A3A3;
-          --c-dim: rgba(163,163,163,0.35);
-          --c-track: rgba(163,163,163,0.22);
+          --c: #AAAAAA;
+          --c-dim: rgba(170,170,170,0.35);
+          --c-track: rgba(170,170,170,0.22);
         }
         .prime-player * { box-sizing: border-box; }
 
-        /* ── Buttons — all exactly #A3A3A3, no hover color change ── */
+        /* ── Buttons — all exactly #AAAAAA, no hover color change ── */
         .prime-btn {
           background: none; border: none; cursor: pointer;
           color: var(--c); padding: 6px;
@@ -808,7 +808,7 @@ export default function PrimePlayer({
         .prime-btn:hover { color: var(--c); opacity: 0.8; background: none; }
         .prime-btn.active { color: var(--c); }
 
-        /* ── Progress bar — #A3A3A3 played, dim track ── */
+        /* ── Progress bar — #AAAAAA played, dim track ── */
         .progress-track {
           position: relative; height: 3px; border-radius: 0;
           background: var(--c-track); cursor: pointer;
@@ -818,7 +818,7 @@ export default function PrimePlayer({
         .progress-track:hover .progress-thumb { opacity: 1; transform: translate(-50%,-50%) scale(1); }
         .progress-buffered {
           position: absolute; top: 0; left: 0; height: 100%;
-          background: rgba(163,163,163,0.28); border-radius: 0; pointer-events: none;
+          background: rgba(170,170,170,0.28); border-radius: 0; pointer-events: none;
         }
         .progress-played {
           position: absolute; top: 0; left: 0; height: 100%;
@@ -886,7 +886,7 @@ export default function PrimePlayer({
         .xray-panel {
           position: absolute; top: 0; right: 0; bottom: 0;
           width: 340px; background: #080808;
-          border-left: 1px solid rgba(163,163,163,0.08);
+          border-left: 1px solid rgba(170,170,170,0.08);
           display: flex; flex-direction: column;
           animation: slideIn 0.18s ease-out; z-index: 10;
         }
@@ -905,8 +905,8 @@ export default function PrimePlayer({
         /* ── Loader — white arc on black ── */
         .spin {
           width: 48px; height: 48px; border-radius: 50%;
-          border: 2px solid rgba(163,163,163,0.2);
-          border-top-color: #A3A3A3;
+          border: 2px solid rgba(170,170,170,0.2);
+          border-top-color: #AAAAAA;
           animation: spin 0.85s linear infinite;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
@@ -943,9 +943,9 @@ export default function PrimePlayer({
           {embedPhase === 'failed' && (
             <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#000', zIndex: 6 }}>
               <div style={{ color: '#f87171', fontSize: 16, fontWeight: 600, marginBottom: 8 }}>All sources failed</div>
-              <div style={{ color: '#A3A3A3', fontSize: 13, marginBottom: 20 }}>This title may not be available right now.</div>
+              <div style={{ color: '#AAAAAA', fontSize: 13, marginBottom: 20 }}>This title may not be available right now.</div>
               <button onClick={() => { setEmbedIdx(0); setEmbedPhase('loading'); }}
-                style={{ background: 'none', border: '1px solid rgba(163,163,163,0.4)', color: '#A3A3A3', padding: '8px 24px', borderRadius: 6, cursor: 'pointer', fontWeight: 700 }}>
+                style={{ background: 'none', border: '1px solid rgba(170,170,170,0.4)', color: '#AAAAAA', padding: '8px 24px', borderRadius: 6, cursor: 'pointer', fontWeight: 700 }}>
                 Retry
               </button>
             </div>
@@ -975,7 +975,7 @@ export default function PrimePlayer({
             <div style={{ position: 'absolute', bottom: 72, right: 16, zIndex: 20 }}>
               <button
                 onClick={(e) => { e.stopPropagation(); clearTimeout(iframeTimerRef.current); setEmbedIdx(i => i + 1); setEmbedPhase('loading'); }}
-                style={{ background: 'rgba(0,0,0,0.7)', border: '1px solid rgba(163,163,163,0.2)', color: '#A3A3A3', padding: '5px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, backdropFilter: 'blur(8px)' }}
+                style={{ background: 'rgba(0,0,0,0.7)', border: '1px solid rgba(170,170,170,0.2)', color: '#AAAAAA', padding: '5px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, backdropFilter: 'blur(8px)' }}
               >
                 Not playing? Try next source →
               </button>
@@ -1028,7 +1028,7 @@ export default function PrimePlayer({
             <button
               className="prime-btn"
               onClick={(e) => { e.stopPropagation(); setXrayOpen(v => !v); setXrayExpanded(false); setActivePanel(null); }}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', color: '#A3A3A3' }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', color: '#AAAAAA' }}
             >
               <span style={{ fontSize: 14, fontWeight: 400, letterSpacing: 0.3 }}>X-Ray</span>
               {xrayOpen ? <ChevronUpIcon /> : null}
@@ -1041,7 +1041,7 @@ export default function PrimePlayer({
 
             <button
               className="prime-btn"
-              style={{ fontSize: 14, color: '#A3A3A3', display: 'flex', alignItems: 'center', gap: 3 }}
+              style={{ fontSize: 14, color: '#AAAAAA', display: 'flex', alignItems: 'center', gap: 3 }}
               onClick={(e) => { e.stopPropagation(); setXrayExpanded(true); setXrayOpen(false); setActivePanel(null); }}
             >
               All <ChevronRightIcon />
@@ -1083,14 +1083,14 @@ export default function PrimePlayer({
                             {s === 'English CC' ? (
                               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                 English
-                                <span style={{ border: '1px solid rgba(163,163,163,0.5)', borderRadius: 3, padding: '1px 4px', fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>CC</span>
+                                <span style={{ border: '1px solid rgba(170,170,170,0.5)', borderRadius: 3, padding: '1px 4px', fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>CC</span>
                               </span>
                             ) : s}
                           </span>
                         </div>
                       ))}
                       <div style={{ marginTop: 16, borderTop: '1px solid rgba(255,255,255,0.15)', paddingTop: 12 }}>
-                        <button style={{ background: 'none', border: 'none', color: '#A3A3A3', fontSize: 14, cursor: 'pointer', fontWeight: 600 }}>
+                        <button style={{ background: 'none', border: 'none', color: '#AAAAAA', fontSize: 14, cursor: 'pointer', fontWeight: 600 }}>
                           Subtitles Settings
                         </button>
                       </div>
@@ -1110,10 +1110,10 @@ export default function PrimePlayer({
                           <div>
                             <span style={{ color: audioTrack === a ? '#fff' : 'rgba(255,255,255,0.7)', fontSize: 15 }}>{a}</span>
                             {a === 'हिन्दी ऑडियो विवरण' && (
-                              <span style={{ marginLeft: 6, border: '1px solid rgba(163,163,163,0.4)', borderRadius: 3, padding: '1px 5px', fontSize: 10, color: 'rgba(255,255,255,0.6)' }}>ऑडियो विवरण</span>
+                              <span style={{ marginLeft: 6, border: '1px solid rgba(170,170,170,0.4)', borderRadius: 3, padding: '1px 5px', fontSize: 10, color: 'rgba(255,255,255,0.6)' }}>ऑडियो विवरण</span>
                             )}
                             {a === 'हिन्दी Dialogue' && (
-                              <div style={{ fontSize: 11, color: 'rgba(163,163,163,0.55)', marginTop: 2 }}>Boost: Medium</div>
+                              <div style={{ fontSize: 11, color: 'rgba(170,170,170,0.55)', marginTop: 2 }}>Boost: Medium</div>
                             )}
                           </div>
                         </div>
@@ -1152,7 +1152,7 @@ export default function PrimePlayer({
                         </div>
                         <div>
                           <div style={{ color: quality === q.label ? '#fff' : 'rgba(255,255,255,0.85)', fontSize: 16, fontWeight: quality === q.label ? 700 : 400 }}>{q.label}</div>
-                          <div style={{ color: 'rgba(163,163,163,0.6)', fontSize: 13, marginTop: 2 }}>{q.sub}</div>
+                          <div style={{ color: 'rgba(170,170,170,0.6)', fontSize: 13, marginTop: 2 }}>{q.sub}</div>
                         </div>
                       </div>
                     ))}
@@ -1206,8 +1206,8 @@ export default function PrimePlayer({
                 <div style={{
                   fontSize: 9, fontWeight: 800, letterSpacing: 0.8,
                   padding: '2px 7px', borderRadius: 4, border: '1px solid',
-                  color: '#A3A3A3',
-                  borderColor: 'rgba(163,163,163,0.4)',
+                  color: '#AAAAAA',
+                  borderColor: 'rgba(170,170,170,0.4)',
                   background: 'transparent',
                   textTransform: 'uppercase',
                 }}>
@@ -1219,7 +1219,7 @@ export default function PrimePlayer({
                     <button
                       className="prime-btn"
                       onClick={(e) => { e.stopPropagation(); setActivePanel(activePanel === 'directQuality' ? null : 'directQuality'); }}
-                      style={{ fontSize: 10, fontWeight: 400, padding: '2px 6px', color: '#A3A3A3' }}
+                      style={{ fontSize: 10, fontWeight: 400, padding: '2px 6px', color: '#AAAAAA' }}
                     >
                       Quality ▾
                     </button>
@@ -1249,7 +1249,7 @@ export default function PrimePlayer({
             )}
 
             {/* Separator */}
-            <div style={{ width: 1, height: 22, background: '#A3A3A3', margin: '0 6px', opacity: 0.4 }} />
+            <div style={{ width: 1, height: 22, background: '#AAAAAA', margin: '0 6px', opacity: 0.4 }} />
 
             {/* Close */}
             <button className="prime-btn" onClick={(e) => { e.stopPropagation(); onClose?.(); }} title="Close">
@@ -1263,10 +1263,10 @@ export default function PrimePlayer({
           <div className="xray-overlay" onClick={e => e.stopPropagation()}>
             <div style={{ padding: '0 16px 10px', borderBottom: '1px solid rgba(255,255,255,0.1)', marginBottom: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ color: '#A3A3A3', fontWeight: 400, fontSize: 14 }}>X-Ray</span>
+                <span style={{ color: '#AAAAAA', fontWeight: 400, fontSize: 14 }}>X-Ray</span>
                 <div style={{ background: '#f5c518', color: '#000', fontSize: 10, fontWeight: 800, padding: '2px 4px', borderRadius: 3 }}>IMDb</div>
                 <button
-                  style={{ marginLeft: 4, background: 'none', border: 'none', color: '#A3A3A3', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, fontSize: 13 }}
+                  style={{ marginLeft: 4, background: 'none', border: 'none', color: '#AAAAAA', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, fontSize: 13 }}
                   onClick={() => { setXrayExpanded(true); setXrayOpen(false); }}
                 >
                   All <ChevronRightIcon />
@@ -1285,8 +1285,8 @@ export default function PrimePlayer({
                   </div>
                 )}
                 <div>
-                  <div style={{ color: '#A3A3A3', fontSize: 14, fontWeight: 400 }}>{person.name}</div>
-                  <div style={{ color: 'rgba(163,163,163,0.6)', fontSize: 12, marginTop: 2 }}>{person.character}</div>
+                  <div style={{ color: '#AAAAAA', fontSize: 14, fontWeight: 400 }}>{person.name}</div>
+                  <div style={{ color: 'rgba(170,170,170,0.6)', fontSize: 12, marginTop: 2 }}>{person.character}</div>
                 </div>
               </div>
             ))}
@@ -1306,29 +1306,29 @@ export default function PrimePlayer({
             {/* Rewind */}
             <button
               className="prime-btn"
-              style={{ color: '#A3A3A3', padding: 0, position: 'relative' }}
+              style={{ color: '#AAAAAA', padding: 0, position: 'relative' }}
               onClick={() => skip(-10)}
             >
               <Rewind10Icon />
               {skipFeedback === 'back' && (
-                <div className="skip-flash" style={{ left: '50%', transform: 'translate(-50%, -50%)', color: '#A3A3A3', fontSize: 22, fontWeight: 400 }}>-10</div>
+                <div className="skip-flash" style={{ left: '50%', transform: 'translate(-50%, -50%)', color: '#AAAAAA', fontSize: 22, fontWeight: 400 }}>-10</div>
               )}
             </button>
 
             {/* Play/Pause */}
-            <button className="prime-btn" style={{ color: '#A3A3A3', padding: 0 }} onClick={togglePlay}>
+            <button className="prime-btn" style={{ color: '#AAAAAA', padding: 0 }} onClick={togglePlay}>
               {playing ? <PauseIcon /> : <PlayIcon />}
             </button>
 
             {/* Forward */}
             <button
               className="prime-btn"
-              style={{ color: '#A3A3A3', padding: 0, position: 'relative' }}
+              style={{ color: '#AAAAAA', padding: 0, position: 'relative' }}
               onClick={() => skip(10)}
             >
               <Forward10Icon />
               {skipFeedback === 'forward' && (
-                <div className="skip-flash" style={{ left: '50%', transform: 'translate(-50%, -50%)', color: '#A3A3A3', fontSize: 22, fontWeight: 400 }}>+10</div>
+                <div className="skip-flash" style={{ left: '50%', transform: 'translate(-50%, -50%)', color: '#AAAAAA', fontSize: 22, fontWeight: 400 }}>+10</div>
               )}
             </button>
           </div>
@@ -1366,7 +1366,7 @@ export default function PrimePlayer({
                 position: 'absolute', bottom: 16,
                 left: Math.max(24, Math.min(hoverX, (progressBarRef.current?.offsetWidth || 0) - 24)),
                 transform: 'translateX(-50%)',
-                background: 'rgba(0,0,0,0.85)', color: '#A3A3A3',
+                background: 'rgba(0,0,0,0.85)', color: '#AAAAAA',
                 fontSize: 11, fontWeight: 400, padding: '3px 8px',
                 borderRadius: 4, whiteSpace: 'nowrap', pointerEvents: 'none',
               }}>
@@ -1375,11 +1375,11 @@ export default function PrimePlayer({
             )}
           </div>
 
-          {/* Time — styled exactly like the screenshot: white current / dimmed total */}
-          <div style={{ color: '#A3A3A3', fontSize: 13, fontWeight: 400, letterSpacing: 0.2, paddingLeft: 20 }}>
+          {/* Time */}
+          <div style={{ color: '#AAAAAA', fontSize: 13, fontWeight: 400, letterSpacing: 0.2, paddingLeft: 20 }}>
             {fmtTime(currentTime)}
             {duration > 0 && (
-              <span style={{ color: 'rgba(163,163,163,0.6)', fontWeight: 400 }}>
+              <span style={{ color: '#AAAAAA', fontWeight: 400 }}>
                 {' / '}{fmtTime(duration)}
               </span>
             )}
@@ -1398,7 +1398,7 @@ export default function PrimePlayer({
             padding: '18px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)',
             flexShrink: 0,
           }}>
-            <span style={{ color: '#A3A3A3', fontSize: 17, fontWeight: 400, letterSpacing: 0.2 }}>X-Ray</span>
+            <span style={{ color: '#AAAAAA', fontSize: 17, fontWeight: 400, letterSpacing: 0.2 }}>X-Ray</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <button className="prime-btn" title="Expand" onClick={() => {}}>
                 <XRayExpandIcon />
@@ -1460,14 +1460,14 @@ export default function PrimePlayer({
 
                   {/* Info */}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ color: '#A3A3A3', fontSize: 14, fontWeight: 400, marginBottom: 3 }}>{person.name}</div>
-                    <div style={{ color: 'rgba(163,163,163,0.65)', fontSize: 12 }}>
-                      Portrays: <span style={{ color: 'rgba(163,163,163,0.7)' }}>{person.character}</span>
+                    <div style={{ color: '#AAAAAA', fontSize: 14, fontWeight: 400, marginBottom: 3 }}>{person.name}</div>
+                    <div style={{ color: 'rgba(170,170,170,0.65)', fontSize: 12 }}>
+                      Portrays: <span style={{ color: 'rgba(170,170,170,0.7)' }}>{person.character}</span>
                     </div>
                   </div>
 
                   {/* Chevron */}
-                  <div style={{ color: '#A3A3A3', flexShrink: 0 }}>
+                  <div style={{ color: '#AAAAAA', flexShrink: 0 }}>
                     {expandedCastId === person.id ? <ChevronUpIcon /> : <ChevronDownIcon />}
                   </div>
                 </div>
@@ -1479,7 +1479,7 @@ export default function PrimePlayer({
                     background: 'rgba(255,255,255,0.03)',
                     animation: 'panelIn 0.15s ease-out',
                   }}>
-                    <div style={{ color: 'rgba(163,163,163,0.7)', fontSize: 12, lineHeight: 1.6 }}>
+                    <div style={{ color: 'rgba(170,170,170,0.7)', fontSize: 12, lineHeight: 1.6 }}>
                       Known for their roles in various acclaimed productions. View full biography on IMDb.
                     </div>
                     <button style={{
@@ -1495,7 +1495,7 @@ export default function PrimePlayer({
             ))}
 
             {xrayCast.length === 0 && (
-              <div style={{ padding: '40px 20px', textAlign: 'center', color: 'rgba(163,163,163,0.5)', fontSize: 13 }}>
+              <div style={{ padding: '40px 20px', textAlign: 'center', color: 'rgba(170,170,170,0.5)', fontSize: 13 }}>
                 Loading cast information...
               </div>
             )}
