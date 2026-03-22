@@ -192,6 +192,7 @@ export default function PrimePlayer({
   const [directIdx, setDirectIdx] = useState(0);
   const [directError, setDirectError] = useState(null);
   const [resolverStatus, setResolverStatus] = useState('');
+  const [buffering, setBuffering] = useState(false); // shows spinner while video buffers
   const [embeds, setEmbeds] = useState([]);
   const [embedIdx, setEmbedIdx] = useState(0);
   const [embedPhase, setEmbedPhase] = useState('loading'); // 'loading'|'playing'|'failed'
@@ -257,6 +258,7 @@ export default function PrimePlayer({
     setDirectIdx(0);
     setDirectError(null);
     setResolverStatus('');
+    setBuffering(false);
     setEmbeds([]);
     setEmbedIdx(0);
     setEmbedPhase('loading');
@@ -266,137 +268,135 @@ export default function PrimePlayer({
     const safeSet = (fn) => { if (!_cancelled) fn(); };
 
     (async () => {
-      // ════════════════════════════════════════════════════════════════════
-      // PARALLEL FAST-PATH:
-      //   • TMDB metadata fetch  ──┐
-      //   • /api/multi-stream    ──┼── all fire at the same time
-      //   • Supabase DB lookup   ──┘
-      //
-      // Promise.race on the stream providers so we play the FIRST one that
-      // returns a valid URL — typical time-to-play: 1-3 seconds.
-      // ════════════════════════════════════════════════════════════════════
+      // ─── STEP 1: Fire TMDB metadata + both stream APIs simultaneously ─────
+      // None of these block each other. We use the first stream that responds.
 
-      // ── 1. TMDB metadata (non-blocking — updates UI as it arrives) ──────
       let iid = null;
       let titleStr = title;
       let yearStr  = '';
 
-      const metaPromise = fetch(
-        `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids,credits`
+      // Timeout helper that works in all browsers
+      const fetchWithTimeout = (url, ms = 10000) => {
+        const ctrl = new AbortController();
+        const tid  = setTimeout(() => ctrl.abort(), ms);
+        return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(tid));
+      };
+
+      // TMDB metadata — runs in background, updates X-Ray/title when ready
+      const metaPromise = fetchWithTimeout(
+        `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids,credits`,
+        8000
       ).then(r => r.json()).then(d => {
-        if (_cancelled) return;
-        iid       = d.imdb_id || d.external_ids?.imdb_id || null;
-        titleStr  = d.title || d.name || title;
-        yearStr   = (d.release_date || d.first_air_date || '').slice(0, 4);
+        if (_cancelled) return null;
+        iid      = d.imdb_id || d.external_ids?.imdb_id || null;
+        titleStr = d.title || d.name || title;
+        yearStr  = (d.release_date || d.first_air_date || '').slice(0, 4);
         setImdbId(iid);
         setMovieTitle(titleStr);
-        const cast = (d.credits?.cast || []).slice(0, 12).map(p => ({
+        setXrayCast((d.credits?.cast || []).slice(0, 12).map(p => ({
           id: p.id, name: p.name, character: p.character,
           profile: p.profile_path ? `https://image.tmdb.org/t/p/w185${p.profile_path}` : null,
-        }));
-        setXrayCast(cast);
-        // Update embeds once we have imdb id
+        })));
         setEmbeds(buildEmbeds(tmdbId, iid, mediaType, season, episode));
         return { iid, titleStr, yearStr };
       }).catch(() => null);
 
-      // Set embeds immediately with tmdb id (no imdb id yet — updated above when meta arrives)
+      // Pre-populate embeds with tmdb id immediately (updated with imdb id above)
       setEmbeds(buildEmbeds(tmdbId, null, mediaType, season, episode));
 
-      // ── 2. FAST STREAM RACE: multi-stream API + get-stream in parallel ──
-      setResolverStatus('Finding stream…');
+      // ─── STEP 2: Race stream sources — first valid one wins ───────────────
+      // Both API calls fire NOW in parallel. The race resolves as soon as
+      // either returns a playable stream. The loser is simply ignored.
 
-      // Helper: wrap a promise to return null instead of throwing
-      const safe = (p) => p.catch(() => null);
+      const raceStream = () => new Promise((resolve) => {
+        let done = false;
+        let pending = 2;
 
-      // Multi-stream: fires VidZee + MP4Hydra + Vixsrc + SoaperTV in parallel on server
-      const multiStreamPromise = safe(
-        fetch(`/api/multi-stream?${new URLSearchParams({ tmdbId, type: mediaType, season, episode })}`,
-          { signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined }
-        ).then(r => r.json()).then(data => {
-          if (!data?.success || !data.streams?.length) return null;
-          const seen = new Set();
-          const streams = data.streams.filter(s => {
-            if (!s?.url || seen.has(s.url)) return false;
-            seen.add(s.url); return true;
-          }).map(s => ({ name: s.name, url: s.url, quality: s.quality || 'Auto', provider: s.provider }));
-          return streams.length ? { type: 'direct', files: streams } : null;
-        })
-      );
-
-      // get-stream: server-side HLS extraction (slower but higher quality)
-      const getStreamPromise = safe(
-        fetch(`/api/get-stream?${new URLSearchParams({ tmdbId, mediaType, season, episode })}`,
-          { signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined }
-        ).then(r => r.json()).then(data => {
-          if (!data?.success || !data.streamUrl) return null;
-          return {
-            type: 'hls',
-            url: data.proxyUrl || `/api/proxy?url=${encodeURIComponent(data.streamUrl)}`,
-            provider: data.provider || 'HLS',
-          };
-        })
-      );
-
-      // Race: use whichever server responds first with a valid stream
-      // We poll with a small interval so we don't wait for the slow one
-      const winner = await new Promise((resolve) => {
-        let settled = 0;
-        const total = 2;
-        const tryResolve = (result) => {
-          if (result) { resolve(result); return; }
-          settled++;
-          if (settled >= total) resolve(null);
+        const win = (result) => {
+          if (done) return;
+          if (result) { done = true; resolve(result); return; }
+          pending--;
+          if (pending <= 0) resolve(null);
         };
-        multiStreamPromise.then(tryResolve);
-        getStreamPromise.then(tryResolve);
+
+        // Safety: resolve null after 11s no matter what
+        const safety = setTimeout(() => { if (!done) resolve(null); }, 11000);
+
+        // multi-stream: VidZee + MP4Hydra + Vixsrc + SoaperTV in parallel on server
+        fetchWithTimeout(`/api/multi-stream?${new URLSearchParams({ tmdbId, type: mediaType, season, episode })}`, 10000)
+          .then(r => r.json())
+          .then(data => {
+            if (!data?.success || !data.streams?.length) return win(null);
+            const seen = new Set();
+            const files = data.streams
+              .filter(s => s?.url && !seen.has(s.url) && seen.add(s.url))
+              .map(s => ({ name: s.name, url: s.url, quality: s.quality || 'Auto', provider: s.provider }));
+            win(files.length ? { type: 'direct', files } : null);
+          })
+          .catch(() => win(null));
+
+        // get-stream: server-side HLS scraper
+        fetchWithTimeout(`/api/get-stream?${new URLSearchParams({ tmdbId, mediaType, season, episode })}`, 10000)
+          .then(r => r.json())
+          .then(data => {
+            if (!data?.success || !data.streamUrl) return win(null);
+            win({
+              type: 'hls',
+              url: data.proxyUrl || `/api/proxy?url=${encodeURIComponent(data.streamUrl)}`,
+              provider: data.provider || 'HLS',
+            });
+          })
+          .catch(() => win(null))
+          .finally(() => clearTimeout(safety));
       });
 
-      if (!_cancelled && winner) {
-        if (winner.type === 'hls') {
-          setHlsUrl(winner.url);
-          setProvider(winner.provider);
-          setResolverStatus('');
-          setMode('hls');
-          return;
-        }
-        if (winner.type === 'direct' && winner.files?.length) {
-          setDirectFiles(winner.files);
-          setDirectIdx(0);
-          setResolverStatus('');
-          setMode('direct');
-          return;
-        }
-      }
-
+      const winner = await raceStream();
       if (_cancelled) return;
 
-      // ── 3. FALLBACK: open-directory index resolver (Supabase + 111477.xyz) ─
-      // Wait for metadata to be ready before scraping (needs title + year)
-      const meta = await metaPromise;
-      const resolveTitle_ = titleStr || (meta?.titleStr) || title;
-      const resolveYear_  = yearStr  || (meta?.yearStr)  || '';
+      if (winner?.type === 'hls') {
+        setHlsUrl(winner.url);
+        setProvider(winner.provider);
+        setBuffering(true);
+        setMode('hls');
+        return;
+      }
+      if (winner?.type === 'direct' && winner.files?.length) {
+        setDirectFiles(winner.files);
+        setDirectIdx(0);
+        setBuffering(true);
+        setMode('direct');
+        return;
+      }
 
-      if (resolveTitle_) {
+      // ─── STEP 3: Index resolver fallback (Supabase + 111477.xyz scraper) ──
+      // Wait for TMDB metadata — we need the title and year to scrape the index
+      const meta = await metaPromise;
+      if (_cancelled) return;
+
+      const fallbackTitle = titleStr || meta?.titleStr || title;
+      const fallbackYear  = yearStr  || meta?.yearStr  || '';
+
+      if (fallbackTitle) {
         try {
-          setResolverStatus('Searching index…');
           const result = await resolveTitle({
             tmdbId, mediaType,
-            title: resolveTitle_, year: resolveYear_,
+            title: fallbackTitle,
+            year:  fallbackYear,
             season, episode,
           });
 
           let videos = result.videos;
+
           if (!videos.length && result.folders.length && mediaType === 'tv') {
-            const seasonNum = Number(season) || 1;
-            const target = result.folders.find(f =>
-              new RegExp(`season.?${seasonNum}|s${String(seasonNum).padStart(2,'0')}`, 'i').test(f.name)
+            const sNum   = Number(season) || 1;
+            const folder = result.folders.find(f =>
+              new RegExp(`season.?${sNum}|s${String(sNum).padStart(2,'0')}`, 'i').test(f.name)
             ) || result.folders[0];
-            if (target) {
-              const sub = await fetchSubfolder(target.url);
+            if (folder) {
+              const sub = await fetchSubfolder(folder.url);
               videos = sub.videos || [];
               if (episode && videos.length) {
-                const epNum = String(episode).padStart(2, '0');
+                const epNum   = String(episode).padStart(2, '0');
                 const filtered = videos.filter(v => new RegExp(`[Ee]${epNum}`, 'i').test(v.name));
                 if (filtered.length) videos = filtered;
               }
@@ -411,20 +411,18 @@ export default function PrimePlayer({
             }));
             setDirectFiles(ordered);
             setDirectIdx(0);
-            setResolverStatus('');
+            setBuffering(true);
             setMode('direct');
             return;
           }
         } catch (e) {
-          if (!_cancelled) console.warn('[PrimePlayer] Index resolver failed:', e.message);
-          setResolverStatus('');
+          console.warn('[PrimePlayer] Index resolver failed:', e.message);
         }
       }
 
       if (_cancelled) return;
 
-      // ── 4. Iframe embeds — last resort ───────────────────────────────────
-      setResolverStatus('');
+      // ─── STEP 4: Iframe embeds — absolute last resort ─────────────────────
       setMode('iframe');
     })();
 
@@ -631,24 +629,34 @@ export default function PrimePlayer({
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
-    const onPlay  = () => setPlaying(true);
-    const onPause = () => setPlaying(false);
-    const onTime  = () => setCurrentTime(v.currentTime);
-    const onDur   = () => { if (v.duration && isFinite(v.duration)) setDuration(v.duration); };
-    const onProg  = () => {
-      if (v.buffered.length) setBuffered(v.buffered.end(v.buffered.length - 1));
-    };
-    v.addEventListener('play', onPlay);
-    v.addEventListener('pause', onPause);
-    v.addEventListener('timeupdate', onTime);
-    v.addEventListener('durationchange', onDur);
-    v.addEventListener('progress', onProg);
+    const onPlay     = () => { setPlaying(true);  setBuffering(false); };
+    const onPause    = () => setPlaying(false);
+    const onTime     = () => setCurrentTime(v.currentTime);
+    const onDur      = () => { if (v.duration && isFinite(v.duration)) setDuration(v.duration); };
+    const onProg     = () => { if (v.buffered.length) setBuffered(v.buffered.end(v.buffered.length - 1)); };
+    const onWaiting  = () => setBuffering(true);
+    const onPlaying  = () => setBuffering(false);
+    const onCanPlay  = () => setBuffering(false);
+    const onStalled  = () => setBuffering(true);
+    v.addEventListener('play',            onPlay);
+    v.addEventListener('pause',           onPause);
+    v.addEventListener('timeupdate',      onTime);
+    v.addEventListener('durationchange',  onDur);
+    v.addEventListener('progress',        onProg);
+    v.addEventListener('waiting',         onWaiting);
+    v.addEventListener('playing',         onPlaying);
+    v.addEventListener('canplay',         onCanPlay);
+    v.addEventListener('stalled',         onStalled);
     return () => {
-      v.removeEventListener('play', onPlay);
-      v.removeEventListener('pause', onPause);
-      v.removeEventListener('timeupdate', onTime);
+      v.removeEventListener('play',           onPlay);
+      v.removeEventListener('pause',          onPause);
+      v.removeEventListener('timeupdate',     onTime);
       v.removeEventListener('durationchange', onDur);
-      v.removeEventListener('progress', onProg);
+      v.removeEventListener('progress',       onProg);
+      v.removeEventListener('waiting',        onWaiting);
+      v.removeEventListener('playing',        onPlaying);
+      v.removeEventListener('canplay',        onCanPlay);
+      v.removeEventListener('stalled',        onStalled);
     };
   }, []); // mount-only — video element never changes
 
@@ -975,9 +983,10 @@ export default function PrimePlayer({
         </>
       )}
 
-      {/* ── GLOBAL LOADING ── */}
-      {mode === 'loading' && (
-        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', zIndex: 8 }}>
+      {/* ── LOADING / BUFFERING SPINNER ── */}
+      {/* Shows during initial stream search AND while video is buffering */}
+      {(mode === 'loading' || (isVideoMode && buffering)) && (
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: mode === 'loading' ? '#000' : 'transparent', zIndex: 8, pointerEvents: 'none' }}>
           <div className="spin" />
         </div>
       )}
