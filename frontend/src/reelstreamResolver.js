@@ -1,13 +1,13 @@
 /**
  * reelstreamResolver.js
  *
- * Full port of REELSTREAM's 3-tier video resolution logic for use in the
+ * Full port of REELSTREAM's video resolution logic for use in the
  * PrimeVideo React frontend.
  *
  * Resolution order:
- *   Tier 1 — Supabase DB lookup by TMDB ID          (instant, curated)
- *   Tier 2 — Open-directory root scrape + fuzzy match (a.111477.xyz)
- *   Tier 3 — Candidate URL brute-force variants       (fallback)
+ *   Cache   — localStorage cache (instant, 24h expiry)
+ *   Tier 2  — Open-directory root scrape + fuzzy match (a.111477.xyz)
+ *   Tier 3  — Candidate URL brute-force variants (fallback)
  *
  * For TV shows the returned object has `folders` (seasons) and no videos.
  * For movies it has `videos` directly.
@@ -19,12 +19,28 @@ const TMDB_KEY  = 'cb1dc311039e6ae85db0aa200345cbc5';
 const BASE      = 'https://a.111477.xyz';
 const VID_RE    = /\.(mkv|mp4|avi|webm|mov|m4v|ts|ogv|flv|wmv|mpeg|mpg)(\?.*)?$/i;
 
-const SUPA_BASE = 'https://xuzfdkkkklmrilcitsec.supabase.co/rest/v1';
-const SUPA_KEY  =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.' +
-  'eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh1emZka2tra2xtcmlsY2l0c2VjIiwicm9sZSI6' +
-  'ImFub24iLCJpYXQiOjE3MDk4MzA3NjIsImV4cCI6MjAyNTQwNjc2Mn0.' +
-  'lyODVH5HMqBGCTMXHdwMWlHIKvhGNS1yBrISeZFDhXo';
+// ─────────────────────────── CACHE LAYER ───────────────────────────────────
+const CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours
+
+function getCachedResult(key) {
+  try {
+    const cached = localStorage.getItem(`primevideo_cache_${key}`);
+    if (cached) {
+      const data = JSON.parse(cached);
+      if (Date.now() - data.timestamp < CACHE_EXPIRY) return data.value;
+    }
+  } catch (_) {}
+  return null;
+}
+
+function setCachedResult(key, value) {
+  try {
+    localStorage.setItem(
+      `primevideo_cache_${key}`,
+      JSON.stringify({ value, timestamp: Date.now() })
+    );
+  } catch (_) {}
+}
 
 // ─────────────────────── LOCAL PROXY PROBE ─────────────────────────────────
 // Checks once at startup whether /api/proxy (Vercel serverless) is reachable.
@@ -37,7 +53,7 @@ function probeLocalProxy() {
     try {
       const r = await fetch(
         `/api/proxy?url=${encodeURIComponent('https://www.google.com/robots.txt')}`,
-        { signal: AbortSignal.timeout(4000) }
+        { signal: AbortSignal.timeout(1000) }
       );
       const ct  = r.headers.get('content-type') || '';
       const xps = r.headers.get('x-proxy-status');
@@ -66,52 +82,32 @@ async function buildProxyList(url) {
   return list;
 }
 
-export async function proxiedFetch(url) {
+export async function proxiedFetch(url, timeout = 500) {
   const proxies = await buildProxyList(url);
-  const errors  = [];
 
-  for (const proxyUrl of proxies) {
-    try {
-      const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
-      if (!res.ok) {
-        errors.push(`${proxyUrl.slice(0, 60)}: HTTP ${res.status}`);
-        continue;
-      }
+  const makeRequest = (proxyUrl, t) =>
+    fetch(proxyUrl, { signal: AbortSignal.timeout(t) }).then(async (res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const ct   = res.headers.get('content-type') || '';
       const text = await res.text();
-
-      // Reject SPA catch-all HTML error pages (no real <a href> links)
       const isHtmlPage = ct.includes('text/html') && text.includes('<!DOCTYPE');
       const hasLinks   = /<a\s+[^>]*href=/i.test(text);
       if (!text || text.length < 50 || (isHtmlPage && !hasLinks)) {
-        errors.push(`${proxyUrl.slice(0, 60)}: empty/error page (${text?.length ?? 0}b)`);
-        continue;
+        throw new Error(`empty/error page (${text?.length ?? 0}b)`);
       }
-
       return text;
-    } catch (e) {
-      errors.push(e.message);
-    }
-  }
+    });
 
-  throw new Error(
-    `Could not fetch: ${url.slice(0, 80)}\nErrors: ${errors.slice(0, 2).join('; ')}`
-  );
-}
-
-// ──────────────────────────── SUPABASE ─────────────────────────────────────
-async function supaFetch(tmdbId, mediaType) {
-  const table = mediaType === 'tv' ? 'tv_shows' : 'movies';
+  // Race all proxies simultaneously; first success wins
   try {
-    const res = await fetch(
-      `${SUPA_BASE}/${table}?tmdb_id=eq.${tmdbId}&select=download_url`,
-      { headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` } }
-    );
-    if (!res.ok) return null;
-    const rows = await res.json();
-    return rows?.[0]?.download_url ?? null;
+    return await Promise.any(proxies.map((p) => makeRequest(p, timeout)));
   } catch (_) {
-    return null;
+    // All fast attempts failed — one final retry with longer timeout
+    try {
+      return await Promise.any(proxies.map((p) => makeRequest(p, 3000)));
+    } catch (_2) {
+      throw new Error(`Could not fetch: ${url.slice(0, 80)}`);
+    }
   }
 }
 
@@ -378,11 +374,18 @@ export function selectBestFiles(videos) {
  */
 export async function resolveTitle({ tmdbId, mediaType, title, year, season, episode }) {
 
-  // Fetch TMDB metadata if title/year not provided
+  // ── Cache check (instant hit for repeat plays) ────────────────────────────
+  const cacheKey = `${title || tmdbId}_${year || ''}_${mediaType}` +
+    (season ? `_s${season}` : '') + (episode ? `e${episode}` : '');
+  const cached = getCachedResult(cacheKey);
+  if (cached) return cached;
+
+  // Fetch TMDB metadata only if title/year are missing (short timeout)
   if (!title || !year) {
     try {
       const r = await fetch(
-        `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_KEY}`
+        `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_KEY}`,
+        { signal: AbortSignal.timeout(2000) }
       );
       const d = await r.json();
       title = title || d.title || d.name;
@@ -394,34 +397,7 @@ export async function resolveTitle({ tmdbId, mediaType, title, year, season, epi
     throw new Error(`Could not determine title for TMDB ID ${tmdbId}`);
   }
 
-  // ── Tier 1: Supabase ──────────────────────────────────────────────────────
-  const supaUrl = await supaFetch(tmdbId, mediaType);
-  if (supaUrl) {
-    const safe = safeUrl(supaUrl);
-
-    // Direct video file in Supabase?
-    if (VID_RE.test(decodeURIComponent(safe.split('?')[0]))) {
-      const name = decodeURIComponent(safe.split('/').pop().split('?')[0]);
-      const q    = detectQuality(name);
-      return {
-        folders: [],
-        videos:  [{ name, url: safe, quality: q }],
-        source:  '⚡ database',
-      };
-    }
-
-    // Folder URL in Supabase — try fetching it
-    try {
-      const folderUrl = safe.endsWith('/') ? safe : safe + '/';
-      const html      = await proxiedFetch(folderUrl);
-      const result    = parseFolderListing(html, folderUrl);
-      if (result.videos.length || result.folders.length) {
-        return { ...result, source: '⚡ database' };
-      }
-    } catch (_) { /* fall through to scraper */ }
-  }
-
-  // ── Tier 2+3: Index scraper ───────────────────────────────────────────────
+  // ── Tier 2+3: Index scraper (skip Supabase Tier 1 — too slow) ────────────
   const result = await scrapeIndex(title, year, mediaType);
 
   // TV: if a season number is given, drill one level deeper automatically
@@ -440,7 +416,6 @@ export async function resolveTitle({ tmdbId, mediaType, title, year, season, epi
       try {
         const seasonResult = await fetchSubfolder(seasonFolder.url);
         if (seasonResult.videos.length) {
-          // Optionally filter to a specific episode
           let videos = seasonResult.videos;
           if (episode) {
             const epNum = String(episode).padStart(2, '0');
@@ -449,19 +424,23 @@ export async function resolveTitle({ tmdbId, mediaType, title, year, season, epi
             );
             if (filtered.length) videos = filtered;
           }
-          return { folders: [], videos, source: '📁 index' };
+          const finalResult = { folders: [], videos, source: '📁 index' };
+          setCachedResult(cacheKey, finalResult);
+          return finalResult;
         }
       } catch (_) { /* return top-level result */ }
     }
   }
 
   if (result.videos.length || result.folders.length) {
-    return { ...result, source: '📁 index' };
+    const finalResult = { ...result, source: '📁 index' };
+    setCachedResult(cacheKey, finalResult);
+    return finalResult;
   }
 
   throw new Error(
     `"${title}" (${year || '?'}) not found.\n` +
-    `Checked Supabase DB and ${BASE}.\n` +
+    `Checked ${BASE}.\n` +
     `Try pasting a direct URL.`
   );
 }

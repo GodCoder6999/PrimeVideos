@@ -263,16 +263,19 @@ export default function PrimePlayer({
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
 
     (async () => {
-      // ── Fetch metadata (IMDB ID + cast for X-Ray) ────────────────────────
-      let iid = null;
+      // Build embeds immediately with tmdbId only (iid unknown yet)
+      const embedList = buildEmbeds(tmdbId, null, mediaType, season, episode);
+      setEmbeds(embedList);
+
+      // ── Fetch metadata in background (non-blocking X-Ray) ────────────────
       let titleStr = title;
       let yearStr = '';
-      try {
-        const r = await fetch(
-          `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids,credits`
-        );
+      const metaPromise = fetch(
+        `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids,credits`,
+        { signal: AbortSignal.timeout(5000) }
+      ).then(async (r) => {
         const d = await r.json();
-        iid = d.imdb_id || d.external_ids?.imdb_id || null;
+        const iid = d.imdb_id || d.external_ids?.imdb_id || null;
         titleStr = d.title || d.name || title;
         yearStr = (d.release_date || d.first_air_date || '').slice(0, 4);
         setImdbId(iid);
@@ -282,15 +285,15 @@ export default function PrimePlayer({
           profile: p.profile_path ? `https://image.tmdb.org/t/p/w185${p.profile_path}` : null,
         }));
         setXrayCast(cast);
-      } catch (_) {}
+        // Update embeds with imdb_id once available
+        setEmbeds(buildEmbeds(tmdbId, iid, mediaType, season, episode));
+        return { titleStr, yearStr };
+      }).catch(() => ({ titleStr: title, yearStr: '' }));
 
-      const embedList = buildEmbeds(tmdbId, iid, mediaType, season, episode);
-      setEmbeds(embedList);
-
-      // ── Tier 0: Backend HLS scraper ──────────────────────────────────────
+      // ── Tier 0: Backend HLS scraper (parallel with meta) ─────────────────
       try {
         const params = new URLSearchParams({ tmdbId, mediaType, season, episode });
-        const res = await fetch(`/api/get-stream?${params}`);
+        const res = await fetch(`/api/get-stream?${params}`, { signal: AbortSignal.timeout(3000) });
         const data = await res.json();
         if (data.success && data.streamUrl) {
           setHlsUrl(data.proxyUrl || `/api/proxy?url=${encodeURIComponent(data.streamUrl)}`);
@@ -303,8 +306,16 @@ export default function PrimePlayer({
       // ── Tier 1: REELSTREAM open-directory index resolver ─────────────────
       try {
         setResolverStatus('Searching open directory index…');
+        // Use whatever title/year we already have; metaPromise may still be in flight
+        const meta = await Promise.race([
+          metaPromise,
+          new Promise(resolve => setTimeout(() => resolve({ titleStr: title, yearStr: '' }), 500)),
+        ]);
+        const usedTitle = meta.titleStr || title;
+        const usedYear = meta.yearStr || '';
+
         const result = await resolveTitle({
-          tmdbId, mediaType, title: titleStr, year: yearStr, season, episode,
+          tmdbId, mediaType, title: usedTitle, year: usedYear, season, episode,
         });
 
         let videos = result.videos;
@@ -420,7 +431,7 @@ export default function PrimePlayer({
     iframeTimerRef.current = setTimeout(() => {
       if (embedIdx < embeds.length - 1) setEmbedIdx(i => i + 1);
       else setEmbedPhase('failed');
-    }, 15000);
+    }, 3000);
     return () => clearTimeout(iframeTimerRef.current);
   }, [mode, embedPhase, embedIdx, embeds.length]);
 
@@ -480,11 +491,11 @@ export default function PrimePlayer({
   // ─── VIDEO EVENTS ────────────────────────────────────────────────────────
   useEffect(() => {
     const v = videoRef.current;
-    if (!v || mode !== 'hls') return;
+    if (!v || (mode !== 'hls' && mode !== 'direct')) return;
     const onPlay = () => setPlaying(true);
     const onPause = () => setPlaying(false);
     const onTime = () => setCurrentTime(v.currentTime);
-    const onDur = () => setDuration(v.duration);
+    const onDur = () => { if (v.duration && isFinite(v.duration)) setDuration(v.duration); };
     const onProg = () => {
       if (v.buffered.length) setBuffered(v.buffered.end(v.buffered.length - 1));
     };
