@@ -1,12 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Hls from 'hls.js';
-import {
-  resolveTitle,
-  detectQuality,
-  selectBestFiles,
-  fetchSubfolder,
-  safeUrl,
-} from './reelstreamResolver';
+// reelstreamResolver no longer needed — VidSrc extraction handles stream resolution
 
 // ─── ICONS (inline SVGs matching Prime Video exactly) ──────────────────────
 const SubtitlesIcon = () => (
@@ -244,9 +238,9 @@ export default function PrimePlayer({
   };
 
   // ─── MAIN INIT — 3-TIER RESOLUTION ──────────────────────────────────────
-  // Tier 0: Backend /api/get-stream (HLS scraper)
+  // Tier 1: /api/multi-stream → VidSrc direct m3u8 extraction
   // Tier 1: REELSTREAM open-directory resolver → direct <video> play
-  // Tier 2: Iframe embeds fallback
+  // Tier 2: VidSrc iframe fallback
   useEffect(() => {
     if (!tmdbId) return;
 
@@ -304,125 +298,48 @@ export default function PrimePlayer({
       // Pre-populate embeds with tmdb id immediately (updated with imdb id above)
       setEmbeds(buildEmbeds(tmdbId, null, mediaType, season, episode));
 
-      // ─── STEP 2: Race stream sources — first valid one wins ───────────────
-      // Both API calls fire NOW in parallel. The race resolves as soon as
-      // either returns a playable stream. The loser is simply ignored.
+      // ─── STEP 2: VidSrc extraction via /api/multi-stream ────────────────────
+      // Server-side VidSrc scraper — extracts the real .m3u8 directly.
+      // Typical response: 1-3 seconds. Falls back to VidSrc iframe if it fails.
 
-      const raceStream = () => new Promise((resolve) => {
-        let done = false;
-        let pending = 2;
+      try {
+        const ctrl = new AbortController();
+        const tid  = setTimeout(() => ctrl.abort(), 9000);
+        const res  = await fetch(
+          `/api/multi-stream?${new URLSearchParams({ tmdbId, type: mediaType, season, episode })}`,
+          { signal: ctrl.signal }
+        ).finally(() => clearTimeout(tid));
 
-        const win = (result) => {
-          if (done) return;
-          if (result) { done = true; resolve(result); return; }
-          pending--;
-          if (pending <= 0) resolve(null);
-        };
+        const data = await res.json();
 
-        // Safety: resolve null after 11s no matter what
-        const safety = setTimeout(() => { if (!done) resolve(null); }, 11000);
-
-        // multi-stream: VidZee + MP4Hydra + Vixsrc + SoaperTV in parallel on server
-        fetchWithTimeout(`/api/multi-stream?${new URLSearchParams({ tmdbId, type: mediaType, season, episode })}`, 10000)
-          .then(r => r.json())
-          .then(data => {
-            if (!data?.success || !data.streams?.length) return win(null);
-            const seen = new Set();
-            const files = data.streams
-              .filter(s => s?.url && !seen.has(s.url) && seen.add(s.url))
-              .map(s => ({ name: s.name, url: s.url, quality: s.quality || 'Auto', provider: s.provider }));
-            win(files.length ? { type: 'direct', files } : null);
-          })
-          .catch(() => win(null));
-
-        // get-stream: server-side HLS scraper
-        fetchWithTimeout(`/api/get-stream?${new URLSearchParams({ tmdbId, mediaType, season, episode })}`, 10000)
-          .then(r => r.json())
-          .then(data => {
-            if (!data?.success || !data.streamUrl) return win(null);
-            win({
-              type: 'hls',
-              url: data.proxyUrl || `/api/proxy?url=${encodeURIComponent(data.streamUrl)}`,
-              provider: data.provider || 'HLS',
-            });
-          })
-          .catch(() => win(null))
-          .finally(() => clearTimeout(safety));
-      });
-
-      const winner = await raceStream();
-      if (_cancelled) return;
-
-      if (winner?.type === 'hls') {
-        setHlsUrl(winner.url);
-        setProvider(winner.provider);
-        setBuffering(true);
-        setMode('hls');
-        return;
-      }
-      if (winner?.type === 'direct' && winner.files?.length) {
-        setDirectFiles(winner.files);
-        setDirectIdx(0);
-        setBuffering(true);
-        setMode('direct');
-        return;
-      }
-
-      // ─── STEP 3: Index resolver fallback (Supabase + 111477.xyz scraper) ──
-      // Wait for TMDB metadata — we need the title and year to scrape the index
-      const meta = await metaPromise;
-      if (_cancelled) return;
-
-      const fallbackTitle = titleStr || meta?.titleStr || title;
-      const fallbackYear  = yearStr  || meta?.yearStr  || '';
-
-      if (fallbackTitle) {
-        try {
-          const result = await resolveTitle({
-            tmdbId, mediaType,
-            title: fallbackTitle,
-            year:  fallbackYear,
-            season, episode,
-          });
-
-          let videos = result.videos;
-
-          if (!videos.length && result.folders.length && mediaType === 'tv') {
-            const sNum   = Number(season) || 1;
-            const folder = result.folders.find(f =>
-              new RegExp(`season.?${sNum}|s${String(sNum).padStart(2,'0')}`, 'i').test(f.name)
-            ) || result.folders[0];
-            if (folder) {
-              const sub = await fetchSubfolder(folder.url);
-              videos = sub.videos || [];
-              if (episode && videos.length) {
-                const epNum   = String(episode).padStart(2, '0');
-                const filtered = videos.filter(v => new RegExp(`[Ee]${epNum}`, 'i').test(v.name));
-                if (filtered.length) videos = filtered;
-              }
-            }
+        if (!_cancelled && data?.success && data.streams?.length) {
+          const stream = data.streams[0]; // VidSrc returns one clean stream
+          // m3u8 → play with HLS.js natively (no iframe, full controls)
+          if (stream.url.includes('.m3u8')) {
+            setHlsUrl(stream.url);
+            setProvider(stream.provider || 'VidSrc');
+            setBuffering(true);
+            setMode('hls');
+            return;
           }
-
-          if (videos.length && !_cancelled) {
-            const ordered = [...selectBestFiles(videos)].reverse().map(f => ({
-              ...f,
-              quality: f.quality || detectQuality(f.name) || 'SD',
-              url: safeUrl(f.url),
-            }));
-            setDirectFiles(ordered);
+          // mp4 → play as direct video
+          if (stream.url.includes('.mp4') || stream.url.includes('.mkv')) {
+            setDirectFiles([{ url: stream.url, quality: stream.quality || 'Auto', provider: stream.provider }]);
             setDirectIdx(0);
             setBuffering(true);
             setMode('direct');
             return;
           }
-        } catch (e) {
-          console.warn('[PrimePlayer] Index resolver failed:', e.message);
         }
+      } catch (e) {
+        if (e.name !== 'AbortError') console.warn('[PrimePlayer] VidSrc extraction failed:', e.message);
       }
 
       if (_cancelled) return;
 
-      // ─── STEP 4: Iframe embeds — absolute last resort ─────────────────────
+      // ─── STEP 3: VidSrc iframe fallback ──────────────────────────────────
+      // Extraction failed (VidSrc sometimes blocks server IPs) — fall back to
+      // loading VidSrc directly as an iframe. Still fast, just less control.
       setMode('iframe');
     })();
 
