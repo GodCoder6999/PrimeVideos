@@ -294,7 +294,10 @@ export default function PrimePlayer({
       fetch(
         `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids,credits`,
         { signal: AbortSignal.timeout(8000) }
-      ).then(r => r.json()).then(d => {
+      ).then(r => {
+        if (!r.ok) throw new Error(`TMDB ${r.status}`);
+        return r.json();
+      }).then(d => {
         const castData = (d.credits?.cast || []).slice(0, 12).map(p => ({
           id: p.id, name: p.name, character: p.character,
           profile: p.profile_path ? `https://image.tmdb.org/t/p/w185${p.profile_path}` : null,

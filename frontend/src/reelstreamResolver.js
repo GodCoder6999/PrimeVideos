@@ -383,7 +383,8 @@ function cacheGet(key) {
     const raw = localStorage.getItem(key);
     if (!raw) return null;
     const { ts, data } = JSON.parse(raw);
-    if (Date.now() - ts > CACHE_TTL_MS) { localStorage.removeItem(key); return null; }
+    const age = Date.now() - ts;
+    if (age < 0 || age > CACHE_TTL_MS) { localStorage.removeItem(key); return null; }
     return data;
   } catch (_) { return null; }
 }
