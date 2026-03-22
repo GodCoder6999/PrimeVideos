@@ -137,7 +137,7 @@ const Btn = ({ onClick, title, children, style = {} }) => (
   }}
     onMouseEnter={e => e.currentTarget.style.opacity = '0.65'}
     onMouseLeave={e => e.currentTarget.style.opacity = '1'}
-  >{children}</Btn>
+  >{children}</button>
 );
 
 // ─── MAIN PLAYER ──────────────────────────────────────────────────────────────
