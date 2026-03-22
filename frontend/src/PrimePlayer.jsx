@@ -154,6 +154,8 @@ const fmtTime = (s) => {
 };
 
 const TMDB_API_KEY = 'cb1dc311039e6ae85db0aa200345cbc5';
+// How long to wait for metadata before starting resolver with props-supplied title/year
+const METADATA_HEADSTART_MS = 1000;
 
 // ─── MAIN PLAYER ───────────────────────────────────────────────────────────
 export default function PrimePlayer({
@@ -346,7 +348,7 @@ export default function PrimePlayer({
         // Give metadata up to 1s head-start so we have a better title
         const metaResult = await Promise.race([
           metaPromise,
-          new Promise(r => setTimeout(() => r(null), 1000)),
+          new Promise(r => setTimeout(() => r(null), METADATA_HEADSTART_MS)),
         ]);
         const resolvedTitle = metaResult?.titleStr || titleStr || title;
         const resolvedYear  = metaResult?.yearStr  || yearStr;

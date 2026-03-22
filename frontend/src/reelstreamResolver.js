@@ -459,24 +459,18 @@ export async function resolveTitle({ tmdbId, mediaType, title, year, season, epi
 
   try {
     const winner = await Promise.any([
-      supaPromise.then(r => { if (!r) throw new Error('no supa result'); return { ...r, _src: '⚡ database' }; }),
-      indexPromise.then(r => ({ ...r, _src: '📁 index' })),
+      supaPromise.then(r => {
+        if (!r) throw new Error('no supa result');
+        return { source: '⚡ database', data: r };
+      }),
+      indexPromise.then(r => ({ source: '📁 index', data: r })),
     ]);
-    result = winner;
-    source = winner._src;
-    delete result._src;
-  } catch (_) {
+    result = winner.data;
+    source = winner.source;
+  } catch (aggErr) {
     // Both failed — surface the index error which is more descriptive
-    try { await indexPromise; } catch (e) {
-      throw new Error(
-        `"${title}" (${year || '?'}) not found.\n` +
-        `Checked Supabase DB and ${BASE}.\n` +
-        `Try pasting a direct URL.`
-      );
-    }
-  }
-
-  if (!result) {
+    const indexErr = aggErr.errors?.[1];
+    console.warn('[resolveTitle] Both tiers failed:', indexErr?.message || aggErr.message);
     throw new Error(
       `"${title}" (${year || '?'}) not found.\n` +
       `Checked Supabase DB and ${BASE}.\n` +
