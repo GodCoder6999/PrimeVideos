@@ -784,68 +784,70 @@ export default function PrimePlayer({
     >
       <style>{`
         .prime-player * { box-sizing: border-box; }
+
+        /* ── Buttons ── */
         .prime-btn {
           background: none; border: none; cursor: pointer;
-          color: rgba(255,255,255,0.85); padding: 6px;
-          border-radius: 4px; display: flex; align-items: center; justify-content: center;
-          transition: color 0.15s, background 0.15s;
+          color: rgba(255,255,255,0.75); padding: 6px;
+          border-radius: 3px; display: flex; align-items: center; justify-content: center;
+          transition: color 0.12s;
         }
-        .prime-btn:hover { color: #fff; background: rgba(255,255,255,0.1); }
+        .prime-btn:hover { color: #fff; background: none; }
         .prime-btn.active { color: #fff; }
 
-        /* Progress bar */
+        /* ── Progress bar — GREEN like real Prime Video ── */
         .progress-track {
-          position: relative; height: 4px; border-radius: 2px;
-          background: rgba(255,255,255,0.3); cursor: pointer;
-          transition: height 0.15s;
+          position: relative; height: 3px; border-radius: 0;
+          background: rgba(255,255,255,0.25); cursor: pointer;
+          transition: height 0.12s;
         }
-        .progress-track:hover { height: 6px; }
-        .progress-track:hover .progress-thumb { opacity: 1; }
+        .progress-track:hover { height: 5px; }
+        .progress-track:hover .progress-thumb { opacity: 1; transform: translate(-50%, -50%) scale(1); }
         .progress-buffered {
           position: absolute; top: 0; left: 0; height: 100%;
-          background: rgba(255,255,255,0.45); border-radius: 2px;
+          background: rgba(255,255,255,0.35); border-radius: 0;
           pointer-events: none;
         }
         .progress-played {
           position: absolute; top: 0; left: 0; height: 100%;
-          background: #00A8E1; border-radius: 2px; pointer-events: none;
+          background: #1bdb6a; border-radius: 0; pointer-events: none;
         }
         .progress-thumb {
-          position: absolute; top: 50%; width: 14px; height: 14px;
-          background: #fff; border-radius: 50%; transform: translate(-50%, -50%);
-          opacity: 0; pointer-events: none; transition: opacity 0.15s;
-          box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+          position: absolute; top: 50%; width: 13px; height: 13px;
+          background: #fff; border-radius: 50%; transform: translate(-50%, -50%) scale(0.8);
+          opacity: 0; pointer-events: none; transition: opacity 0.12s, transform 0.12s;
         }
         .chapter-dot {
-          position: absolute; top: 50%; width: 6px; height: 6px;
-          background: rgba(255,255,255,0.6); border-radius: 50%;
+          position: absolute; top: 50%; width: 3px; height: 3px;
+          background: rgba(0,0,0,0.7); border-radius: 50%;
           transform: translate(-50%, -50%); pointer-events: none;
+          z-index: 2;
         }
 
-        /* Panel */
+        /* ── Panels ── */
         .panel {
-          position: absolute; top: 56px; right: 0;
-          background: #3d3d3d; border-radius: 8px 0 0 8px;
+          position: absolute; top: 52px; right: 0;
+          background: #1a1a1a; border-radius: 4px 0 0 4px;
           min-width: 280px; overflow: hidden;
-          box-shadow: 0 8px 32px rgba(0,0,0,0.6);
-          animation: panelIn 0.15s ease-out;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.8);
+          animation: panelIn 0.12s ease-out;
         }
         @keyframes panelIn {
-          from { opacity: 0; transform: translateY(-8px); }
-          to { opacity: 1; transform: translateY(0); }
+          from { opacity: 0; transform: translateY(-6px); }
+          to   { opacity: 1; transform: translateY(0); }
         }
 
-        /* Volume popup */
+        /* ── Volume popup ── */
         .volume-popup {
-          position: absolute; bottom: 52px; left: 50%; transform: translateX(-50%);
-          background: #3d3d3d; border-radius: 8px;
-          padding: 16px 14px; width: 48px;
-          display: flex; flex-direction: column; align-items: center; gap: 12px;
-          box-shadow: 0 8px 32px rgba(0,0,0,0.6);
-          animation: panelIn 0.15s ease-out;
+          position: absolute; bottom: 48px; left: 50%; transform: translateX(-50%);
+          background: #1a1a1a; border-radius: 6px;
+          padding: 14px 12px; width: 44px;
+          display: flex; flex-direction: column; align-items: center; gap: 10px;
+          box-shadow: 0 8px 24px rgba(0,0,0,0.8);
+          animation: panelIn 0.12s ease-out;
         }
         .volume-track {
-          width: 4px; height: 160px; background: rgba(255,255,255,0.25);
+          width: 3px; height: 140px; background: rgba(255,255,255,0.2);
           border-radius: 2px; position: relative; cursor: pointer;
         }
         .volume-fill {
@@ -853,51 +855,50 @@ export default function PrimePlayer({
           background: #fff; border-radius: 2px; pointer-events: none;
         }
         .volume-knob {
-          position: absolute; left: 50%; width: 14px; height: 14px;
+          position: absolute; left: 50%; width: 12px; height: 12px;
           background: #fff; border-radius: 50%; transform: translate(-50%, 50%);
-          pointer-events: none; box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+          pointer-events: none;
         }
 
-        /* Xray overlay */
+        /* ── X-Ray overlay ── */
         .xray-overlay {
-          position: absolute; top: 64px; left: 20px;
-          background: rgba(0,0,0,0.85); border-radius: 8px;
-          padding: 12px 0; min-width: 280px; max-height: 60vh;
+          position: absolute; top: 56px; left: 16px;
+          background: rgba(0,0,0,0.88); border-radius: 4px;
+          padding: 10px 0; min-width: 260px; max-height: 55vh;
           overflow-y: auto; scrollbar-width: none;
-          animation: panelIn 0.2s ease-out;
+          animation: panelIn 0.15s ease-out;
         }
         .xray-overlay::-webkit-scrollbar { display: none; }
 
-        /* Xray expanded panel */
+        /* ── X-Ray side panel ── */
         .xray-panel {
           position: absolute; top: 0; right: 0; bottom: 0;
-          width: 360px; background: #0f1923;
-          border-left: 1px solid rgba(255,255,255,0.08);
+          width: 340px; background: #0a0a0a;
+          border-left: 1px solid rgba(255,255,255,0.06);
           display: flex; flex-direction: column;
-          animation: slideIn 0.25s ease-out;
-          z-index: 10;
+          animation: slideIn 0.2s ease-out; z-index: 10;
         }
         @keyframes slideIn {
           from { transform: translateX(100%); }
-          to { transform: translateX(0); }
+          to   { transform: translateX(0); }
         }
 
-        /* Skip feedback */
+        /* ── Skip flash ── */
         .skip-flash {
           position: absolute; top: 50%; transform: translateY(-50%);
-          pointer-events: none; animation: skipFlash 0.5s ease-out forwards;
+          pointer-events: none; animation: skipFlash 0.45s ease-out forwards;
         }
         @keyframes skipFlash {
-          0% { opacity: 1; }
+          0%   { opacity: 0.9; }
           100% { opacity: 0; }
         }
 
-        /* Loading spinner */
+        /* ── Loader — plain white arc, no text, no color ── */
         .spin {
-          width: 48px; height: 48px; border-radius: 50%;
-          border: 3px solid rgba(255,255,255,0.1);
-          border-top-color: #00A8E1;
-          animation: spin 0.8s linear infinite;
+          width: 52px; height: 52px; border-radius: 50%;
+          border: 2.5px solid rgba(255,255,255,0.15);
+          border-top-color: rgba(255,255,255,0.9);
+          animation: spin 0.9s linear infinite;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
@@ -916,8 +917,7 @@ export default function PrimePlayer({
 
       {/* ── DIRECT MODE: error overlay ── */}
       {mode === 'direct' && directError && (
-        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.92)', zIndex: 8 }}>
-          <div style={{ color: '#f87171', fontSize: 15, marginBottom: 16, textAlign: 'center', maxWidth: 320 }}>{directError}</div>
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', zIndex: 8 }}>
           <div className="spin" />
         </div>
       )}
@@ -927,9 +927,8 @@ export default function PrimePlayer({
         <>
           {/* Loading/failed overlays */}
           {embedPhase === 'loading' && (
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#000', zIndex: 6, pointerEvents: 'none' }}>
-              <div className="spin" style={{ marginBottom: 16 }} />
-              <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>{curEmbed?.name || 'Loading…'}</div>
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', zIndex: 6, pointerEvents: 'none' }}>
+              <div className="spin" />
             </div>
           )}
           {embedPhase === 'failed' && (
@@ -937,7 +936,7 @@ export default function PrimePlayer({
               <div style={{ color: '#f87171', fontSize: 16, fontWeight: 600, marginBottom: 8 }}>All sources failed</div>
               <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, marginBottom: 20 }}>This title may not be available right now.</div>
               <button onClick={() => { setEmbedIdx(0); setEmbedPhase('loading'); }}
-                style={{ background: '#00A8E1', border: 'none', color: '#fff', padding: '8px 24px', borderRadius: 6, cursor: 'pointer', fontWeight: 700 }}>
+                style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)', color: '#fff', padding: '8px 24px', borderRadius: 6, cursor: 'pointer', fontWeight: 700 }}>
                 Retry
               </button>
             </div>
@@ -976,13 +975,10 @@ export default function PrimePlayer({
         </>
       )}
 
-      {/* ── GLOBAL LOADING (resolver searching) ── */}
+      {/* ── GLOBAL LOADING ── */}
       {mode === 'loading' && (
-        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#000', zIndex: 8 }}>
-          <div className="spin" style={{ marginBottom: 16 }} />
-          <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, animation: 'pulse 1.5s infinite' }}>
-            {resolverStatus || 'Finding stream…'}
-          </div>
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', zIndex: 8 }}>
+          <div className="spin" />
         </div>
       )}
 
@@ -1015,7 +1011,7 @@ export default function PrimePlayer({
         <div style={{
           position: 'absolute', top: 0, left: 0, right: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '14px 20px', zIndex: 10,
+          padding: '12px 16px', zIndex: 10,
         }}>
           {/* X-Ray */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1024,7 +1020,7 @@ export default function PrimePlayer({
               onClick={(e) => { e.stopPropagation(); setXrayOpen(v => !v); setXrayExpanded(false); setActivePanel(null); }}
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', color: xrayOpen ? '#fff' : 'rgba(255,255,255,0.7)' }}
             >
-              <span style={{ fontSize: 16, fontWeight: 500, letterSpacing: 0.3 }}>X-Ray</span>
+              <span style={{ fontSize: 15, fontWeight: 400, letterSpacing: 0.2 }}>X-Ray</span>
               {xrayOpen ? <ChevronUpIcon /> : null}
             </button>
 
@@ -1043,7 +1039,7 @@ export default function PrimePlayer({
           </div>
 
           {/* Title */}
-          <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', color: '#fff', fontSize: 18, fontWeight: 600, letterSpacing: 0.2 }}>
+          <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', color: '#fff', fontSize: 17, fontWeight: 400, letterSpacing: 0.1, whiteSpace: 'nowrap' }}>
             {movieTitle}
           </div>
 
@@ -1084,7 +1080,7 @@ export default function PrimePlayer({
                         </div>
                       ))}
                       <div style={{ marginTop: 16, borderTop: '1px solid rgba(255,255,255,0.15)', paddingTop: 12 }}>
-                        <button style={{ background: 'none', border: 'none', color: '#00A8E1', fontSize: 14, cursor: 'pointer', fontWeight: 600 }}>
+                        <button style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', fontSize: 14, cursor: 'pointer', fontWeight: 600 }}>
                           Subtitles Settings
                         </button>
                       </div>
@@ -1200,9 +1196,9 @@ export default function PrimePlayer({
                 <div style={{
                   fontSize: 9, fontWeight: 800, letterSpacing: 0.8,
                   padding: '2px 7px', borderRadius: 4, border: '1px solid',
-                  color: mode === 'direct' ? '#4ade80' : '#00A8E1',
-                  borderColor: mode === 'direct' ? 'rgba(74,222,128,0.5)' : 'rgba(0,168,225,0.5)',
-                  background: mode === 'direct' ? 'rgba(74,222,128,0.1)' : 'rgba(0,168,225,0.1)',
+                  color: mode === 'direct' ? '#1bdb6a' : 'rgba(255,255,255,0.8)',
+                  borderColor: mode === 'direct' ? 'rgba(27,219,106,0.5)' : 'rgba(255,255,255,0.25)',
+                  background: 'transparent',
                   textTransform: 'uppercase',
                 }}>
                   {mode === 'direct' ? (curDirect?.provider ? (curDirect.provider + ' ' + (curDirect.quality || '')).trim() : (curDirect?.quality || 'Direct')) : (provider || 'HLS')}
@@ -1243,7 +1239,7 @@ export default function PrimePlayer({
             )}
 
             {/* Separator */}
-            <div style={{ width: 1, height: 28, background: 'rgba(255,255,255,0.25)', margin: '0 8px' }} />
+            <div style={{ width: 1, height: 22, background: 'rgba(255,255,255,0.18)', margin: '0 6px' }} />
 
             {/* Close */}
             <button className="prime-btn" onClick={(e) => { e.stopPropagation(); onClose?.(); }} title="Close">
@@ -1292,7 +1288,7 @@ export default function PrimePlayer({
           <div style={{
             position: 'absolute', top: '50%', left: '50%',
             transform: 'translate(-50%, -50%)',
-            display: 'flex', alignItems: 'center', gap: 56,
+            display: 'flex', alignItems: 'center', gap: 48,
             zIndex: 8,
           }}
             onClick={e => e.stopPropagation()}
@@ -1300,7 +1296,7 @@ export default function PrimePlayer({
             {/* Rewind */}
             <button
               className="prime-btn"
-              style={{ color: 'rgba(255,255,255,0.85)', padding: 0, position: 'relative' }}
+              style={{ color: 'rgba(255,255,255,0.75)', padding: 0, position: 'relative' }}
               onClick={() => skip(-10)}
             >
               <Rewind10Icon />
@@ -1310,14 +1306,14 @@ export default function PrimePlayer({
             </button>
 
             {/* Play/Pause */}
-            <button className="prime-btn" style={{ color: 'rgba(255,255,255,0.9)', padding: 0 }} onClick={togglePlay}>
+            <button className="prime-btn" style={{ color: 'rgba(255,255,255,0.85)', padding: 0 }} onClick={togglePlay}>
               {playing ? <PauseIcon /> : <PlayIcon />}
             </button>
 
             {/* Forward */}
             <button
               className="prime-btn"
-              style={{ color: 'rgba(255,255,255,0.85)', padding: 0, position: 'relative' }}
+              style={{ color: 'rgba(255,255,255,0.75)', padding: 0, position: 'relative' }}
               onClick={() => skip(10)}
             >
               <Forward10Icon />
@@ -1331,13 +1327,13 @@ export default function PrimePlayer({
         {/* ── BOTTOM BAR ── */}
         <div style={{
           position: 'absolute', bottom: 0, left: 0, right: 0,
-          padding: '0 20px 20px', zIndex: 10,
+          padding: '0 0 28px', zIndex: 10,
         }}>
           {/* Progress bar */}
           <div
             ref={progressBarRef}
             className="progress-track"
-            style={{ marginBottom: 10, cursor: isVideoMode ? 'pointer' : 'default' }}
+            style={{ marginBottom: 12, cursor: isVideoMode ? 'pointer' : 'default', borderRadius: 0 }}
             onMouseDown={isVideoMode ? onProgressMouseDown : undefined}
             onMouseMove={isVideoMode ? onProgressMouseMove : undefined}
             onMouseUp={isVideoMode ? onProgressMouseUp : undefined}
@@ -1369,11 +1365,11 @@ export default function PrimePlayer({
             )}
           </div>
 
-          {/* Time */}
-          <div style={{ color: '#fff', fontSize: 14, fontWeight: 600, letterSpacing: 0.3 }}>
+          {/* Time — styled exactly like the screenshot: white current / dimmed total */}
+          <div style={{ color: '#fff', fontSize: 13, fontWeight: 400, letterSpacing: 0.2, paddingLeft: 20 }}>
             {fmtTime(currentTime)}
             {duration > 0 && (
-              <span style={{ color: 'rgba(255,255,255,0.55)', fontWeight: 400 }}>
+              <span style={{ color: 'rgba(255,255,255,0.5)', fontWeight: 400 }}>
                 {' / '}{fmtTime(duration)}
               </span>
             )}
