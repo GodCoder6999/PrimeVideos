@@ -297,65 +297,59 @@ export default function PrimePlayer({
       // Pre-populate embeds with tmdb id immediately (updated with imdb id above)
       setEmbeds(buildEmbeds(tmdbId, null, mediaType, season, episode));
 
-      // ─── STEP 2: NuvioStreams extraction (VidSrc + VidZee + MP4Hydra + SoaperTV) ──
-      // All 4 providers race on the server — first valid stream wins (~1-3s).
-      // The winning URL is proxied through /api/proxy to bypass CORS.
+      // ─── STEP 2: NuvioStreams providers race (VidSrc + VidZee + MP4Hydra + SoaperTV) ──
+      // All 4 providers race server-side — first valid stream wins (~1-3s).
+      // URL is always proxied through /api/proxy:
+      //   m3u8 → proxy rewrites all segment URLs (no CORS on chunks)
+      //   mp4  → proxy forwards Range headers (seeking works)
 
+      let data = null;
       try {
         const ctrl = new AbortController();
         const tid  = setTimeout(() => ctrl.abort(), 11000);
-        const res  = await fetch(
+        const r    = await fetch(
           `/api/multi-stream?${new URLSearchParams({ tmdbId, type: mediaType, season, episode })}`,
           { signal: ctrl.signal }
         ).finally(() => clearTimeout(tid));
+        data = await r.json();
+      } catch (e) {
+        if (e.name !== 'AbortError') console.warn('[PrimePlayer] multi-stream fetch failed:', e.message);
+      }
 
-        const data = await res.json();
+      if (!_cancelled && data?.success && data.streams?.length) {
+        const stream = data.streams[0];
+        const rawUrl = stream.url;
 
-        if (!_cancelled && data?.success && data.streams?.length) {
-          const stream = data.streams[0];
-          const rawUrl = stream.url;
-
-          // Always proxy through /api/proxy — this bypasses CORS on all stream URLs
-          // and ensures the browser can play them regardless of provider restrictions
+        if (rawUrl.includes('.m3u8') || rawUrl.includes('mpegurl')) {
+          // HLS — MUST proxy: HLS.js fetches many segment URLs, all would hit CORS.
+          // Proxy rewrites every segment URL in the m3u8 so they all stay same-origin.
           const proxiedUrl = `/api/proxy?url=${encodeURIComponent(rawUrl)}`;
-
-          if (rawUrl.includes('.m3u8')) {
-            // HLS stream — use Hls.js via proxy
-            setHlsUrl(proxiedUrl);
-            setProvider(stream.provider || 'Stream');
-            setBuffering(true);
-            setMode('hls');
-            return;
-          }
-
-          // mp4/mkv/webm — direct video via proxy
-          const isVideo = /\.(mp4|mkv|webm|avi|mov|m4v|ts)(\?|$)/i.test(rawUrl);
-          if (isVideo || rawUrl.includes('.mp4')) {
-            setDirectFiles([{
-              url:      proxiedUrl,
-              quality:  stream.quality || 'Auto',
-              provider: stream.provider || 'Stream',
-            }]);
-            setDirectIdx(0);
-            setBuffering(true);
-            setMode('direct');
-            return;
-          }
-
-          // Unknown format — try as HLS anyway (some providers return m3u8 without extension)
           setHlsUrl(proxiedUrl);
           setProvider(stream.provider || 'Stream');
           setBuffering(true);
           setMode('hls');
           return;
         }
-      } catch (e) {
-        if (e.name !== 'AbortError') console.warn('[PrimePlayer] Stream extraction failed:', e.message);
+
+        // mp4/mkv — CDN URLs are often IP-locked (token tied to the requesting IP).
+        // Proxying changes the IP → CDN returns 403 → video silently fails.
+        // Strategy: try raw URL first (direct, no CORS issue for <video src>).
+        // Also add proxied version as fallback in case direct is CORS-blocked.
+        const proxiedUrl = `/api/proxy?url=${encodeURIComponent(rawUrl)}`;
+        setDirectFiles([
+          { url: rawUrl,     quality: stream.quality || 'Auto', provider: stream.provider || 'Stream' },
+          { url: proxiedUrl, quality: stream.quality || 'Auto', provider: (stream.provider || 'Stream') + ' (proxy)' },
+        ]);
+        setDirectIdx(0);
+        setBuffering(true);
+        setMode('direct');
+        return;
       }
 
       if (_cancelled) return;
 
       // ─── STEP 3: Iframe embeds — last resort ─────────────────────────────
+      console.log('[PrimePlayer] All providers failed — falling back to iframe');
       setMode('iframe');
     })();
 
@@ -373,25 +367,42 @@ export default function PrimePlayer({
     const vid = videoRef.current;
 
     if (Hls.isSupported()) {
-      const hls = new Hls({ enableWorker: true, backBufferLength: 60 });
+      const hls = new Hls({
+        enableWorker:            true,
+        backBufferLength:        90,
+        maxBufferLength:         60,
+        maxMaxBufferLength:      120,
+        lowLatencyMode:          false,
+        // Longer timeouts for segments fetched through our proxy
+        fragLoadingTimeOut:      20000,
+        manifestLoadingTimeOut:  15000,
+        levelLoadingTimeOut:     15000,
+        // More retries since proxy adds latency
+        fragLoadingMaxRetry:     4,
+        manifestLoadingMaxRetry: 3,
+        levelLoadingMaxRetry:    3,
+        fragLoadingRetryDelay:   1000,
+        xhrSetup: (xhr) => { xhr.withCredentials = false; },
+      });
       hlsRef.current = hls;
       hls.loadSource(hlsUrl);
       hls.attachMedia(vid);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         vid.play().catch(() => {});
         setPlaying(true);
+        setBuffering(false);
       });
+      let _netRetries = 0;
       hls.on(Hls.Events.ERROR, (_, d) => {
         if (d.fatal) {
           console.warn('[PrimePlayer] HLS fatal error:', d.type, d.details);
           if (d.type === Hls.ErrorTypes.NETWORK_ERROR) {
-            // Try recovery first
-            hls.startLoad();
+            if (_netRetries < 3) { _netRetries++; setTimeout(() => hls.startLoad(), 1000); }
+            else { setTimeout(() => { setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading'); }, 800); }
           } else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) {
             hls.recoverMediaError();
           } else {
-            // Unrecoverable - fall through to iframe
-            setTimeout(() => { setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading'); }, 1000);
+            setTimeout(() => { setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading'); }, 800);
           }
         }
       });
@@ -426,11 +437,13 @@ export default function PrimePlayer({
     let cancelled = false;
     const onMeta = () => {
       if (cancelled) return;
-      vid.play().catch(() => {});
+      setBuffering(false);
+      vid.play().then(() => { if (!cancelled) setPlaying(true); }).catch(() => {});
     };
     const onCanPlay = () => {
       if (cancelled) return;
-      vid.play().catch(() => {});
+      setBuffering(false);
+      vid.play().then(() => { if (!cancelled) setPlaying(true); }).catch(() => {});
     };
     vid.addEventListener('loadedmetadata', onMeta, { once: true });
     vid.addEventListener('canplay', onCanPlay, { once: true });
