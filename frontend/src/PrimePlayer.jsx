@@ -480,11 +480,12 @@ export default function PrimePlayer({
   // ─── VIDEO EVENTS ────────────────────────────────────────────────────────
   useEffect(() => {
     const v = videoRef.current;
-    if (!v || mode !== 'hls') return;
+    if (!v || (mode !== 'hls' && mode !== 'direct')) return;
     const onPlay = () => setPlaying(true);
     const onPause = () => setPlaying(false);
     const onTime = () => setCurrentTime(v.currentTime);
-    const onDur = () => setDuration(v.duration);
+    const onDur = () => { if (v.duration && isFinite(v.duration)) setDuration(v.duration); };
+    const onLoaded = () => { if (v.duration && isFinite(v.duration)) setDuration(v.duration); };
     const onProg = () => {
       if (v.buffered.length) setBuffered(v.buffered.end(v.buffered.length - 1));
     };
@@ -492,12 +493,14 @@ export default function PrimePlayer({
     v.addEventListener('pause', onPause);
     v.addEventListener('timeupdate', onTime);
     v.addEventListener('durationchange', onDur);
+    v.addEventListener('loadedmetadata', onLoaded);
     v.addEventListener('progress', onProg);
     return () => {
       v.removeEventListener('play', onPlay);
       v.removeEventListener('pause', onPause);
       v.removeEventListener('timeupdate', onTime);
       v.removeEventListener('durationchange', onDur);
+      v.removeEventListener('loadedmetadata', onLoaded);
       v.removeEventListener('progress', onProg);
     };
   }, [mode]);
