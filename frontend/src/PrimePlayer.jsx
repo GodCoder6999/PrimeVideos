@@ -480,7 +480,7 @@ export default function PrimePlayer({
   // ─── VIDEO EVENTS ────────────────────────────────────────────────────────
   useEffect(() => {
     const v = videoRef.current;
-    if (!v || mode !== 'hls') return;
+    if (!v || (mode !== 'hls' && mode !== 'direct')) return;
     const onPlay = () => setPlaying(true);
     const onPause = () => setPlaying(false);
     const onTime = () => setCurrentTime(v.currentTime);
