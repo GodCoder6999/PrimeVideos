@@ -51,29 +51,47 @@ async function buildProxyList(url) {
   return list;
 }
 
-// ── Fetch through proxy waterfall, returning text ───────────────────────────
+// ── Attempt a single proxy URL — resolves with text or rejects ──────────────
+function _tryProxy(proxyUrl) {
+  return fetch(proxyUrl, { signal: AbortSignal.timeout(2000) }).then(async (res) => {
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const ct = res.headers.get('content-type') || '';
+    const text = await res.text();
+    const isHtmlPage = ct.includes('text/html') && text.includes('<!DOCTYPE');
+    const hasLinks = /<a\s+[^>]*href=/i.test(text);
+    if (!text || text.length < 50 || (isHtmlPage && !hasLinks)) {
+      throw new Error(`empty/error page (${text?.length ?? 0}b)`);
+    }
+    return text;
+  });
+}
+
+// ── Fetch through proxy race, returning text ─────────────────────────────────
 export async function proxiedFetch(url) {
   const proxies = await buildProxyList(url);
-  const errors = [];
 
-  for (const proxyUrl of proxies) {
-    try {
-      const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
-      if (!res.ok) { errors.push(`${proxyUrl.slice(0, 60)}: HTTP ${res.status}`); continue; }
-      const ct = res.headers.get('content-type') || '';
-      const text = await res.text();
-      const isHtmlPage = ct.includes('text/html') && text.includes('<!DOCTYPE');
-      const hasLinks = /<a\s+[^>]*href=/i.test(text);
-      if (!text || text.length < 50 || (isHtmlPage && !hasLinks)) {
-        errors.push(`${proxyUrl.slice(0, 60)}: empty/error page (${text?.length ?? 0}b)`);
-        continue;
-      }
-      return text;
-    } catch (e) {
-      errors.push(e.message);
+  // Race all proxies simultaneously — first valid response wins.
+  try {
+    return await Promise.any(proxies.map((p) => _tryProxy(p)));
+  } catch (_) {
+    // All fast attempts failed — retry sequentially with 6s timeout
+    const errors = [];
+    for (const proxyUrl of proxies) {
+      try {
+        const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(6000) });
+        if (!res.ok) { errors.push(`${proxyUrl.slice(0, 60)}: HTTP ${res.status}`); continue; }
+        const ct = res.headers.get('content-type') || '';
+        const text = await res.text();
+        const isHtmlPage = ct.includes('text/html') && text.includes('<!DOCTYPE');
+        const hasLinks = /<a\s+[^>]*href=/i.test(text);
+        if (!text || text.length < 50 || (isHtmlPage && !hasLinks)) {
+          errors.push(`${proxyUrl.slice(0, 60)}: empty/error page`); continue;
+        }
+        return text;
+      } catch (e) { errors.push(e.message); }
     }
+    throw new Error(`Could not fetch: ${url.slice(0, 80)}\n${errors.slice(0, 2).join('; ')}`);
   }
-  throw new Error(`Could not fetch: ${url.slice(0, 80)}\n${errors.slice(0, 2).join('; ')}`);
 }
 
 // ── Supabase tier ────────────────────────────────────────────────────────────
@@ -96,7 +114,8 @@ async function supaFetch(tmdbId, mediaType) {
 export async function fetchTmdbDetails(tmdbId, mediaType) {
   try {
     const r = await fetch(
-      `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`
+      `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`,
+      { signal: AbortSignal.timeout(2000) }
     );
     if (!r.ok) return null;
     return await r.json();
@@ -349,6 +368,29 @@ export function selectBestFiles(videos) {
   return selected;
 }
 
+// ── Local storage cache ──────────────────────────────────────────────────────
+const CACHE_PREFIX = 'pv_resolve_';
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+function cacheKey(tmdbId, mediaType, season, episode) {
+  return `${CACHE_PREFIX}${tmdbId}_${mediaType}_s${season || 0}_e${episode || 0}`;
+}
+
+function cacheGet(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const { ts, data } = JSON.parse(raw);
+    const age = Date.now() - ts;
+    if (age < 0 || age > CACHE_TTL_MS) { localStorage.removeItem(key); return null; }
+    return data;
+  } catch (_) { return null; }
+}
+
+function cacheSet(key, data) {
+  try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data })); } catch (_) {}
+}
+
 // ── Master resolver — 3 tiers ────────────────────────────────────────────────
 /**
  * Resolves a TMDB item to a list of direct video files.
@@ -357,10 +399,17 @@ export function selectBestFiles(videos) {
  * @param {string} params.mediaType  'movie' | 'tv'
  * @param {string} [params.title]    pre-fetched title (avoids extra TMDB call)
  * @param {string} [params.year]     pre-fetched year
+ * @param {number} [params.season]   TV only
+ * @param {number} [params.episode]  TV only
  * @returns {Promise<{ folders: object[], videos: object[], source: string }>}
  */
-export async function resolveTitle({ tmdbId, mediaType, title, year }) {
-  // If title/year not provided, fetch from TMDB
+export async function resolveTitle({ tmdbId, mediaType, title, year, season, episode }) {
+  // ── Cache check (instant playback for repeated content) ───────────────────
+  const ck = cacheKey(tmdbId, mediaType, season, episode);
+  const cached = cacheGet(ck);
+  if (cached) return { ...cached, source: cached.source + ' ⚡cached' };
+
+  // If title/year not provided, fetch from TMDB with aggressive timeout
   if (!title || !year) {
     const details = await fetchTmdbDetails(tmdbId, mediaType);
     if (details) {
@@ -372,31 +421,41 @@ export async function resolveTitle({ tmdbId, mediaType, title, year }) {
 
   if (!title) throw new Error('Could not determine title for TMDB ID ' + tmdbId);
 
-  // ── Tier 1: Supabase ──────────────────────────────────────────────────────
-  const supaUrl = await supaFetch(tmdbId, mediaType);
-  if (supaUrl) {
+  // ── Tier 1+2 in parallel: race Supabase vs Index scraper ──────────────────
+  async function trySupabase() {
+    const supaUrl = await supaFetch(tmdbId, mediaType);
+    if (!supaUrl) throw new Error('supabase: no result');
     const safe = safeUrl(supaUrl);
     if (VID_RE.test(decodeURIComponent(safe.split('?')[0]))) {
       const name = decodeURIComponent(safe.split('/').pop().split('?')[0]);
       return { folders: [], videos: [{ name, url: safe }], source: '⚡ database' };
     }
-    try {
-      const folderUrl = safe.endsWith('/') ? safe : safe + '/';
-      const html = await proxiedFetch(folderUrl);
-      const result = parseFolderListing(html, folderUrl);
-      if (result.videos.length || result.folders.length) {
-        return { ...result, source: '⚡ database' };
-      }
-    } catch (_) { /* fall through */ }
+    const folderUrl = safe.endsWith('/') ? safe : safe + '/';
+    const html = await proxiedFetch(folderUrl);
+    const result = parseFolderListing(html, folderUrl);
+    if (result.videos.length || result.folders.length) {
+      return { ...result, source: '⚡ database' };
+    }
+    throw new Error('supabase: folder empty');
   }
 
-  // ── Tier 2+3: Index scraper ───────────────────────────────────────────────
-  const result = await scrapeIndex(title, year, mediaType);
-  if (result.videos.length || result.folders.length) {
-    return { ...result, source: '📁 index' };
+  async function tryIndex() {
+    const result = await scrapeIndex(title, year, mediaType);
+    if (result.videos.length || result.folders.length) {
+      return { ...result, source: '📁 index' };
+    }
+    throw new Error('index: not found');
   }
 
-  throw new Error(
-    `"${title}" (${year || '?'}) not found.\nTry pasting a direct URL.`
-  );
+  let finalResult;
+  try {
+    finalResult = await Promise.any([trySupabase(), tryIndex()]);
+  } catch (_) {
+    throw new Error(
+      `"${title}" (${year || '?'}) not found.\nTry pasting a direct URL.`
+    );
+  }
+
+  cacheSet(ck, finalResult);
+  return finalResult;
 }
