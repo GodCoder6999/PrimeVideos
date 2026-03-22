@@ -6,6 +6,8 @@ import {
   selectBestFiles,
   fetchSubfolder,
   safeUrl,
+  getCachedResolution,
+  setCachedResolution,
 } from './reelstreamResolver';
 
 // ─── ICONS (inline SVGs matching Prime Video exactly) ──────────────────────
@@ -152,6 +154,8 @@ const fmtTime = (s) => {
 };
 
 const TMDB_API_KEY = 'cb1dc311039e6ae85db0aa200345cbc5';
+// How long to wait for metadata before starting resolver with props-supplied title/year
+const METADATA_HEADSTART_MS = 1000;
 
 // ─── MAIN PLAYER ───────────────────────────────────────────────────────────
 export default function PrimePlayer({
@@ -262,94 +266,189 @@ export default function PrimePlayer({
     setEmbedPhase('loading');
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
 
+    let cancelled = false;
+
     (async () => {
-      // ── Fetch metadata (IMDB ID + cast for X-Ray) ────────────────────────
-      let iid = null;
       let titleStr = title;
       let yearStr = '';
-      try {
-        const r = await fetch(
-          `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids,credits`
-        );
-        const d = await r.json();
-        iid = d.imdb_id || d.external_ids?.imdb_id || null;
-        titleStr = d.title || d.name || title;
-        yearStr = (d.release_date || d.first_air_date || '').slice(0, 4);
-        setImdbId(iid);
-        setMovieTitle(titleStr);
-        const cast = (d.credits?.cast || []).slice(0, 12).map(p => ({
-          id: p.id, name: p.name, character: p.character,
-          profile: p.profile_path ? `https://image.tmdb.org/t/p/w185${p.profile_path}` : null,
-        }));
-        setXrayCast(cast);
-      } catch (_) {}
+      let iid = null;
 
-      const embedList = buildEmbeds(tmdbId, iid, mediaType, season, episode);
-      setEmbeds(embedList);
-
-      // ── Tier 0: Backend HLS scraper ──────────────────────────────────────
-      try {
-        const params = new URLSearchParams({ tmdbId, mediaType, season, episode });
-        const res = await fetch(`/api/get-stream?${params}`);
-        const data = await res.json();
-        if (data.success && data.streamUrl) {
-          setHlsUrl(data.proxyUrl || `/api/proxy?url=${encodeURIComponent(data.streamUrl)}`);
-          setProvider(data.provider || 'Direct HLS');
-          setMode('hls');
-          return;
-        }
-      } catch (_) {}
-
-      // ── Tier 1: REELSTREAM open-directory index resolver ─────────────────
-      try {
-        setResolverStatus('Searching open directory index…');
-        const result = await resolveTitle({
-          tmdbId, mediaType, title: titleStr, year: yearStr, season, episode,
-        });
-
-        let videos = result.videos;
-
-        // For TV: drill into season folder if needed
-        if (!videos.length && result.folders.length && mediaType === 'tv') {
-          const seasonNum = Number(season) || 1;
-          const target = result.folders.find(f =>
-            new RegExp(`season.?${seasonNum}|s${String(seasonNum).padStart(2,'0')}`, 'i').test(f.name)
-          ) || result.folders[0];
-          if (target) {
-            const sub = await fetchSubfolder(target.url);
-            videos = sub.videos || [];
-            if (episode && videos.length) {
-              const epNum = String(episode).padStart(2, '0');
-              const filtered = videos.filter(v => new RegExp(`[Ee]${epNum}`, 'i').test(v.name));
-              if (filtered.length) videos = filtered;
-            }
-          }
-        }
-
-        if (videos.length) {
+      // ── Fast-path: check localStorage cache ───────────────────────────────
+      const cached = getCachedResolution(tmdbId, mediaType, season, episode);
+      if (cached && (cached.videos?.length || cached.folders?.length)) {
+        let videos = cached.videos || [];
+        if (!videos.length && (cached.folders?.length) && mediaType === 'tv') {
+          // cached season folders — can't play directly, fall through to live resolve
+        } else if (videos.length) {
           const bestFiles = selectBestFiles(videos);
-          // Reverse so index 0 = highest quality
           const ordered = [...bestFiles].reverse().map(f => ({
             ...f,
             quality: f.quality || detectQuality(f.name) || 'SD',
             url: safeUrl(f.url),
           }));
-          setDirectFiles(ordered);
-          setDirectIdx(0);
-          setResolverStatus('');
-          setMode('direct');
+          if (!cancelled) {
+            setDirectFiles(ordered);
+            setDirectIdx(0);
+            setMode('direct');
+          }
+          // Fetch metadata in background so X-Ray works
+          fetch(
+            `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids,credits`,
+            { signal: AbortSignal.timeout(5000) }
+          ).then(r => r.json()).then(d => {
+            if (cancelled) return;
+            const castList = (d.credits?.cast || []).slice(0, 12).map(p => ({
+              id: p.id, name: p.name, character: p.character,
+              profile: p.profile_path ? `https://image.tmdb.org/t/p/w185${p.profile_path}` : null,
+            }));
+            setImdbId(d.imdb_id || d.external_ids?.imdb_id || null);
+            setMovieTitle(d.title || d.name || title);
+            setXrayCast(castList);
+            const newIid = d.imdb_id || d.external_ids?.imdb_id || null;
+            setEmbeds(buildEmbeds(tmdbId, newIid, mediaType, season, episode));
+          }).catch(() => {});
+          setEmbeds(buildEmbeds(tmdbId, null, mediaType, season, episode));
           return;
         }
-      } catch (e) {
-        console.warn('[PrimePlayer] Resolver failed:', e.message);
-        setResolverStatus('');
       }
 
-      // ── Tier 2: Iframe embeds ─────────────────────────────────────────────
-      setMode('iframe');
+      // ── Start background metadata fetch immediately (non-blocking) ─────────
+      const metaPromise = fetch(
+        `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids,credits`,
+        { signal: AbortSignal.timeout(5000) }
+      ).then(r => r.json()).then(d => {
+        if (cancelled) return null;
+        iid = d.imdb_id || d.external_ids?.imdb_id || null;
+        titleStr = d.title || d.name || title;
+        yearStr = (d.release_date || d.first_air_date || '').slice(0, 4);
+        setImdbId(iid);
+        setMovieTitle(titleStr);
+        const castList = (d.credits?.cast || []).slice(0, 12).map(p => ({
+          id: p.id, name: p.name, character: p.character,
+          profile: p.profile_path ? `https://image.tmdb.org/t/p/w185${p.profile_path}` : null,
+        }));
+        setXrayCast(castList);
+        return { iid, titleStr, yearStr };
+      }).catch(() => null);
+
+      // Set embeds immediately with TMDB-only sources (no IMDB needed for most)
+      setEmbeds(buildEmbeds(tmdbId, null, mediaType, season, episode));
+
+      // ── Tier 0: Backend HLS scraper ──────────────────────────────────────
+      const hlsPromise = (async () => {
+        const params = new URLSearchParams({ tmdbId, mediaType, season, episode });
+        const res = await fetch(`/api/get-stream?${params}`, { signal: AbortSignal.timeout(4000) });
+        const data = await res.json();
+        if (data.success && data.streamUrl) return data;
+        throw new Error('no stream');
+      })();
+
+      // ── Tier 1: REELSTREAM resolver (title+year from meta if available) ──
+      const resolverPromise = (async () => {
+        // Give metadata up to 1s head-start so we have a better title
+        const metaResult = await Promise.race([
+          metaPromise,
+          new Promise(r => setTimeout(() => r(null), METADATA_HEADSTART_MS)),
+        ]);
+        const resolvedTitle = metaResult?.titleStr || titleStr || title;
+        const resolvedYear  = metaResult?.yearStr  || yearStr;
+        const result = await resolveTitle({
+          tmdbId, mediaType,
+          title: resolvedTitle,
+          year: resolvedYear,
+          season, episode,
+        });
+        return result;
+      })();
+
+      // Race HLS vs Resolver — whichever succeeds first wins
+      try {
+        const winner = await Promise.any([
+          hlsPromise.then(d => ({ type: 'hls', data: d })),
+          resolverPromise.then(r => ({ type: 'resolver', data: r })),
+        ]);
+
+        if (cancelled) return;
+
+        if (winner.type === 'hls') {
+          const data = winner.data;
+          setHlsUrl(data.proxyUrl || `/api/proxy?url=${encodeURIComponent(data.streamUrl)}`);
+          setProvider(data.provider || 'Direct HLS');
+          setMode('hls');
+          // Let the metadata finish in background
+          metaPromise.then(meta => {
+            if (!cancelled && meta) {
+              setEmbeds(buildEmbeds(tmdbId, meta.iid, mediaType, season, episode));
+            }
+          });
+        } else {
+          // Resolver won
+          const result = winner.data;
+          let videos = result.videos;
+
+          // For TV: drill into season folder if needed
+          if (!videos.length && result.folders.length && mediaType === 'tv') {
+            const seasonNum = Number(season) || 1;
+            const target = result.folders.find(f =>
+              new RegExp(`season.?${seasonNum}|s${String(seasonNum).padStart(2,'0')}`, 'i').test(f.name)
+            ) || result.folders[0];
+            if (target) {
+              const sub = await fetchSubfolder(target.url);
+              videos = sub.videos || [];
+              if (episode && videos.length) {
+                const epNum = String(episode).padStart(2, '0');
+                const filtered = videos.filter(v => new RegExp(`[Ee]${epNum}`, 'i').test(v.name));
+                if (filtered.length) videos = filtered;
+              }
+            }
+          }
+
+          if (videos.length) {
+            const bestFiles = selectBestFiles(videos);
+            const ordered = [...bestFiles].reverse().map(f => ({
+              ...f,
+              quality: f.quality || detectQuality(f.name) || 'SD',
+              url: safeUrl(f.url),
+            }));
+            if (!cancelled) {
+              setDirectFiles(ordered);
+              setDirectIdx(0);
+              setResolverStatus('');
+              setMode('direct');
+            }
+            // Cache this result for next time
+            setCachedResolution(tmdbId, mediaType, season, episode, { folders: result.folders, videos, source: result.source });
+            // Let the metadata finish in background
+            metaPromise.then(meta => {
+              if (!cancelled && meta) {
+                setEmbeds(buildEmbeds(tmdbId, meta.iid, mediaType, season, episode));
+              }
+            });
+            return;
+          }
+
+          // Resolver found only folders (e.g. TV show root) — fall through to embeds
+          if (!cancelled) setMode('iframe');
+        }
+      } catch (_) {
+        // Both HLS and resolver failed
+        if (!cancelled) {
+          console.warn('[PrimePlayer] Both HLS and resolver failed, falling back to embeds');
+          setResolverStatus('');
+          setMode('iframe');
+        }
+      }
+
+      // Update embeds once metadata is available
+      metaPromise.then(meta => {
+        if (!cancelled && meta) {
+          setEmbeds(buildEmbeds(tmdbId, meta.iid, mediaType, season, episode));
+        }
+      });
     })();
 
     return () => {
+      cancelled = true;
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
     };
   }, [tmdbId, mediaType, season, episode]);

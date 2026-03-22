@@ -37,7 +37,7 @@ function probeLocalProxy() {
     try {
       const r = await fetch(
         `/api/proxy?url=${encodeURIComponent('https://www.google.com/robots.txt')}`,
-        { signal: AbortSignal.timeout(4000) }
+        { signal: AbortSignal.timeout(3000) }
       );
       const ct  = r.headers.get('content-type') || '';
       const xps = r.headers.get('x-proxy-status');
@@ -52,13 +52,13 @@ function probeLocalProxy() {
 // Start probing immediately so it's ready by the time resolveTitle is called.
 probeLocalProxy();
 
-// ─────────────────────── PROXY WATERFALL ───────────────────────────────────
-async function buildProxyList(url) {
-  // Wait for probe if it hasn't finished yet
-  if (_localProxyOk === null) await probeLocalProxy();
+// ─────────────────────── PROXY RACE (parallel) ─────────────────────────────
+const PROXY_TIMEOUT_MS = 3000;
 
+function buildProxyListSync(url) {
   const list = [];
-  if (_localProxyOk) {
+  if (_localProxyOk !== false) {
+    // Include local proxy optimistically; it will simply lose the race if slow/down
     list.push(`/api/proxy?url=${encodeURIComponent(url)}`);
   }
   list.push(`https://corsproxy.io/?${encodeURIComponent(url)}`);
@@ -66,37 +66,33 @@ async function buildProxyList(url) {
   return list;
 }
 
+async function tryProxy(proxyUrl) {
+  const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(PROXY_TIMEOUT_MS) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const ct   = res.headers.get('content-type') || '';
+  const text = await res.text();
+  const isHtmlPage = ct.includes('text/html') && text.includes('<!DOCTYPE');
+  const hasLinks   = /<a\s+[^>]*href=/i.test(text);
+  if (!text || text.length < 50 || (isHtmlPage && !hasLinks)) {
+    throw new Error(`Empty/error page (${text?.length ?? 0}b)`);
+  }
+  return text;
+}
+
 export async function proxiedFetch(url) {
-  const proxies = await buildProxyList(url);
-  const errors  = [];
-
-  for (const proxyUrl of proxies) {
-    try {
-      const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
-      if (!res.ok) {
-        errors.push(`${proxyUrl.slice(0, 60)}: HTTP ${res.status}`);
-        continue;
-      }
-      const ct   = res.headers.get('content-type') || '';
-      const text = await res.text();
-
-      // Reject SPA catch-all HTML error pages (no real <a href> links)
-      const isHtmlPage = ct.includes('text/html') && text.includes('<!DOCTYPE');
-      const hasLinks   = /<a\s+[^>]*href=/i.test(text);
-      if (!text || text.length < 50 || (isHtmlPage && !hasLinks)) {
-        errors.push(`${proxyUrl.slice(0, 60)}: empty/error page (${text?.length ?? 0}b)`);
-        continue;
-      }
-
-      return text;
-    } catch (e) {
-      errors.push(e.message);
-    }
+  // Ensure probe has had a chance to run (non-blocking — use cached result if ready)
+  if (_localProxyOk === null) {
+    // Give the probe up to 1 s before falling back to optimistic list
+    await Promise.race([probeLocalProxy(), new Promise(r => setTimeout(r, 1000))]);
   }
 
-  throw new Error(
-    `Could not fetch: ${url.slice(0, 80)}\nErrors: ${errors.slice(0, 2).join('; ')}`
-  );
+  const proxies = buildProxyListSync(url);
+  // Race all proxies simultaneously — first successful response wins
+  try {
+    return await Promise.any(proxies.map(tryProxy));
+  } catch (_) {
+    throw new Error(`Could not fetch: ${url.slice(0, 80)}`);
+  }
 }
 
 // ──────────────────────────── SUPABASE ─────────────────────────────────────
@@ -105,7 +101,10 @@ async function supaFetch(tmdbId, mediaType) {
   try {
     const res = await fetch(
       `${SUPA_BASE}/${table}?tmdb_id=eq.${tmdbId}&select=download_url`,
-      { headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` } }
+      {
+        headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` },
+        signal: AbortSignal.timeout(3000),
+      }
     );
     if (!res.ok) return null;
     const rows = await res.json();
@@ -113,6 +112,38 @@ async function supaFetch(tmdbId, mediaType) {
   } catch (_) {
     return null;
   }
+}
+
+// ─────────────────────── RESOLUTION CACHE (localStorage) ───────────────────
+const CACHE_KEY_PREFIX = 'pv_res:';
+const CACHE_TTL_MS     = 24 * 60 * 60 * 1000; // 24 hours
+
+function cacheKey(tmdbId, mediaType, season, episode) {
+  return `${CACHE_KEY_PREFIX}${tmdbId}:${mediaType}:${season || ''}:${episode || ''}`;
+}
+
+export function getCachedResolution(tmdbId, mediaType, season, episode) {
+  try {
+    const raw = localStorage.getItem(cacheKey(tmdbId, mediaType, season, episode));
+    if (!raw) return null;
+    const entry = JSON.parse(raw);
+    if (Date.now() - entry.ts > CACHE_TTL_MS) {
+      localStorage.removeItem(cacheKey(tmdbId, mediaType, season, episode));
+      return null;
+    }
+    return entry;
+  } catch (_) {
+    return null;
+  }
+}
+
+export function setCachedResolution(tmdbId, mediaType, season, episode, data) {
+  try {
+    localStorage.setItem(
+      cacheKey(tmdbId, mediaType, season, episode),
+      JSON.stringify({ ...data, ts: Date.now() })
+    );
+  } catch (_) { /* storage full or unavailable */ }
 }
 
 // ─────────────────────────── URL HELPERS ───────────────────────────────────
@@ -378,11 +409,18 @@ export function selectBestFiles(videos) {
  */
 export async function resolveTitle({ tmdbId, mediaType, title, year, season, episode }) {
 
+  // ── Cache check ───────────────────────────────────────────────────────────
+  const cached = getCachedResolution(tmdbId, mediaType, season, episode);
+  if (cached) {
+    return { folders: cached.folders, videos: cached.videos, source: cached.source };
+  }
+
   // Fetch TMDB metadata if title/year not provided
   if (!title || !year) {
     try {
       const r = await fetch(
-        `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_KEY}`
+        `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_KEY}`,
+        { signal: AbortSignal.timeout(3000) }
       );
       const d = await r.json();
       title = title || d.title || d.name;
@@ -394,35 +432,51 @@ export async function resolveTitle({ tmdbId, mediaType, title, year, season, epi
     throw new Error(`Could not determine title for TMDB ID ${tmdbId}`);
   }
 
-  // ── Tier 1: Supabase ──────────────────────────────────────────────────────
-  const supaUrl = await supaFetch(tmdbId, mediaType);
-  if (supaUrl) {
+  // ── Tier 1 (Supabase) + Tier 2/3 (Index) in parallel ────────────────────
+  const supaPromise = (async () => {
+    const supaUrl = await supaFetch(tmdbId, mediaType);
+    if (!supaUrl) return null;
     const safe = safeUrl(supaUrl);
-
-    // Direct video file in Supabase?
     if (VID_RE.test(decodeURIComponent(safe.split('?')[0]))) {
       const name = decodeURIComponent(safe.split('/').pop().split('?')[0]);
       const q    = detectQuality(name);
-      return {
-        folders: [],
-        videos:  [{ name, url: safe, quality: q }],
-        source:  '⚡ database',
-      };
+      return { folders: [], videos: [{ name, url: safe, quality: q }], source: '⚡ database' };
     }
+    const folderUrl = safe.endsWith('/') ? safe : safe + '/';
+    const html      = await proxiedFetch(folderUrl);
+    const result    = parseFolderListing(html, folderUrl);
+    if (result.videos.length || result.folders.length) {
+      return { ...result, source: '⚡ database' };
+    }
+    return null;
+  })();
 
-    // Folder URL in Supabase — try fetching it
-    try {
-      const folderUrl = safe.endsWith('/') ? safe : safe + '/';
-      const html      = await proxiedFetch(folderUrl);
-      const result    = parseFolderListing(html, folderUrl);
-      if (result.videos.length || result.folders.length) {
-        return { ...result, source: '⚡ database' };
-      }
-    } catch (_) { /* fall through to scraper */ }
+  const indexPromise = scrapeIndex(title, year, mediaType);
+
+  // Race: whichever tier yields a usable result first wins
+  let result = null;
+  let source = '📁 index';
+
+  try {
+    const winner = await Promise.any([
+      supaPromise.then(r => {
+        if (!r) throw new Error('no supa result');
+        return { source: '⚡ database', data: r };
+      }),
+      indexPromise.then(r => ({ source: '📁 index', data: r })),
+    ]);
+    result = winner.data;
+    source = winner.source;
+  } catch (aggErr) {
+    // Both failed — surface the index error which is more descriptive
+    const indexErr = aggErr.errors?.[1];
+    console.warn('[resolveTitle] Both tiers failed:', indexErr?.message || aggErr.message);
+    throw new Error(
+      `"${title}" (${year || '?'}) not found.\n` +
+      `Checked Supabase DB and ${BASE}.\n` +
+      `Try pasting a direct URL.`
+    );
   }
-
-  // ── Tier 2+3: Index scraper ───────────────────────────────────────────────
-  const result = await scrapeIndex(title, year, mediaType);
 
   // TV: if a season number is given, drill one level deeper automatically
   if (mediaType === 'tv' && season && result.folders.length && !result.videos.length) {
@@ -440,7 +494,6 @@ export async function resolveTitle({ tmdbId, mediaType, title, year, season, epi
       try {
         const seasonResult = await fetchSubfolder(seasonFolder.url);
         if (seasonResult.videos.length) {
-          // Optionally filter to a specific episode
           let videos = seasonResult.videos;
           if (episode) {
             const epNum = String(episode).padStart(2, '0');
@@ -449,14 +502,16 @@ export async function resolveTitle({ tmdbId, mediaType, title, year, season, epi
             );
             if (filtered.length) videos = filtered;
           }
-          return { folders: [], videos, source: '📁 index' };
+          result = { folders: [], videos, source };
         }
       } catch (_) { /* return top-level result */ }
     }
   }
 
   if (result.videos.length || result.folders.length) {
-    return { ...result, source: '📁 index' };
+    // Store in cache for instant repeat plays
+    setCachedResolution(tmdbId, mediaType, season, episode, { ...result, source });
+    return { ...result, source };
   }
 
   throw new Error(
