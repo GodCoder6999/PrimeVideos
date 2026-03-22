@@ -237,13 +237,18 @@ export default function PrimePlayer({
   };
 
   // ─── MAIN INIT — 3-TIER RESOLUTION ──────────────────────────────────────
-  // Tier 1: /api/multi-stream → VidSrc direct m3u8 extraction
-  // Tier 1: REELSTREAM open-directory resolver → direct <video> play
-  // Tier 2: VidSrc iframe fallback
+  // ─── MAIN STREAM INIT ───────────────────────────────────────────────────────
+  // Resolution order:
+  //   1. /api/multi-stream → NuvioStreams + VidZee + MP4Hydra + SoaperTV (parallel)
+  //      Returns up to 3 streams sorted by quality. We try each in order.
+  //      m3u8 → HLS.js (with proxy to rewrite segment URLs past CORS)
+  //      mp4  → <video src> direct (no proxy — CDN URLs are IP-locked)
+  //             falls back to proxied version if direct 404s/errors
+  //   2. VidSrc iframe embeds (absolute last resort)
   useEffect(() => {
     if (!tmdbId) return;
 
-    // Reset all state
+    // ── Reset everything ──
     setMode('loading');
     setHlsUrl(null);
     setProvider('');
@@ -255,107 +260,115 @@ export default function PrimePlayer({
     setEmbeds([]);
     setEmbedIdx(0);
     setEmbedPhase('loading');
+    setPlaying(false);
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
 
     let _cancelled = false;
-    const safeSet = (fn) => { if (!_cancelled) fn(); };
 
-    (async () => {
-      // ─── STEP 1: Fire TMDB metadata + both stream APIs simultaneously ─────
-      // None of these block each other. We use the first stream that responds.
-
-      let iid = null;
-      let titleStr = title;
-      let yearStr  = '';
-
-      // Timeout helper that works in all browsers
-      const fetchWithTimeout = (url, ms = 10000) => {
-        const ctrl = new AbortController();
-        const tid  = setTimeout(() => ctrl.abort(), ms);
-        return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(tid));
-      };
-
-      // TMDB metadata — runs in background, updates X-Ray/title when ready
-      const metaPromise = fetchWithTimeout(
-        `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids,credits`,
-        8000
-      ).then(r => r.json()).then(d => {
-        if (_cancelled) return null;
-        iid      = d.imdb_id || d.external_ids?.imdb_id || null;
-        titleStr = d.title || d.name || title;
-        yearStr  = (d.release_date || d.first_air_date || '').slice(0, 4);
+    // ── TMDB metadata — background, non-blocking ──
+    // Fires immediately but we do NOT await it before starting playback.
+    const ctrl0 = new AbortController();
+    const t0    = setTimeout(() => ctrl0.abort(), 8000);
+    fetch(
+      `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids,credits`,
+      { signal: ctrl0.signal }
+    ).finally(() => clearTimeout(t0))
+      .then(r => r.json())
+      .then(d => {
+        if (_cancelled) return;
+        const iid = d.imdb_id || d.external_ids?.imdb_id || null;
         setImdbId(iid);
-        setMovieTitle(titleStr);
+        setMovieTitle(d.title || d.name || title);
         setXrayCast((d.credits?.cast || []).slice(0, 12).map(p => ({
           id: p.id, name: p.name, character: p.character,
           profile: p.profile_path ? `https://image.tmdb.org/t/p/w185${p.profile_path}` : null,
         })));
+        // Update embeds with IMDB ID once we have it
         setEmbeds(buildEmbeds(tmdbId, iid, mediaType, season, episode));
-        return { iid, titleStr, yearStr };
-      }).catch(() => null);
+      })
+      .catch(() => {});
 
-      // Pre-populate embeds with tmdb id immediately (updated with imdb id above)
-      setEmbeds(buildEmbeds(tmdbId, null, mediaType, season, episode));
+    // Pre-populate embeds immediately with tmdb id (for iframe fallback)
+    setEmbeds(buildEmbeds(tmdbId, null, mediaType, season, episode));
 
-      // ─── STEP 2: NuvioStreams providers race (VidSrc + VidZee + MP4Hydra + SoaperTV) ──
-      // All 4 providers race server-side — first valid stream wins (~1-3s).
-      // URL is always proxied through /api/proxy:
-      //   m3u8 → proxy rewrites all segment URLs (no CORS on chunks)
-      //   mp4  → proxy forwards Range headers (seeking works)
-
-      let data = null;
+    // ── Stream resolution ──
+    (async () => {
+      // ── Step 1: Call /api/multi-stream ──
+      // Server races NuvioStreams + VidZee + MP4Hydra + SoaperTV in parallel.
+      // Returns up to 3 streams sorted best quality first.
+      let streams = [];
       try {
         const ctrl = new AbortController();
-        const tid  = setTimeout(() => ctrl.abort(), 11000);
-        const r    = await fetch(
+        const tid  = setTimeout(() => ctrl.abort(), 13000);
+        const r = await fetch(
           `/api/multi-stream?${new URLSearchParams({ tmdbId, type: mediaType, season, episode })}`,
           { signal: ctrl.signal }
         ).finally(() => clearTimeout(tid));
-        data = await r.json();
+        if (r.ok) {
+          const data = await r.json();
+          if (data?.success && Array.isArray(data.streams)) {
+            streams = data.streams.filter(s => s?.url && s.url.startsWith('http'));
+          }
+        }
       } catch (e) {
-        if (e.name !== 'AbortError') console.warn('[PrimePlayer] multi-stream fetch failed:', e.message);
+        console.warn('[PrimePlayer] /api/multi-stream error:', e.message);
       }
 
-      if (!_cancelled && data?.success && data.streams?.length) {
-        const stream = data.streams[0];
-        const rawUrl = stream.url;
+      if (_cancelled) return;
 
-        if (rawUrl.includes('.m3u8') || rawUrl.includes('mpegurl')) {
-          // HLS — MUST proxy: HLS.js fetches many segment URLs, all would hit CORS.
-          // Proxy rewrites every segment URL in the m3u8 so they all stay same-origin.
+      if (streams.length > 0) {
+        // Build the directFiles list from all returned streams.
+        // For each stream: if it's m3u8 we handle it via HLS mode.
+        // If it's mp4 we add both the raw URL and proxied URL as fallbacks.
+        const firstStream = streams[0];
+        const rawUrl      = firstStream.url;
+
+        if (rawUrl.includes('.m3u8') || rawUrl.includes('mpegurl') || rawUrl.includes('playlist')) {
+          // HLS stream — proxy it so segment fetches don't hit CORS
           const proxiedUrl = `/api/proxy?url=${encodeURIComponent(rawUrl)}`;
-          setHlsUrl(proxiedUrl);
-          setProvider(stream.provider || 'Stream');
-          setBuffering(true);
-          setMode('hls');
+          if (!_cancelled) {
+            setHlsUrl(proxiedUrl);
+            setProvider(firstStream.provider || 'Stream');
+            setBuffering(true);
+            setMode('hls');
+          }
           return;
         }
 
-        // mp4/mkv — CDN URLs are often IP-locked (token tied to the requesting IP).
-        // Proxying changes the IP → CDN returns 403 → video silently fails.
-        // Strategy: try raw URL first (direct, no CORS issue for <video src>).
-        // Also add proxied version as fallback in case direct is CORS-blocked.
-        const proxiedUrl = `/api/proxy?url=${encodeURIComponent(rawUrl)}`;
-        setDirectFiles([
-          { url: rawUrl,     quality: stream.quality || 'Auto', provider: stream.provider || 'Stream' },
-          { url: proxiedUrl, quality: stream.quality || 'Auto', provider: (stream.provider || 'Stream') + ' (proxy)' },
-        ]);
-        setDirectIdx(0);
-        setBuffering(true);
-        setMode('direct');
+        // mp4 / mkv / direct video
+        // Build fallback chain: [raw, proxy of raw, next stream raw, next stream proxy, ...]
+        const files = [];
+        streams.forEach(s => {
+          if (!s.url) return;
+          // Raw first — CDN URLs are often IP-locked so proxy breaks them
+          files.push({ url: s.url, quality: s.quality || 'Auto', provider: s.provider || 'Stream' });
+          // Proxied fallback — helps if raw has strict CORS (rare for mp4 but possible)
+          files.push({
+            url:      `/api/proxy?url=${encodeURIComponent(s.url)}`,
+            quality:  s.quality || 'Auto',
+            provider: (s.provider || 'Stream') + '↑',
+          });
+        });
+
+        if (!_cancelled) {
+          setDirectFiles(files);
+          setDirectIdx(0);
+          setBuffering(true);
+          setMode('direct');
+        }
         return;
       }
 
       if (_cancelled) return;
 
-      // ─── STEP 3: Iframe embeds — last resort ─────────────────────────────
-      console.log('[PrimePlayer] All providers failed — falling back to iframe');
+      // ── Step 2: All providers failed → VidSrc iframe ──
+      console.warn('[PrimePlayer] All stream providers failed — using iframe fallback');
       setMode('iframe');
     })();
 
-
     return () => {
       _cancelled = true;
+      ctrl0.abort();
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
     };
   }, [tmdbId, mediaType, season, episode]);
@@ -369,140 +382,153 @@ export default function PrimePlayer({
     if (Hls.isSupported()) {
       const hls = new Hls({
         enableWorker:            true,
-        backBufferLength:        90,
-        maxBufferLength:         60,
-        maxMaxBufferLength:      120,
+        backBufferLength:        60,
+        maxBufferLength:         30,
         lowLatencyMode:          false,
-        // Longer timeouts for segments fetched through our proxy
-        fragLoadingTimeOut:      20000,
-        manifestLoadingTimeOut:  15000,
-        levelLoadingTimeOut:     15000,
-        // More retries since proxy adds latency
-        fragLoadingMaxRetry:     4,
-        manifestLoadingMaxRetry: 3,
-        levelLoadingMaxRetry:    3,
-        fragLoadingRetryDelay:   1000,
+        // Generous timeouts — segments go through /api/proxy which adds latency
+        fragLoadingTimeOut:      30000,
+        manifestLoadingTimeOut:  20000,
+        levelLoadingTimeOut:     20000,
+        fragLoadingMaxRetry:     6,
+        manifestLoadingMaxRetry: 4,
+        levelLoadingMaxRetry:    4,
+        fragLoadingRetryDelay:   500,
         xhrSetup: (xhr) => { xhr.withCredentials = false; },
       });
       hlsRef.current = hls;
       hls.loadSource(hlsUrl);
       hls.attachMedia(vid);
+
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        vid.play().catch(() => {});
-        setPlaying(true);
         setBuffering(false);
+        vid.play().then(() => setPlaying(true)).catch(() => {
+          // Autoplay blocked — show play button, user will click it
+          setPlaying(false);
+          setBuffering(false);
+        });
       });
+
       let _netRetries = 0;
+      let _mediaRetries = 0;
       hls.on(Hls.Events.ERROR, (_, d) => {
-        if (d.fatal) {
-          console.warn('[PrimePlayer] HLS fatal error:', d.type, d.details);
-          if (d.type === Hls.ErrorTypes.NETWORK_ERROR) {
-            if (_netRetries < 3) { _netRetries++; setTimeout(() => hls.startLoad(), 1000); }
-            else { setTimeout(() => { setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading'); }, 800); }
-          } else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) {
+        console.warn('[HLS]', d.type, d.details, 'fatal:', d.fatal);
+        if (!d.fatal) return; // non-fatal errors are handled by hls.js internally
+        if (d.type === Hls.ErrorTypes.NETWORK_ERROR) {
+          if (_netRetries < 4) {
+            _netRetries++;
+            setTimeout(() => hls.startLoad(), 1000 * _netRetries);
+          } else {
+            setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading');
+          }
+        } else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) {
+          if (_mediaRetries < 2) {
+            _mediaRetries++;
             hls.recoverMediaError();
           } else {
-            setTimeout(() => { setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading'); }, 800);
+            setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading');
           }
+        } else {
+          // Unrecoverable
+          setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading');
         }
       });
     } else if (vid.canPlayType('application/vnd.apple.mpegurl')) {
+      // Safari — native HLS support
       vid.src = hlsUrl;
-      vid.addEventListener('loadedmetadata', () => { vid.play().catch(() => {}); setPlaying(true); });
+      vid.addEventListener('loadedmetadata', () => {
+        setBuffering(false);
+        vid.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+      }, { once: true });
     } else {
       setMode('iframe');
     }
-    return () => { hlsRef.current?.destroy(); hlsRef.current = null; };
+    return () => { if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; } };
   }, [hlsUrl, mode]);
 
-  // ─── DIRECT MODE: load file when idx changes ─────────────────────────────
+  // ─── DIRECT MODE: load + play ────────────────────────────────────────────
   useEffect(() => {
     if (mode !== 'direct' || !videoRef.current || !directFiles.length) return;
-    const vid = videoRef.current;
+    const vid  = videoRef.current;
     const file = directFiles[directIdx];
     if (!file?.url) return;
 
-    // Reset playback state for new file
+    console.log('[Direct] Trying:', file.provider, file.url.slice(0, 80));
+
     setCurrentTime(0);
     setDuration(0);
     setBuffered(0);
     setPlaying(false);
+    setBuffering(true);
     setDirectError(null);
 
     vid.pause();
-    // file.url is already safeUrl'd when stored in directFiles
-    vid.src = file.url;
+    vid.removeAttribute('src');
     vid.load();
 
-    let cancelled = false;
-    const onMeta = () => {
+    // Small delay so the browser fully releases the previous source
+    const loadTimer = setTimeout(() => {
+      if (!videoRef.current) return;
+      vid.src  = file.url;
+      vid.load();
+    }, 80);
+
+    let cancelled    = false;
+    let stallTimer   = null;
+
+    const tryNext = (reason) => {
       if (cancelled) return;
-      setBuffering(false);
-      vid.play().then(() => { if (!cancelled) setPlaying(true); }).catch(() => {});
-    };
-    const onCanPlay = () => {
-      if (cancelled) return;
-      setBuffering(false);
-      vid.play().then(() => { if (!cancelled) setPlaying(true); }).catch(() => {});
-    };
-    vid.addEventListener('loadedmetadata', onMeta, { once: true });
-    vid.addEventListener('canplay', onCanPlay, { once: true });
-    return () => {
       cancelled = true;
-      vid.removeEventListener('loadedmetadata', onMeta);
-      vid.removeEventListener('canplay', onCanPlay);
-    };
-  }, [mode, directIdx, directFiles]);
-
-  // ─── DIRECT MODE: error + stall → try lower quality → iframe ───────────
-  useEffect(() => {
-    if (mode !== 'direct' || !videoRef.current) return;
-    const vid = videoRef.current;
-
-    const fallbackToNext = (reason) => {
-      console.warn('[PrimePlayer] Direct error:', reason);
+      clearTimeout(stallTimer);
+      console.warn('[Direct] Fallback reason:', reason, '| idx:', directIdx, '/', directFiles.length - 1);
       if (directIdx < directFiles.length - 1) {
         setDirectIdx(i => i + 1);
-        return;
-      }
-      setDirectError('Could not play this file. Switching to embed player…');
-      setTimeout(() => {
+      } else {
+        // All direct URLs exhausted — go to iframe
         setMode('iframe');
         setEmbedIdx(0);
         setEmbedPhase('loading');
-        setDirectError(null);
-      }, 1500);
+      }
     };
 
-    const onErr = () => {
+    const onCanPlay = () => {
+      if (cancelled) return;
+      setBuffering(false);
+      vid.play()
+        .then(() => { if (!cancelled) setPlaying(true); })
+        .catch(err => {
+          // Autoplay policy blocked — user must tap play
+          if (!cancelled) { setPlaying(false); setBuffering(false); }
+        });
+    };
+
+    const onError = () => {
       const e = vid.error;
-      if (!e || e.code === MediaError.MEDIA_ERR_ABORTED) return; // user-initiated abort
-      fallbackToNext(`MediaError code=${e.code}`);
+      // Code 1 = MEDIA_ERR_ABORTED (user action) — ignore
+      if (!e || e.code === 1) return;
+      tryNext('video error code=' + e.code);
     };
 
-    // Stall guard: if no progress for 15s during loading, try next
-    let stallTimer = null;
-    const onWaiting = () => {
+    // If nothing loads within 10s, move on
+    stallTimer = setTimeout(() => tryNext('load timeout 10s'), 10000);
+
+    const onProgress = () => {
+      // Data arriving — reset stall timer
       clearTimeout(stallTimer);
       stallTimer = setTimeout(() => {
-        if (!vid.paused && vid.readyState < 3) {
-          fallbackToNext('stall timeout');
-        }
-      }, 15000);
+        if (vid.readyState < 3 && !vid.paused) tryNext('stall after progress');
+      }, 10000);
     };
-    const onPlaying = () => clearTimeout(stallTimer);
-    const onProgress = () => clearTimeout(stallTimer);
 
-    vid.addEventListener('error', onErr);
-    vid.addEventListener('waiting', onWaiting);
-    vid.addEventListener('playing', onPlaying);
+    vid.addEventListener('canplay',  onCanPlay,  { once: true });
+    vid.addEventListener('error',    onError,    { once: true });
     vid.addEventListener('progress', onProgress);
 
     return () => {
+      cancelled = true;
+      clearTimeout(loadTimer);
       clearTimeout(stallTimer);
-      vid.removeEventListener('error', onErr);
-      vid.removeEventListener('waiting', onWaiting);
-      vid.removeEventListener('playing', onPlaying);
+      vid.removeEventListener('canplay',  onCanPlay);
+      vid.removeEventListener('error',    onError);
       vid.removeEventListener('progress', onProgress);
     };
   }, [mode, directIdx, directFiles]);
