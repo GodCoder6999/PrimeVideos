@@ -2,9 +2,10 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useLocation, useParams, Link } from 'react-router-dom';
 import { Search, Play, Info, Plus, ChevronRight, ChevronLeft, Download, Share2, CheckCircle2, ThumbsUp, ChevronDown, Grip, Loader, List, ArrowLeft, X, Volume2, VolumeX, Trophy, Signal, Clock, Ban, Eye, Bookmark, TrendingUp, Monitor } from 'lucide-react';
 import PrimePlayer from './PrimePlayer';
+import Hls from 'hls.js';
 
 // --- GLOBAL HLS REFERENCE ---
-const Hls = window.Hls;
+// Hls is imported per-component from hls.js npm package
 
 // --- CONFIGURATION ---
 const TMDB_API_KEY = "cb1dc311039e6ae85db0aa200345cbc5";
