@@ -549,11 +549,9 @@ export default function PrimePlayer({
     setShowControls(true);
     clearTimeout(controlsTimerRef.current);
     controlsTimerRef.current = setTimeout(() => {
-      // In iframe mode always keep controls visible — iframe has its own playback
-      // controls, our overlay is the Prime Video UI chrome on top of it
-      if (!activePanel && !xrayOpen && mode !== 'iframe') setShowControls(false);
+      if (!activePanel && !xrayOpen) setShowControls(false);
     }, 3500);
-  }, [activePanel, xrayOpen, mode]);
+  }, [activePanel, xrayOpen]);
 
   useEffect(() => {
     resetControlsTimer();
@@ -930,38 +928,26 @@ export default function PrimePlayer({
               ref={iframeRef}
               key={`${embedIdx}-${tmdbId}-${season}-${episode}`}
               src={curEmbed.url}
-              style={{ width: '100%', height: '100%', border: 'none', display: 'block', position: 'absolute', inset: 0, zIndex: 2, opacity: embedPhase === 'playing' ? 1 : 0, transition: 'opacity 0.4s' }}
+              style={{ width: '100%', height: '100%', border: 'none', display: 'block', opacity: embedPhase === 'playing' ? 1 : 0, transition: 'opacity 0.4s' }}
               allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope"
               allowFullScreen
               referrerPolicy="no-referrer"
               onLoad={() => {
-                // Give the iframe 1.5s to actually start — empty/error pages load instantly
+                // Give the iframe 2s to actually start — empty/error pages load instantly
                 // then redirect, so a small delay filters false positives
                 clearTimeout(iframeTimerRef.current);
-                iframeTimerRef.current = setTimeout(() => {
-                  setEmbedPhase('playing');
-                  // Auto-open X-Ray overlay when iframe is playing (matches Prime Video UX)
-                  if (xrayCast.length > 0) setXrayOpen(true);
-                }, 1500);
+                iframeTimerRef.current = setTimeout(() => setEmbedPhase('playing'), 1500);
               }}
               title={movieTitle}
             />
           )}
 
-          {/* Source switcher — shown briefly then fades, sits above bottom bar */}
-          {embedPhase === 'playing' && embedIdx < embeds.length - 1 && (
-            <div style={{
-              position: 'absolute', bottom: 90, right: 20, zIndex: 20,
-              pointerEvents: 'auto',
-            }}>
+          {/* Source switcher nudge */}
+          {embedPhase === 'playing' && embedIdx < embeds.length - 1 && showControls && (
+            <div style={{ position: 'absolute', bottom: 72, right: 16, zIndex: 20 }}>
               <button
                 onClick={(e) => { e.stopPropagation(); clearTimeout(iframeTimerRef.current); setEmbedIdx(i => i + 1); setEmbedPhase('loading'); }}
-                style={{
-                  background: 'rgba(0,0,0,0.75)', border: '1px solid rgba(170,170,170,0.25)',
-                  color: '#AAAAAA', padding: '6px 16px', borderRadius: 6, cursor: 'pointer',
-                  fontSize: 12, fontWeight: 500, backdropFilter: 'blur(10px)',
-                  letterSpacing: 0.2,
-                }}
+                style={{ background: 'rgba(0,0,0,0.7)', border: '1px solid rgba(170,170,170,0.2)', color: '#AAAAAA', padding: '5px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, backdropFilter: 'blur(8px)' }}
               >
                 Not playing? Try next source →
               </button>
@@ -985,9 +971,7 @@ export default function PrimePlayer({
         position: 'absolute', inset: 0,
         opacity: showControls ? 1 : 0,
         transition: 'opacity 0.3s ease',
-        // In iframe mode: pass pointer events through to iframe in the center area.
-        // Top bar and bottom bar have their own pointer-events set inline.
-        pointerEvents: (showControls && mode !== 'iframe') ? 'auto' : 'none',
+        pointerEvents: showControls ? 'auto' : 'none',
         zIndex: 5,
       }}>
 
@@ -1010,7 +994,6 @@ export default function PrimePlayer({
           position: 'absolute', top: 0, left: 0, right: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '12px 16px', zIndex: 10,
-          pointerEvents: 'auto',
         }}>
           {/* X-Ray */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1248,66 +1231,34 @@ export default function PrimePlayer({
         </div>
 
         {/* ── X-RAY COMPACT OVERLAY ── */}
-        {/* In iframe mode: always visible when xrayOpen (controls never hide).
-            In video mode: follows showControls visibility via parent opacity. */}
         {xrayOpen && xrayCast.length > 0 && (
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              position: 'absolute',
-              top: 52,        // just below top bar
-              left: 0,
-              background: 'rgba(0,0,0,0.72)',
-              backdropFilter: 'blur(2px)',
-              minWidth: 270,
-              maxWidth: 320,
-              maxHeight: '60vh',
-              overflowY: 'auto',
-              scrollbarWidth: 'none',
-              animation: 'panelIn 0.12s ease-out',
-              pointerEvents: 'auto',
-              zIndex: 20,
-            }}
-          >
-            {/* Header row */}
-            <div style={{ padding: '10px 16px 8px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ color: '#AAAAAA', fontWeight: 400, fontSize: 14, letterSpacing: 0.2 }}>X-Ray</span>
-              <div style={{ background: '#f5c518', color: '#000', fontSize: 10, fontWeight: 800, padding: '2px 4px', borderRadius: 3, letterSpacing: 0.3 }}>IMDb</div>
-              <button
-                style={{ marginLeft: 4, background: 'none', border: 'none', color: '#AAAAAA', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, fontSize: 13, padding: 0 }}
-                onClick={() => { setXrayExpanded(true); setXrayOpen(false); }}
-              >
-                All <ChevronRightIcon />
-              </button>
+          <div className="xray-overlay" onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '0 16px 10px', borderBottom: '1px solid rgba(255,255,255,0.1)', marginBottom: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ color: '#AAAAAA', fontWeight: 400, fontSize: 14 }}>X-Ray</span>
+                <div style={{ background: '#f5c518', color: '#000', fontSize: 10, fontWeight: 800, padding: '2px 4px', borderRadius: 3 }}>IMDb</div>
+                <button
+                  style={{ marginLeft: 4, background: 'none', border: 'none', color: '#AAAAAA', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, fontSize: 13 }}
+                  onClick={() => { setXrayExpanded(true); setXrayOpen(false); }}
+                >
+                  All <ChevronRightIcon />
+                </button>
+              </div>
             </div>
-
-            {/* Cast rows — matches screenshot: large photo + name + character */}
             {xrayCast.slice(0, 3).map(person => (
-              <div
-                key={person.id}
-                style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 16px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)' }}
-                onClick={() => { setXrayExpanded(true); setXrayOpen(false); }}
-              >
-                {/* Photo — tall rect like in screenshot */}
+              <div key={person.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px', cursor: 'pointer' }}
+                onClick={() => { setXrayExpanded(true); setXrayOpen(false); }}>
                 {person.profile ? (
-                  <img
-                    src={person.profile}
-                    alt={person.name}
-                    style={{ width: 60, height: 80, objectFit: 'cover', objectPosition: 'top', borderRadius: 3, flexShrink: 0 }}
-                  />
+                  <img src={person.profile} alt={person.name}
+                    style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />
                 ) : (
-                  <div style={{
-                    width: 60, height: 80, background: '#1a1a1a', borderRadius: 3,
-                    flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: 'rgba(255,255,255,0.25)', fontSize: 22, fontWeight: 700,
-                  }}>
+                  <div style={{ width: 64, height: 64, background: '#111', borderRadius: 4, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 20, fontWeight: 700 }}>
                     {person.name.charAt(0)}
                   </div>
                 )}
-                {/* Name + character */}
                 <div>
-                  <div style={{ color: '#AAAAAA', fontSize: 14, fontWeight: 400, marginBottom: 3 }}>{person.name}</div>
-                  <div style={{ color: 'rgba(170,170,170,0.55)', fontSize: 12 }}>{person.character}</div>
+                  <div style={{ color: '#AAAAAA', fontSize: 14, fontWeight: 400 }}>{person.name}</div>
+                  <div style={{ color: 'rgba(170,170,170,0.6)', fontSize: 12, marginTop: 2 }}>{person.character}</div>
                 </div>
               </div>
             ))}
@@ -1359,7 +1310,6 @@ export default function PrimePlayer({
         <div style={{
           position: 'absolute', bottom: 0, left: 0, right: 0,
           padding: '0 0 28px', zIndex: 10,
-          pointerEvents: 'auto',
         }}>
           {/* Progress bar */}
           <div
