@@ -3,8 +3,9 @@
   "buildCommand": "npm install --prefix frontend && npm run build --prefix frontend",
   "outputDirectory": "frontend/dist",
   "rewrites": [
-    { "source": "/api/get-stream", "destination": "/api/get-stream" },
-    { "source": "/api/proxy",      "destination": "/api/proxy"      },
-    { "source": "/(.*)",           "destination": "/index.html"     }
+    { "source": "/api/get-stream",    "destination": "/api/get-stream"    },
+    { "source": "/api/proxy",         "destination": "/api/proxy"         },
+    { "source": "/api/multi-stream",  "destination": "/api/multi-stream"  },
+    { "source": "/(.*)",              "destination": "/index.html"        }
   ]
 }
