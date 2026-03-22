@@ -262,6 +262,9 @@ export default function PrimePlayer({
     setEmbedPhase('loading');
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
 
+    let _cancelled = false;
+    const safeSet = (fn) => { if (!_cancelled) fn(); };
+
     (async () => {
       // ── Fetch metadata (IMDB ID + cast for X-Ray) ────────────────────────
       let iid = null;
@@ -305,24 +308,33 @@ export default function PrimePlayer({
       try {
         setResolverStatus('Searching fast stream providers…');
         const params = new URLSearchParams({ tmdbId, type: mediaType, season, episode });
-        const res  = await fetch(`/api/multi-stream?${params}`, { signal: AbortSignal.timeout(12000) });
+        const controller = new AbortController();
+        const tid = setTimeout(() => controller.abort(), 12000);
+        const res  = await fetch(`/api/multi-stream?${params}`, { signal: controller.signal });
+        clearTimeout(tid);
         const data = await res.json();
         if (data.success && data.streams?.length) {
-          // Map provider streams to our directFiles format
-          const ordered = data.streams.map(s => ({
+          // Map provider streams to our directFiles format, dedupe by URL
+          const seen = new Set();
+          const ordered = data.streams.filter(s => {
+            if (!s?.url || seen.has(s.url)) return false;
+            seen.add(s.url); return true;
+          }).map(s => ({
             name: s.name,
             url:  s.url,
             quality: s.quality || 'Auto',
             provider: s.provider,
           }));
-          setDirectFiles(ordered);
-          setDirectIdx(0);
-          setResolverStatus('');
-          setMode('direct');
-          return;
+          if (ordered.length) {
+            setDirectFiles(ordered);
+            setDirectIdx(0);
+            setResolverStatus('');
+            setMode('direct');
+            return;
+          }
         }
       } catch (e) {
-        console.warn('[PrimePlayer] Multi-stream failed:', e.message);
+        if (e.name !== 'AbortError') console.warn('[PrimePlayer] Multi-stream failed:', e.message);
         setResolverStatus('');
       }
 
@@ -376,6 +388,7 @@ export default function PrimePlayer({
     })();
 
     return () => {
+      _cancelled = true;
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
     };
   }, [tmdbId, mediaType, season, episode]);
@@ -397,7 +410,16 @@ export default function PrimePlayer({
       });
       hls.on(Hls.Events.ERROR, (_, d) => {
         if (d.fatal) {
-          setTimeout(() => { setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading'); }, 2000);
+          console.warn('[PrimePlayer] HLS fatal error:', d.type, d.details);
+          if (d.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            // Try recovery first
+            hls.startLoad();
+          } else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            hls.recoverMediaError();
+          } else {
+            // Unrecoverable - fall through to iframe
+            setTimeout(() => { setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading'); }, 1000);
+          }
         }
       });
     } else if (vid.canPlayType('application/vnd.apple.mpegurl')) {
@@ -414,29 +436,89 @@ export default function PrimePlayer({
     if (mode !== 'direct' || !videoRef.current || !directFiles.length) return;
     const vid = videoRef.current;
     const file = directFiles[directIdx];
-    if (!file) return;
-    vid.pause();
-    vid.src = safeUrl(file.url);
-    vid.load();
+    if (!file?.url) return;
+
+    // Reset playback state for new file
+    setCurrentTime(0);
+    setDuration(0);
+    setBuffered(0);
+    setPlaying(false);
     setDirectError(null);
-    const onMeta = () => { vid.play().catch(() => {}); setPlaying(true); };
+
+    vid.pause();
+    // file.url is already safeUrl'd when stored in directFiles
+    vid.src = file.url;
+    vid.load();
+
+    let cancelled = false;
+    const onMeta = () => {
+      if (cancelled) return;
+      vid.play().catch(() => {});
+    };
+    const onCanPlay = () => {
+      if (cancelled) return;
+      vid.play().catch(() => {});
+    };
     vid.addEventListener('loadedmetadata', onMeta, { once: true });
-    return () => vid.removeEventListener('loadedmetadata', onMeta);
+    vid.addEventListener('canplay', onCanPlay, { once: true });
+    return () => {
+      cancelled = true;
+      vid.removeEventListener('loadedmetadata', onMeta);
+      vid.removeEventListener('canplay', onCanPlay);
+    };
   }, [mode, directIdx, directFiles]);
 
-  // ─── DIRECT MODE: error → try lower quality → give up → iframe ──────────
+  // ─── DIRECT MODE: error + stall → try lower quality → iframe ───────────
   useEffect(() => {
     if (mode !== 'direct' || !videoRef.current) return;
     const vid = videoRef.current;
+
+    const fallbackToNext = (reason) => {
+      console.warn('[PrimePlayer] Direct error:', reason);
+      if (directIdx < directFiles.length - 1) {
+        setDirectIdx(i => i + 1);
+        return;
+      }
+      setDirectError('Could not play this file. Switching to embed player…');
+      setTimeout(() => {
+        setMode('iframe');
+        setEmbedIdx(0);
+        setEmbedPhase('loading');
+        setDirectError(null);
+      }, 1500);
+    };
+
     const onErr = () => {
       const e = vid.error;
-      if (!e || e.code === 1) return;
-      if (directIdx < directFiles.length - 1) { setDirectIdx(i => i + 1); return; }
-      setDirectError('Could not play this file. Switching to embed player…');
-      setTimeout(() => { setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading'); setDirectError(null); }, 2500);
+      if (!e || e.code === MediaError.MEDIA_ERR_ABORTED) return; // user-initiated abort
+      fallbackToNext(`MediaError code=${e.code}`);
     };
+
+    // Stall guard: if no progress for 15s during loading, try next
+    let stallTimer = null;
+    const onWaiting = () => {
+      clearTimeout(stallTimer);
+      stallTimer = setTimeout(() => {
+        if (!vid.paused && vid.readyState < 3) {
+          fallbackToNext('stall timeout');
+        }
+      }, 15000);
+    };
+    const onPlaying = () => clearTimeout(stallTimer);
+    const onProgress = () => clearTimeout(stallTimer);
+
     vid.addEventListener('error', onErr);
-    return () => vid.removeEventListener('error', onErr);
+    vid.addEventListener('waiting', onWaiting);
+    vid.addEventListener('playing', onPlaying);
+    vid.addEventListener('progress', onProgress);
+
+    return () => {
+      clearTimeout(stallTimer);
+      vid.removeEventListener('error', onErr);
+      vid.removeEventListener('waiting', onWaiting);
+      vid.removeEventListener('playing', onPlaying);
+      vid.removeEventListener('progress', onProgress);
+    };
   }, [mode, directIdx, directFiles]);
 
   // ─── IFRAME TIMEOUT ──────────────────────────────────────────────────────
@@ -503,15 +585,15 @@ export default function PrimePlayer({
     return () => document.removeEventListener('fullscreenchange', onFsChange);
   }, []);
 
-  // ─── VIDEO EVENTS ────────────────────────────────────────────────────────
+  // ─── VIDEO EVENTS — fires for BOTH hls and direct modes ─────────────────
   useEffect(() => {
     const v = videoRef.current;
-    if (!v || mode !== 'hls') return;
-    const onPlay = () => setPlaying(true);
+    if (!v) return;
+    const onPlay  = () => setPlaying(true);
     const onPause = () => setPlaying(false);
-    const onTime = () => setCurrentTime(v.currentTime);
-    const onDur = () => setDuration(v.duration);
-    const onProg = () => {
+    const onTime  = () => setCurrentTime(v.currentTime);
+    const onDur   = () => { if (v.duration && isFinite(v.duration)) setDuration(v.duration); };
+    const onProg  = () => {
       if (v.buffered.length) setBuffered(v.buffered.end(v.buffered.length - 1));
     };
     v.addEventListener('play', onPlay);
@@ -526,7 +608,7 @@ export default function PrimePlayer({
       v.removeEventListener('durationchange', onDur);
       v.removeEventListener('progress', onProg);
     };
-  }, [mode]);
+  }, []); // mount-only — video element never changes
 
   // ─── ACTIONS ─────────────────────────────────────────────────────────────
   const togglePlay = () => {
@@ -828,7 +910,12 @@ export default function PrimePlayer({
               allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope"
               allowFullScreen
               referrerPolicy="no-referrer"
-              onLoad={() => { clearTimeout(iframeTimerRef.current); setEmbedPhase('playing'); }}
+              onLoad={() => {
+                // Give the iframe 2s to actually start — empty/error pages load instantly
+                // then redirect, so a small delay filters false positives
+                clearTimeout(iframeTimerRef.current);
+                iframeTimerRef.current = setTimeout(() => setEmbedPhase('playing'), 1500);
+              }}
               title={movieTitle}
             />
           )}
