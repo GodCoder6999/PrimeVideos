@@ -220,20 +220,19 @@ export default function PrimePlayer({
     : [];
 
   // ─── EMBED LIST BUILDER ──────────────────────────────────────────────────
+  // Iframe fallback list — only used when NuvioStreams extraction fails completely
   const buildEmbeds = (tid, iid, mType, s, e) => {
     const tv = mType === 'tv';
     const list = [];
+    // VidSrc family first (same providers we tried to extract from — reliable fallback)
     if (iid) {
-      list.push({ name: 'VidSrc.xyz', url: tv ? `https://vidsrc.xyz/embed/tv?imdb=${iid}&season=${s}&episode=${e}` : `https://vidsrc.xyz/embed/movie?imdb=${iid}` });
-      list.push({ name: 'VidFast',    url: tv ? `https://vidfast.pro/tv/${iid}/${s}/${e}?autoPlay=true` : `https://vidfast.pro/movie/${iid}?autoPlay=true` });
-      list.push({ name: 'VidSrc.me',  url: tv ? `https://vidsrc.me/embed/tv?imdb=${iid}&season=${s}&episode=${e}` : `https://vidsrc.me/embed/movie?imdb=${iid}` });
+      list.push({ name: 'VidSrc',    url: tv ? `https://vidsrc.xyz/embed/tv?imdb=${iid}&season=${s}&episode=${e}` : `https://vidsrc.xyz/embed/movie?imdb=${iid}` });
+      list.push({ name: 'VidSrc.me', url: tv ? `https://vidsrc.me/embed/tv?imdb=${iid}&season=${s}&episode=${e}` : `https://vidsrc.me/embed/movie?imdb=${iid}` });
     }
-    list.push({ name: 'Videasy',    url: tv ? `https://player.videasy.net/tv/${tid}/${s}/${e}` : `https://player.videasy.net/movie/${tid}` });
-    list.push({ name: 'AutoEmbed',  url: tv ? `https://autoembed.cc/tv/tmdb/${tid}-${s}-${e}` : `https://autoembed.cc/movie/tmdb/${tid}` });
-    list.push({ name: 'EmbedSu',    url: tv ? `https://embed.su/embed/tv/${tid}/${s}/${e}` : `https://embed.su/embed/movie/${tid}` });
-    list.push({ name: 'VidSrc.in',  url: tv ? `https://vidsrc.in/embed/tv?tmdb=${tid}&season=${s}&episode=${e}` : `https://vidsrc.in/embed/movie?tmdb=${tid}` });
-    list.push({ name: '2Embed',     url: tv ? `https://www.2embed.cc/embedtv/${tid}&s=${s}&e=${e}` : `https://www.2embed.cc/embed/${tid}` });
-    list.push({ name: 'SuperEmbed', url: tv ? `https://multiembed.mov/?video_id=${tid}&tmdb=1&s=${s}&e=${e}` : `https://multiembed.mov/?video_id=${tid}&tmdb=1` });
+    list.push({ name: 'VidSrc',    url: tv ? `https://vidsrc.xyz/embed/tv?tmdb=${tid}&season=${s}&episode=${e}` : `https://vidsrc.xyz/embed/movie?tmdb=${tid}` });
+    list.push({ name: 'VidSrc.in', url: tv ? `https://vidsrc.in/embed/tv?tmdb=${tid}&season=${s}&episode=${e}`  : `https://vidsrc.in/embed/movie?tmdb=${tid}` });
+    list.push({ name: 'Videasy',   url: tv ? `https://player.videasy.net/tv/${tid}/${s}/${e}` : `https://player.videasy.net/movie/${tid}` });
+    list.push({ name: 'AutoEmbed', url: tv ? `https://autoembed.cc/tv/tmdb/${tid}-${s}-${e}` : `https://autoembed.cc/movie/tmdb/${tid}` });
     return list;
   };
 
@@ -298,13 +297,13 @@ export default function PrimePlayer({
       // Pre-populate embeds with tmdb id immediately (updated with imdb id above)
       setEmbeds(buildEmbeds(tmdbId, null, mediaType, season, episode));
 
-      // ─── STEP 2: VidSrc extraction via /api/multi-stream ────────────────────
-      // Server-side VidSrc scraper — extracts the real .m3u8 directly.
-      // Typical response: 1-3 seconds. Falls back to VidSrc iframe if it fails.
+      // ─── STEP 2: NuvioStreams extraction (VidSrc + VidZee + MP4Hydra + SoaperTV) ──
+      // All 4 providers race on the server — first valid stream wins (~1-3s).
+      // The winning URL is proxied through /api/proxy to bypass CORS.
 
       try {
         const ctrl = new AbortController();
-        const tid  = setTimeout(() => ctrl.abort(), 9000);
+        const tid  = setTimeout(() => ctrl.abort(), 11000);
         const res  = await fetch(
           `/api/multi-stream?${new URLSearchParams({ tmdbId, type: mediaType, season, episode })}`,
           { signal: ctrl.signal }
@@ -313,33 +312,50 @@ export default function PrimePlayer({
         const data = await res.json();
 
         if (!_cancelled && data?.success && data.streams?.length) {
-          const stream = data.streams[0]; // VidSrc returns one clean stream
-          // m3u8 → play with HLS.js natively (no iframe, full controls)
-          if (stream.url.includes('.m3u8')) {
-            setHlsUrl(stream.url);
-            setProvider(stream.provider || 'VidSrc');
+          const stream = data.streams[0];
+          const rawUrl = stream.url;
+
+          // Always proxy through /api/proxy — this bypasses CORS on all stream URLs
+          // and ensures the browser can play them regardless of provider restrictions
+          const proxiedUrl = `/api/proxy?url=${encodeURIComponent(rawUrl)}`;
+
+          if (rawUrl.includes('.m3u8')) {
+            // HLS stream — use Hls.js via proxy
+            setHlsUrl(proxiedUrl);
+            setProvider(stream.provider || 'Stream');
             setBuffering(true);
             setMode('hls');
             return;
           }
-          // mp4 → play as direct video
-          if (stream.url.includes('.mp4') || stream.url.includes('.mkv')) {
-            setDirectFiles([{ url: stream.url, quality: stream.quality || 'Auto', provider: stream.provider }]);
+
+          // mp4/mkv/webm — direct video via proxy
+          const isVideo = /\.(mp4|mkv|webm|avi|mov|m4v|ts)(\?|$)/i.test(rawUrl);
+          if (isVideo || rawUrl.includes('.mp4')) {
+            setDirectFiles([{
+              url:      proxiedUrl,
+              quality:  stream.quality || 'Auto',
+              provider: stream.provider || 'Stream',
+            }]);
             setDirectIdx(0);
             setBuffering(true);
             setMode('direct');
             return;
           }
+
+          // Unknown format — try as HLS anyway (some providers return m3u8 without extension)
+          setHlsUrl(proxiedUrl);
+          setProvider(stream.provider || 'Stream');
+          setBuffering(true);
+          setMode('hls');
+          return;
         }
       } catch (e) {
-        if (e.name !== 'AbortError') console.warn('[PrimePlayer] VidSrc extraction failed:', e.message);
+        if (e.name !== 'AbortError') console.warn('[PrimePlayer] Stream extraction failed:', e.message);
       }
 
       if (_cancelled) return;
 
-      // ─── STEP 3: VidSrc iframe fallback ──────────────────────────────────
-      // Extraction failed (VidSrc sometimes blocks server IPs) — fall back to
-      // loading VidSrc directly as an iframe. Still fast, just less control.
+      // ─── STEP 3: Iframe embeds — last resort ─────────────────────────────
       setMode('iframe');
     })();
 
