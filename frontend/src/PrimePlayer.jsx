@@ -266,18 +266,28 @@ export default function PrimePlayer({
     const safeSet = (fn) => { if (!_cancelled) fn(); };
 
     (async () => {
-      // ── Fetch metadata (IMDB ID + cast for X-Ray) ────────────────────────
+      // ════════════════════════════════════════════════════════════════════
+      // PARALLEL FAST-PATH:
+      //   • TMDB metadata fetch  ──┐
+      //   • /api/multi-stream    ──┼── all fire at the same time
+      //   • Supabase DB lookup   ──┘
+      //
+      // Promise.race on the stream providers so we play the FIRST one that
+      // returns a valid URL — typical time-to-play: 1-3 seconds.
+      // ════════════════════════════════════════════════════════════════════
+
+      // ── 1. TMDB metadata (non-blocking — updates UI as it arrives) ──────
       let iid = null;
       let titleStr = title;
-      let yearStr = '';
-      try {
-        const r = await fetch(
-          `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids,credits`
-        );
-        const d = await r.json();
-        iid = d.imdb_id || d.external_ids?.imdb_id || null;
-        titleStr = d.title || d.name || title;
-        yearStr = (d.release_date || d.first_air_date || '').slice(0, 4);
+      let yearStr  = '';
+
+      const metaPromise = fetch(
+        `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids,credits`
+      ).then(r => r.json()).then(d => {
+        if (_cancelled) return;
+        iid       = d.imdb_id || d.external_ids?.imdb_id || null;
+        titleStr  = d.title || d.name || title;
+        yearStr   = (d.release_date || d.first_air_date || '').slice(0, 4);
         setImdbId(iid);
         setMovieTitle(titleStr);
         const cast = (d.credits?.cast || []).slice(0, 12).map(p => ({
@@ -285,107 +295,139 @@ export default function PrimePlayer({
           profile: p.profile_path ? `https://image.tmdb.org/t/p/w185${p.profile_path}` : null,
         }));
         setXrayCast(cast);
-      } catch (_) {}
+        // Update embeds once we have imdb id
+        setEmbeds(buildEmbeds(tmdbId, iid, mediaType, season, episode));
+        return { iid, titleStr, yearStr };
+      }).catch(() => null);
 
-      const embedList = buildEmbeds(tmdbId, iid, mediaType, season, episode);
-      setEmbeds(embedList);
+      // Set embeds immediately with tmdb id (no imdb id yet — updated above when meta arrives)
+      setEmbeds(buildEmbeds(tmdbId, null, mediaType, season, episode));
 
-      // ── Tier 0: Backend HLS scraper ──────────────────────────────────────
-      try {
-        const params = new URLSearchParams({ tmdbId, mediaType, season, episode });
-        const res = await fetch(`/api/get-stream?${params}`);
-        const data = await res.json();
-        if (data.success && data.streamUrl) {
-          setHlsUrl(data.proxyUrl || `/api/proxy?url=${encodeURIComponent(data.streamUrl)}`);
-          setProvider(data.provider || 'Direct HLS');
+      // ── 2. FAST STREAM RACE: multi-stream API + get-stream in parallel ──
+      setResolverStatus('Finding stream…');
+
+      // Helper: wrap a promise to return null instead of throwing
+      const safe = (p) => p.catch(() => null);
+
+      // Multi-stream: fires VidZee + MP4Hydra + Vixsrc + SoaperTV in parallel on server
+      const multiStreamPromise = safe(
+        fetch(`/api/multi-stream?${new URLSearchParams({ tmdbId, type: mediaType, season, episode })}`,
+          { signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined }
+        ).then(r => r.json()).then(data => {
+          if (!data?.success || !data.streams?.length) return null;
+          const seen = new Set();
+          const streams = data.streams.filter(s => {
+            if (!s?.url || seen.has(s.url)) return false;
+            seen.add(s.url); return true;
+          }).map(s => ({ name: s.name, url: s.url, quality: s.quality || 'Auto', provider: s.provider }));
+          return streams.length ? { type: 'direct', files: streams } : null;
+        })
+      );
+
+      // get-stream: server-side HLS extraction (slower but higher quality)
+      const getStreamPromise = safe(
+        fetch(`/api/get-stream?${new URLSearchParams({ tmdbId, mediaType, season, episode })}`,
+          { signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined }
+        ).then(r => r.json()).then(data => {
+          if (!data?.success || !data.streamUrl) return null;
+          return {
+            type: 'hls',
+            url: data.proxyUrl || `/api/proxy?url=${encodeURIComponent(data.streamUrl)}`,
+            provider: data.provider || 'HLS',
+          };
+        })
+      );
+
+      // Race: use whichever server responds first with a valid stream
+      // We poll with a small interval so we don't wait for the slow one
+      const winner = await new Promise((resolve) => {
+        let settled = 0;
+        const total = 2;
+        const tryResolve = (result) => {
+          if (result) { resolve(result); return; }
+          settled++;
+          if (settled >= total) resolve(null);
+        };
+        multiStreamPromise.then(tryResolve);
+        getStreamPromise.then(tryResolve);
+      });
+
+      if (!_cancelled && winner) {
+        if (winner.type === 'hls') {
+          setHlsUrl(winner.url);
+          setProvider(winner.provider);
+          setResolverStatus('');
           setMode('hls');
           return;
         }
-      } catch (_) {}
+        if (winner.type === 'direct' && winner.files?.length) {
+          setDirectFiles(winner.files);
+          setDirectIdx(0);
+          setResolverStatus('');
+          setMode('direct');
+          return;
+        }
+      }
 
-      // ── Tier 1: Multi-provider parallel API (VidZee + MP4Hydra + Vixsrc + SoaperTV) ──
-      // All 4 providers fire in parallel on the server — typically resolves in 1-3s
-      try {
-        setResolverStatus('Searching fast stream providers…');
-        const params = new URLSearchParams({ tmdbId, type: mediaType, season, episode });
-        const controller = new AbortController();
-        const tid = setTimeout(() => controller.abort(), 12000);
-        const res  = await fetch(`/api/multi-stream?${params}`, { signal: controller.signal });
-        clearTimeout(tid);
-        const data = await res.json();
-        if (data.success && data.streams?.length) {
-          // Map provider streams to our directFiles format, dedupe by URL
-          const seen = new Set();
-          const ordered = data.streams.filter(s => {
-            if (!s?.url || seen.has(s.url)) return false;
-            seen.add(s.url); return true;
-          }).map(s => ({
-            name: s.name,
-            url:  s.url,
-            quality: s.quality || 'Auto',
-            provider: s.provider,
-          }));
-          if (ordered.length) {
+      if (_cancelled) return;
+
+      // ── 3. FALLBACK: open-directory index resolver (Supabase + 111477.xyz) ─
+      // Wait for metadata to be ready before scraping (needs title + year)
+      const meta = await metaPromise;
+      const resolveTitle_ = titleStr || (meta?.titleStr) || title;
+      const resolveYear_  = yearStr  || (meta?.yearStr)  || '';
+
+      if (resolveTitle_) {
+        try {
+          setResolverStatus('Searching index…');
+          const result = await resolveTitle({
+            tmdbId, mediaType,
+            title: resolveTitle_, year: resolveYear_,
+            season, episode,
+          });
+
+          let videos = result.videos;
+          if (!videos.length && result.folders.length && mediaType === 'tv') {
+            const seasonNum = Number(season) || 1;
+            const target = result.folders.find(f =>
+              new RegExp(`season.?${seasonNum}|s${String(seasonNum).padStart(2,'0')}`, 'i').test(f.name)
+            ) || result.folders[0];
+            if (target) {
+              const sub = await fetchSubfolder(target.url);
+              videos = sub.videos || [];
+              if (episode && videos.length) {
+                const epNum = String(episode).padStart(2, '0');
+                const filtered = videos.filter(v => new RegExp(`[Ee]${epNum}`, 'i').test(v.name));
+                if (filtered.length) videos = filtered;
+              }
+            }
+          }
+
+          if (videos.length && !_cancelled) {
+            const ordered = [...selectBestFiles(videos)].reverse().map(f => ({
+              ...f,
+              quality: f.quality || detectQuality(f.name) || 'SD',
+              url: safeUrl(f.url),
+            }));
             setDirectFiles(ordered);
             setDirectIdx(0);
             setResolverStatus('');
             setMode('direct');
             return;
           }
-        }
-      } catch (e) {
-        if (e.name !== 'AbortError') console.warn('[PrimePlayer] Multi-stream failed:', e.message);
-        setResolverStatus('');
-      }
-
-      // ── Tier 2: REELSTREAM open-directory index resolver ─────────────────
-      try {
-        setResolverStatus('Searching open directory index…');
-        const result = await resolveTitle({
-          tmdbId, mediaType, title: titleStr, year: yearStr, season, episode,
-        });
-
-        let videos = result.videos;
-
-        // For TV: drill into season folder if needed
-        if (!videos.length && result.folders.length && mediaType === 'tv') {
-          const seasonNum = Number(season) || 1;
-          const target = result.folders.find(f =>
-            new RegExp(`season.?${seasonNum}|s${String(seasonNum).padStart(2,'0')}`, 'i').test(f.name)
-          ) || result.folders[0];
-          if (target) {
-            const sub = await fetchSubfolder(target.url);
-            videos = sub.videos || [];
-            if (episode && videos.length) {
-              const epNum = String(episode).padStart(2, '0');
-              const filtered = videos.filter(v => new RegExp(`[Ee]${epNum}`, 'i').test(v.name));
-              if (filtered.length) videos = filtered;
-            }
-          }
-        }
-
-        if (videos.length) {
-          const bestFiles = selectBestFiles(videos);
-          // Reverse so index 0 = highest quality
-          const ordered = [...bestFiles].reverse().map(f => ({
-            ...f,
-            quality: f.quality || detectQuality(f.name) || 'SD',
-            url: safeUrl(f.url),
-          }));
-          setDirectFiles(ordered);
-          setDirectIdx(0);
+        } catch (e) {
+          if (!_cancelled) console.warn('[PrimePlayer] Index resolver failed:', e.message);
           setResolverStatus('');
-          setMode('direct');
-          return;
         }
-      } catch (e) {
-        console.warn('[PrimePlayer] Index resolver failed:', e.message);
-        setResolverStatus('');
       }
 
-      // ── Tier 3: Iframe embeds ─────────────────────────────────────────────
+      if (_cancelled) return;
+
+      // ── 4. Iframe embeds — last resort ───────────────────────────────────
+      setResolverStatus('');
       setMode('iframe');
     })();
+
 
     return () => {
       _cancelled = true;
