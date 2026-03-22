@@ -1,51 +1,45 @@
 /**
- * api/multi-stream.js  —  Vercel Serverless (CommonJS)
+ * api/multi-stream.js — Vercel Serverless (CommonJS)
  *
- * VidSrc extractor only — extracts the real .m3u8 stream URL directly
- * from vidsrc.xyz/me/in by scraping their embed pages server-side.
- * No iframes, no CORS issues, direct HLS playback in the browser.
- *
- * GET /api/multi-stream?tmdbId=550&type=movie
- * GET /api/multi-stream?tmdbId=1396&type=tv&season=1&episode=1
+ * Fires VidSrc + VidZee + MP4Hydra + SoaperTV in parallel.
+ * Returns the FIRST stream that responds — typically 1-3 seconds.
+ * All extraction happens server-side so no CORS issues in the browser.
  */
 
 const https = require('https');
 const http  = require('http');
 const { URL } = require('url');
 
-const TIMEOUT_MS = 8000;
+const TIMEOUT_MS = 9000;
 const TMDB_KEY   = 'cb1dc311039e6ae85db0aa200345cbc5';
 
-// ─── HTTP helper ──────────────────────────────────────────────────────────────
-function nodeGet(rawUrl, opts = {}) {
+// ─── HTTP helper with redirect following ─────────────────────────────────────
+function nodeGet(rawUrl, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     let url;
-    try { url = new URL(rawUrl); } catch (e) { return reject(new Error(`Bad URL: ${rawUrl}`)); }
-
+    try { url = new URL(rawUrl); } catch (e) { return reject(new Error('Bad URL')); }
     const lib = url.protocol === 'https:' ? https : http;
     const req = lib.request({
       hostname: url.hostname,
-      port:     url.port || (url.protocol === 'https:' ? 443 : 80),
-      path:     url.pathname + url.search,
-      method:   'GET',
+      port: url.port || (url.protocol === 'https:' ? 443 : 80),
+      path: url.pathname + url.search,
+      method: 'GET',
       headers: {
-        'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept':          'text/html,application/xhtml+xml,application/json,*/*;q=0.9',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/json,*/*;q=0.9',
         'Accept-Language': 'en-US,en;q=0.9',
-        'Referer':         opts.referer || `https://${url.hostname}/`,
-        ...opts.headers,
+        ...extraHeaders,
       },
     }, (res) => {
-      // Follow redirects
-      if ([301,302,307,308].includes(res.statusCode) && res.headers.location && (opts._r||0) < 4) {
+      if ([301,302,307,308].includes(res.statusCode) && res.headers.location) {
         let loc = res.headers.location;
         if (!loc.startsWith('http')) loc = `${url.protocol}//${url.host}${loc}`;
-        return nodeGet(loc, { ...opts, _r: (opts._r||0) + 1 }).then(resolve).catch(reject);
+        return nodeGet(loc, extraHeaders).then(resolve).catch(reject);
       }
       if (res.statusCode >= 400) { res.resume(); return reject(new Error(`HTTP ${res.statusCode}`)); }
       const chunks = [];
       res.on('data', c => chunks.push(c));
-      res.on('end',  () => resolve(Buffer.concat(chunks).toString('utf-8')));
+      res.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
       res.on('error', reject);
     });
     req.on('error', reject);
@@ -54,157 +48,186 @@ function nodeGet(rawUrl, opts = {}) {
   });
 }
 
-// ─── Extract m3u8 URLs from any HTML/JS text ──────────────────────────────────
+function safe(p) { return p.catch(() => null); }
+
+// ─── Extract m3u8 from HTML/JS ────────────────────────────────────────────────
 function extractM3u8(text) {
-  const patterns = [
-    // token-authenticated master playlist (most reliable)
+  const pats = [
     /["'`](https?:\/\/[^"'`\s]+master\.m3u8[^"'`\s]*)["'`]/i,
-    // any m3u8 with query params (likely has auth token)
     /["'`](https?:\/\/[^"'`\s]+\.m3u8\?[^"'`\s]*)["'`]/i,
-    // plain m3u8
     /["'`](https?:\/\/[^"'`\s]+\.m3u8)["'`]/i,
-    // hls key in JS objects
     /"hls"\s*:\s*"(https?:[^"]+\.m3u8[^"]*)"/,
     /file\s*:\s*["'](https?:[^"']+\.m3u8[^"']*)["']/,
     /src\s*:\s*["'](https?:[^"']+\.m3u8[^"']*)["']/,
   ];
-  for (const pat of patterns) {
-    const m = text.match(pat);
-    if (m && m[1] && !m[1].includes('example') && !/audio|subtitle|caption/i.test(m[1])) {
-      return m[1];
-    }
+  for (const p of pats) {
+    const m = text.match(p);
+    if (m?.[1] && !/audio|subtitle|caption/i.test(m[1])) return m[1];
   }
   return null;
 }
 
-// ─── Decode base64-obfuscated script content ──────────────────────────────────
-function decodeBase64Scripts(html) {
-  const results = [];
-  const re = /atob\(["']([A-Za-z0-9+/=]+)["']\)/g;
+function decodeAtob(html) {
+  const out = [];
+  const re  = /atob\(["']([A-Za-z0-9+/=]+)["']\)/g;
   let m;
   while ((m = re.exec(html)) !== null) {
-    try { results.push(Buffer.from(m[1], 'base64').toString('utf-8')); } catch (_) {}
+    try { out.push(Buffer.from(m[1], 'base64').toString()); } catch (_) {}
   }
-  return results.join('\n');
+  return out.join('\n');
 }
 
-// ─── VidSrc extractor ─────────────────────────────────────────────────────────
-// Tries vidsrc.xyz, vidsrc.me, vidsrc.in in parallel — returns first m3u8 found
-
-async function extractVidSrc(tmdbId, imdbId, mediaType, season, episode) {
+// ─── PROVIDER 1: VidSrc (xyz / in / me) ──────────────────────────────────────
+async function getVidSrcStream(tmdbId, imdbId, mediaType, season, episode) {
   const tv  = mediaType === 'tv';
-  const tid = tmdbId;
-  const iid = imdbId;
-  const s   = season;
-  const e   = episode;
+  const tid = tmdbId, iid = imdbId, s = season, e = episode;
 
-  // Build candidate embed URLs across vidsrc domains
-  const candidates = [];
+  const urls = [
+    iid ? (tv ? `https://vidsrc.xyz/embed/tv?imdb=${iid}&season=${s}&episode=${e}` : `https://vidsrc.xyz/embed/movie?imdb=${iid}`) : null,
+    tv  ? `https://vidsrc.xyz/embed/tv?tmdb=${tid}&season=${s}&episode=${e}` : `https://vidsrc.xyz/embed/movie?tmdb=${tid}`,
+    tv  ? `https://vidsrc.in/embed/tv?tmdb=${tid}&season=${s}&episode=${e}`  : `https://vidsrc.in/embed/movie?tmdb=${tid}`,
+    iid ? (tv ? `https://vidsrc.me/embed/tv?imdb=${iid}&season=${s}&episode=${e}` : `https://vidsrc.me/embed/movie?imdb=${iid}`) : null,
+  ].filter(Boolean);
 
-  // vidsrc.xyz (most reliable, fastest)
-  if (iid) candidates.push({ domain: 'vidsrc.xyz', url: tv ? `https://vidsrc.xyz/embed/tv?imdb=${iid}&season=${s}&episode=${e}` : `https://vidsrc.xyz/embed/movie?imdb=${iid}` });
-  candidates.push(  { domain: 'vidsrc.xyz', url: tv ? `https://vidsrc.xyz/embed/tv?tmdb=${tid}&season=${s}&episode=${e}` : `https://vidsrc.xyz/embed/movie?tmdb=${tid}` });
+  for (const url of urls) {
+    try {
+      const domain = new URL(url).hostname;
+      const html   = await nodeGet(url, { Referer: `https://${domain}/` });
+      let m3u8 = extractM3u8(html) || extractM3u8(decodeAtob(html));
 
-  // vidsrc.in
-  candidates.push(  { domain: 'vidsrc.in',  url: tv ? `https://vidsrc.in/embed/tv?tmdb=${tid}&season=${s}&episode=${e}` : `https://vidsrc.in/embed/movie?tmdb=${tid}` });
-
-  // vidsrc.me
-  if (iid) candidates.push({ domain: 'vidsrc.me', url: tv ? `https://vidsrc.me/embed/tv?imdb=${iid}&season=${s}&episode=${e}` : `https://vidsrc.me/embed/movie?imdb=${iid}` });
-
-  // Race all candidates — return first that gives an m3u8
-  return new Promise((resolve) => {
-    let found = false;
-    let pending = candidates.length;
-
-    const tryOne = async ({ domain, url }) => {
-      try {
-        const html    = await nodeGet(url, { referer: `https://${domain}/` });
-        let   m3u8    = extractM3u8(html);
-
-        // Try decoding obfuscated scripts if direct scan failed
-        if (!m3u8) {
-          const decoded = decodeBase64Scripts(html);
-          if (decoded) m3u8 = extractM3u8(decoded);
+      // Follow rcp iframe if needed
+      if (!m3u8) {
+        const rcpM = html.match(/src=["'`]((?:https?:)?\/\/[^"'`]*(?:rcp|\/e\/)[^"'`]+)["'`]/i);
+        if (rcpM) {
+          let rcpUrl = rcpM[1];
+          if (rcpUrl.startsWith('//')) rcpUrl = 'https:' + rcpUrl;
+          try {
+            const rcp = await nodeGet(rcpUrl, { Referer: url });
+            m3u8 = extractM3u8(rcp) || extractM3u8(decodeAtob(rcp));
+          } catch (_) {}
         }
+      }
 
-        // vidsrc often loads an iframe rcp page — follow it
-        if (!m3u8) {
-          const rcpMatch = html.match(/src=["'`]((?:https?:)?\/\/[^"'`]*rcp[^"'`]*)["'`]/i)
-                        || html.match(/src=["'`]((?:https?:)?\/\/[^"'`]*\/e\/[^"'`]+)["'`]/i);
-          if (rcpMatch) {
-            let rcpUrl = rcpMatch[1];
-            if (rcpUrl.startsWith('//')) rcpUrl = 'https:' + rcpUrl;
-            try {
-              const rcpHtml = await nodeGet(rcpUrl, { referer: url });
-              m3u8 = extractM3u8(rcpHtml) || extractM3u8(decodeBase64Scripts(rcpHtml));
-            } catch (_) {}
-          }
-        }
-
-        if (m3u8 && !found) {
-          found = true;
-          resolve({ url: m3u8, provider: domain, quality: 'Auto' });
-        }
-      } catch (_) {}
-
-      pending--;
-      if (pending <= 0 && !found) resolve(null);
-    };
-
-    // Safety timeout
-    const safety = setTimeout(() => { if (!found) resolve(null); }, TIMEOUT_MS - 500);
-
-    Promise.all(candidates.map(tryOne)).finally(() => clearTimeout(safety));
-  });
+      if (m3u8) return { url: m3u8, provider: 'VidSrc', quality: 'Auto' };
+    } catch (_) {}
+  }
+  return null;
 }
 
-// ─── Get IMDB ID from TMDB ────────────────────────────────────────────────────
+// ─── PROVIDER 2: VidZee (3 CDN servers) ──────────────────────────────────────
+async function getVidZeeStream(tmdbId, mediaType, season, episode) {
+  const tv = mediaType === 'tv';
+  const results = await Promise.allSettled([3, 4, 5].map(sr => {
+    const url = tv
+      ? `https://player.vidzee.wtf/api/server?id=${tmdbId}&sr=${sr}&ss=${season}&ep=${episode}`
+      : `https://player.vidzee.wtf/api/server?id=${tmdbId}&sr=${sr}`;
+    return nodeGet(url).then(t => JSON.parse(t));
+  }));
+
+  for (const r of results) {
+    if (r.status !== 'fulfilled') continue;
+    const d = r.value;
+    const pick = (obj) => {
+      if (obj?.url) return { url: obj.url, provider: 'VidZee', quality: obj.quality || 'Auto' };
+      if (Array.isArray(obj?.sources) && obj.sources[0]?.url) return { url: obj.sources[0].url, provider: 'VidZee', quality: obj.sources[0].quality || 'Auto' };
+      return null;
+    };
+    const s = pick(d) || pick(d?.data);
+    if (s) return s;
+  }
+  return null;
+}
+
+// ─── PROVIDER 3: MP4Hydra ────────────────────────────────────────────────────
+async function getMP4HydraStream(tmdbId, mediaType, season, episode) {
+  const tv  = mediaType === 'tv';
+  const url = tv
+    ? `https://mp4hydra.org/tv/${tmdbId}/${season}/${episode}`
+    : `https://mp4hydra.org/movie/${tmdbId}`;
+  const data = JSON.parse(await nodeGet(url));
+  const list = data?.streams || (data?.url ? [data] : []);
+  const s    = list.find(s => s?.url);
+  return s ? { url: s.url, provider: 'MP4Hydra', quality: s.quality || 'Auto' } : null;
+}
+
+// ─── PROVIDER 4: SoaperTV ────────────────────────────────────────────────────
+async function getSoaperTVStream(tmdbId, mediaType, season, episode) {
+  const tv  = mediaType === 'tv';
+  const url = tv
+    ? `https://soapertv.cc/api/episode/sources/${tmdbId}/${season}/${episode}`
+    : `https://soapertv.cc/api/movie/sources/${tmdbId}`;
+  const data = JSON.parse(await nodeGet(url, { 'Referer': 'https://soapertv.cc/', 'X-Requested-With': 'XMLHttpRequest' }));
+  const list = data?.sources || data?.streams || (data?.url ? [data] : []);
+  const s    = list.find(s => s?.url && (s.url.includes('.m3u8') || s.url.includes('.mp4')));
+  return s ? { url: s.url, provider: 'SoaperTV', quality: s.quality || s.label || 'Auto' } : null;
+}
+
+// ─── TMDB → IMDB ID ──────────────────────────────────────────────────────────
 async function getImdbId(tmdbId, mediaType) {
   try {
-    const data = JSON.parse(await nodeGet(
-      `https://api.themoviedb.org/3/${mediaType}/${tmdbId}/external_ids?api_key=${TMDB_KEY}`
-    ));
-    return data.imdb_id || null;
+    const d = JSON.parse(await nodeGet(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}/external_ids?api_key=${TMDB_KEY}`));
+    return d.imdb_id || null;
   } catch (_) { return null; }
 }
 
-// ─── HANDLER ──────────────────────────────────────────────────────────────────
+// ─── HANDLER ─────────────────────────────────────────────────────────────────
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Content-Type', 'application/json');
-
   if (req.method === 'OPTIONS') { res.statusCode = 200; return res.end('{}'); }
 
   const { tmdbId, type, season = '1', episode = '1' } = req.query;
-  const mediaType = (type === 'tv') ? 'tv' : 'movie';
+  const mediaType = type === 'tv' ? 'tv' : 'movie';
+  if (!tmdbId) { res.statusCode = 400; return res.end(JSON.stringify({ success: false, error: 'tmdbId required' })); }
 
-  if (!tmdbId) {
-    res.statusCode = 400;
-    return res.end(JSON.stringify({ success: false, error: 'tmdbId required' }));
-  }
+  // Get IMDB ID while running providers — don't block on it
+  const imdbPromise = safe(getImdbId(tmdbId, mediaType));
 
-  // Fetch IMDB ID and extract stream in parallel
-  const [imdbId, stream] = await Promise.all([
-    getImdbId(tmdbId, mediaType),
-    // Start with tmdb-id based URLs immediately, don't wait for imdbId
-    extractVidSrc(tmdbId, null, mediaType, season, episode),
-  ]);
+  // Race all 4 providers — return FIRST that gives a valid stream URL
+  const winner = await new Promise((resolve) => {
+    let done    = false;
+    let pending = 4;
+    const safety = setTimeout(() => resolve(null), TIMEOUT_MS);
 
-  // If tmdb-based extraction failed, retry with imdb id
-  let result = stream;
-  if (!result && imdbId) {
-    result = await extractVidSrc(tmdbId, imdbId, mediaType, season, episode);
-  }
+    const win = (result) => {
+      if (done) return;
+      if (result?.url) {
+        done = true;
+        clearTimeout(safety);
+        resolve(result);
+        return;
+      }
+      if (--pending <= 0) { clearTimeout(safety); resolve(null); }
+    };
 
-  if (!result) {
+    // VidSrc — needs imdb id for best results, so wait for it then fire
+    imdbPromise.then(iid => {
+      safe(getVidSrcStream(tmdbId, iid, mediaType, season, episode)).then(win);
+    });
+
+    // VidZee, MP4Hydra, SoaperTV — don't need imdb id, fire immediately
+    safe(getVidZeeStream(tmdbId, mediaType, season, episode)).then(win);
+    safe(getMP4HydraStream(tmdbId, mediaType, season, episode)).then(win);
+    safe(getSoaperTVStream(tmdbId, mediaType, season, episode)).then(win);
+  });
+
+  if (!winner) {
     res.statusCode = 200;
-    return res.end(JSON.stringify({ success: false, error: 'VidSrc extraction failed' }));
+    return res.end(JSON.stringify({ success: false, error: 'No streams found from any provider' }));
   }
+
+  // Quality sort label
+  const qualityRank = { '1080p': 0, '4K': 1, '2160p': 1, '720p': 2, 'Auto': 3 };
 
   res.statusCode = 200;
   return res.end(JSON.stringify({
-    success:  true,
-    streams:  [{ name: `VidSrc`, url: result.url, quality: result.quality, provider: result.provider }],
+    success: true,
+    streams: [{
+      name:     `${winner.provider} ${winner.quality}`.trim(),
+      url:      winner.url,
+      quality:  winner.quality,
+      provider: winner.provider,
+    }],
   }));
 };
