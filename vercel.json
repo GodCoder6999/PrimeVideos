@@ -6,7 +6,7 @@
     { "source": "/api/get-stream",    "destination": "/api/get-stream"    },
     { "source": "/api/proxy",         "destination": "/api/proxy"         },
     { "source": "/api/multi-stream",  "destination": "/api/multi-stream"  },
-    { "source": "/api/nuvio-stream",  "destination": "/api/nuvio-stream"  },
+    {"source": "/api/nuvio-stream",   "destination": "/api/nuvio-stream"  },
     { "source": "/(.*)",              "destination": "/index.html"        }
   ]
 }
