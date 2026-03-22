@@ -357,9 +357,15 @@ export function selectBestFiles(videos) {
  * @param {string} params.mediaType  'movie' | 'tv'
  * @param {string} [params.title]    pre-fetched title (avoids extra TMDB call)
  * @param {string} [params.year]     pre-fetched year
+ * @param {number} [params.season]   TV only — if provided, auto-drills into the season folder
+ * @param {number} [params.episode]  TV only — if provided, filters to matching episode files
  * @returns {Promise<{ folders: object[], videos: object[], source: string }>}
+ *
+ * For movies: videos[] is populated with direct file objects.
+ * For TV without season: folders[] contains season folders; call fetchSubfolder() to get episodes.
+ * For TV with season: videos[] is populated with episode files for that season.
  */
-export async function resolveTitle({ tmdbId, mediaType, title, year }) {
+export async function resolveTitle({ tmdbId, mediaType, title, year, season, episode }) {
   // If title/year not provided, fetch from TMDB
   if (!title || !year) {
     const details = await fetchTmdbDetails(tmdbId, mediaType);
@@ -378,7 +384,8 @@ export async function resolveTitle({ tmdbId, mediaType, title, year }) {
     const safe = safeUrl(supaUrl);
     if (VID_RE.test(decodeURIComponent(safe.split('?')[0]))) {
       const name = decodeURIComponent(safe.split('/').pop().split('?')[0]);
-      return { folders: [], videos: [{ name, url: safe }], source: '⚡ database' };
+      const q = detectQuality(name);
+      return { folders: [], videos: [{ name, url: safe, quality: q }], source: '⚡ database' };
     }
     try {
       const folderUrl = safe.endsWith('/') ? safe : safe + '/';
@@ -392,6 +399,40 @@ export async function resolveTitle({ tmdbId, mediaType, title, year }) {
 
   // ── Tier 2+3: Index scraper ───────────────────────────────────────────────
   const result = await scrapeIndex(title, year, mediaType);
+
+  // TV: if a season number is given, drill one level deeper automatically
+  if (mediaType === 'tv' && season && result.folders.length && !result.videos.length) {
+    const seasonNum = Number(season);
+    const seasonFolder = result.folders.find((f) => {
+      const n = normalizeTitle(f.name);
+      return (
+        n.includes(`season ${seasonNum}`) ||
+        n.includes(`s${String(seasonNum).padStart(2, '0')}`) ||
+        n === String(seasonNum)
+      );
+    }) || (console.warn(`[openDirResolver] No exact match for season ${seasonNum}; falling back to first folder`), result.folders[0]); // fall back to first folder
+
+    if (seasonFolder) {
+      try {
+        const seasonResult = await fetchSubfolder(seasonFolder.url);
+        if (seasonResult.videos.length) {
+          let videos = seasonResult.videos;
+          if (episode) {
+            const epNum = String(episode).padStart(2, '0');
+            const filtered = videos.filter((v) =>
+              new RegExp(`[Ee]${epNum}|[Ee]pisode.?${epNum}`, 'i').test(v.name)
+            );
+            if (filtered.length) videos = filtered;
+          }
+          return { folders: [], videos, source: '📁 index' };
+        }
+      } catch (e) {
+        console.warn('[openDirResolver] fetchSubfolder failed, returning top-level folders:', e.message);
+        /* return top-level result */
+      }
+    }
+  }
+
   if (result.videos.length || result.folders.length) {
     return { ...result, source: '📁 index' };
   }
