@@ -262,35 +262,55 @@ export default function PrimePlayer({
     setEmbedPhase('loading');
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
 
+    // Build embed list with whatever we have immediately (no IMDB needed for TMDB embeds)
+    const embedList = buildEmbeds(tmdbId, null, mediaType, season, episode);
+    setEmbeds(embedList);
+
     (async () => {
-      // ── Fetch metadata (IMDB ID + cast for X-Ray) ────────────────────────
-      let iid = null;
       let titleStr = title;
       let yearStr = '';
+
+      // ── Fetch TMDB basic info (title/year) with aggressive timeout ────────
+      // We fetch only basic fields now; cast/credits load in background later.
+      let iid = null;
       try {
         const r = await fetch(
-          `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids,credits`
+          `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`,
+          { signal: AbortSignal.timeout(2000) }
         );
         const d = await r.json();
-        iid = d.imdb_id || d.external_ids?.imdb_id || null;
+        iid = d.imdb_id || null;
         titleStr = d.title || d.name || title;
         yearStr = (d.release_date || d.first_air_date || '').slice(0, 4);
         setImdbId(iid);
         setMovieTitle(titleStr);
-        const cast = (d.credits?.cast || []).slice(0, 12).map(p => ({
+        // Update embed list with imdb id now that we have it
+        setEmbeds(buildEmbeds(tmdbId, iid, mediaType, season, episode));
+      } catch (_) {
+        // TMDB timed out — carry on with title prop and load metadata in background
+      }
+
+      // ── Background: fetch cast/credits for X-Ray (non-blocking) ──────────
+      fetch(
+        `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids,credits`,
+        { signal: AbortSignal.timeout(8000) }
+      ).then(r => r.json()).then(d => {
+        const castData = (d.credits?.cast || []).slice(0, 12).map(p => ({
           id: p.id, name: p.name, character: p.character,
           profile: p.profile_path ? `https://image.tmdb.org/t/p/w185${p.profile_path}` : null,
         }));
-        setXrayCast(cast);
-      } catch (_) {}
-
-      const embedList = buildEmbeds(tmdbId, iid, mediaType, season, episode);
-      setEmbeds(embedList);
+        setXrayCast(castData);
+        const newIid = d.imdb_id || d.external_ids?.imdb_id || iid;
+        if (newIid && newIid !== iid) {
+          setImdbId(newIid);
+          setEmbeds(buildEmbeds(tmdbId, newIid, mediaType, season, episode));
+        }
+      }).catch(() => {});
 
       // ── Tier 0: Backend HLS scraper ──────────────────────────────────────
       try {
         const params = new URLSearchParams({ tmdbId, mediaType, season, episode });
-        const res = await fetch(`/api/get-stream?${params}`);
+        const res = await fetch(`/api/get-stream?${params}`, { signal: AbortSignal.timeout(3000) });
         const data = await res.json();
         if (data.success && data.streamUrl) {
           setHlsUrl(data.proxyUrl || `/api/proxy?url=${encodeURIComponent(data.streamUrl)}`);
@@ -393,9 +413,10 @@ export default function PrimePlayer({
     vid.src = safeUrl(file.url);
     vid.load();
     setDirectError(null);
-    const onMeta = () => { vid.play().catch(() => {}); setPlaying(true); };
-    vid.addEventListener('loadedmetadata', onMeta, { once: true });
-    return () => vid.removeEventListener('loadedmetadata', onMeta);
+    // canplay fires as soon as there's enough data to start — faster than loadedmetadata
+    const onCanPlay = () => { vid.play().catch(() => {}); setPlaying(true); };
+    vid.addEventListener('canplay', onCanPlay, { once: true });
+    return () => vid.removeEventListener('canplay', onCanPlay);
   }, [mode, directIdx, directFiles]);
 
   // ─── DIRECT MODE: error → try lower quality → give up → iframe ──────────
@@ -420,7 +441,7 @@ export default function PrimePlayer({
     iframeTimerRef.current = setTimeout(() => {
       if (embedIdx < embeds.length - 1) setEmbedIdx(i => i + 1);
       else setEmbedPhase('failed');
-    }, 15000);
+    }, 5000);
     return () => clearTimeout(iframeTimerRef.current);
   }, [mode, embedPhase, embedIdx, embeds.length]);
 

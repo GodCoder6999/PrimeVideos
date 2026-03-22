@@ -52,7 +52,7 @@ function probeLocalProxy() {
 // Start probing immediately so it's ready by the time resolveTitle is called.
 probeLocalProxy();
 
-// ─────────────────────── PROXY WATERFALL ───────────────────────────────────
+// ─────────────────────── PROXY RACING ─────────────────────────────────────
 async function buildProxyList(url) {
   // Wait for probe if it hasn't finished yet
   if (_localProxyOk === null) await probeLocalProxy();
@@ -66,37 +66,49 @@ async function buildProxyList(url) {
   return list;
 }
 
+// Attempt a single proxy URL and resolve with the text, or reject on failure.
+function _tryProxy(proxyUrl) {
+  return fetch(proxyUrl, { signal: AbortSignal.timeout(2000) }).then(async (res) => {
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const ct   = res.headers.get('content-type') || '';
+    const text = await res.text();
+    const isHtmlPage = ct.includes('text/html') && text.includes('<!DOCTYPE');
+    const hasLinks   = /<a\s+[^>]*href=/i.test(text);
+    if (!text || text.length < 50 || (isHtmlPage && !hasLinks)) {
+      throw new Error(`empty/error page (${text?.length ?? 0}b)`);
+    }
+    return text;
+  });
+}
+
 export async function proxiedFetch(url) {
   const proxies = await buildProxyList(url);
-  const errors  = [];
 
-  for (const proxyUrl of proxies) {
-    try {
-      const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
-      if (!res.ok) {
-        errors.push(`${proxyUrl.slice(0, 60)}: HTTP ${res.status}`);
-        continue;
-      }
-      const ct   = res.headers.get('content-type') || '';
-      const text = await res.text();
-
-      // Reject SPA catch-all HTML error pages (no real <a href> links)
-      const isHtmlPage = ct.includes('text/html') && text.includes('<!DOCTYPE');
-      const hasLinks   = /<a\s+[^>]*href=/i.test(text);
-      if (!text || text.length < 50 || (isHtmlPage && !hasLinks)) {
-        errors.push(`${proxyUrl.slice(0, 60)}: empty/error page (${text?.length ?? 0}b)`);
-        continue;
-      }
-
-      return text;
-    } catch (e) {
-      errors.push(e.message);
+  // Race all proxies simultaneously — first valid response wins.
+  // If all fail, fall back to sequential with slightly longer timeout.
+  try {
+    return await Promise.any(proxies.map((p) => _tryProxy(p)));
+  } catch (_) {
+    // All fast attempts failed — retry sequentially with 6s timeout
+    const errors = [];
+    for (const proxyUrl of proxies) {
+      try {
+        const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(6000) });
+        if (!res.ok) { errors.push(`${proxyUrl.slice(0, 60)}: HTTP ${res.status}`); continue; }
+        const ct   = res.headers.get('content-type') || '';
+        const text = await res.text();
+        const isHtmlPage = ct.includes('text/html') && text.includes('<!DOCTYPE');
+        const hasLinks   = /<a\s+[^>]*href=/i.test(text);
+        if (!text || text.length < 50 || (isHtmlPage && !hasLinks)) {
+          errors.push(`${proxyUrl.slice(0, 60)}: empty/error page`); continue;
+        }
+        return text;
+      } catch (e) { errors.push(e.message); }
     }
+    throw new Error(
+      `Could not fetch: ${url.slice(0, 80)}\nErrors: ${errors.slice(0, 2).join('; ')}`
+    );
   }
-
-  throw new Error(
-    `Could not fetch: ${url.slice(0, 80)}\nErrors: ${errors.slice(0, 2).join('; ')}`
-  );
 }
 
 // ──────────────────────────── SUPABASE ─────────────────────────────────────
@@ -358,6 +370,28 @@ export function selectBestFiles(videos) {
   return selected;
 }
 
+// ─────────────────── LOCAL STORAGE CACHE ───────────────────────────────────
+const CACHE_PREFIX = 'pv_resolve_';
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+function cacheKey(tmdbId, mediaType, season, episode) {
+  return `${CACHE_PREFIX}${tmdbId}_${mediaType}_s${season || 0}_e${episode || 0}`;
+}
+
+function cacheGet(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const { ts, data } = JSON.parse(raw);
+    if (Date.now() - ts > CACHE_TTL_MS) { localStorage.removeItem(key); return null; }
+    return data;
+  } catch (_) { return null; }
+}
+
+function cacheSet(key, data) {
+  try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data })); } catch (_) {}
+}
+
 // ─────────────────── MASTER RESOLVER — 3 TIERS ─────────────────────────────
 /**
  * Resolves a TMDB title to direct video files.
@@ -378,11 +412,17 @@ export function selectBestFiles(videos) {
  */
 export async function resolveTitle({ tmdbId, mediaType, title, year, season, episode }) {
 
-  // Fetch TMDB metadata if title/year not provided
+  // ── Cache check (instant playback for repeated content) ───────────────────
+  const ck = cacheKey(tmdbId, mediaType, season, episode);
+  const cached = cacheGet(ck);
+  if (cached) return { ...cached, source: cached.source + ' ⚡cached' };
+
+  // Fetch TMDB metadata if title/year not provided (with aggressive timeout)
   if (!title || !year) {
     try {
       const r = await fetch(
-        `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_KEY}`
+        `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_KEY}`,
+        { signal: AbortSignal.timeout(2000) }
       );
       const d = await r.json();
       title = title || d.title || d.name;
@@ -394,74 +434,79 @@ export async function resolveTitle({ tmdbId, mediaType, title, year, season, epi
     throw new Error(`Could not determine title for TMDB ID ${tmdbId}`);
   }
 
-  // ── Tier 1: Supabase ──────────────────────────────────────────────────────
-  const supaUrl = await supaFetch(tmdbId, mediaType);
-  if (supaUrl) {
+  // ── Tier 1+2 in parallel: race Supabase vs Index scraper ──────────────────
+  // Whichever finds a valid result first wins.
+  async function trySupabase() {
+    const supaUrl = await supaFetch(tmdbId, mediaType);
+    if (!supaUrl) throw new Error('supabase: no result');
     const safe = safeUrl(supaUrl);
 
-    // Direct video file in Supabase?
     if (VID_RE.test(decodeURIComponent(safe.split('?')[0]))) {
       const name = decodeURIComponent(safe.split('/').pop().split('?')[0]);
       const q    = detectQuality(name);
-      return {
-        folders: [],
-        videos:  [{ name, url: safe, quality: q }],
-        source:  '⚡ database',
-      };
+      return { folders: [], videos: [{ name, url: safe, quality: q }], source: '⚡ database' };
     }
 
-    // Folder URL in Supabase — try fetching it
-    try {
-      const folderUrl = safe.endsWith('/') ? safe : safe + '/';
-      const html      = await proxiedFetch(folderUrl);
-      const result    = parseFolderListing(html, folderUrl);
-      if (result.videos.length || result.folders.length) {
-        return { ...result, source: '⚡ database' };
-      }
-    } catch (_) { /* fall through to scraper */ }
+    const folderUrl = safe.endsWith('/') ? safe : safe + '/';
+    const html      = await proxiedFetch(folderUrl);
+    const result    = parseFolderListing(html, folderUrl);
+    if (result.videos.length || result.folders.length) {
+      return { ...result, source: '⚡ database' };
+    }
+    throw new Error('supabase: folder empty');
   }
 
-  // ── Tier 2+3: Index scraper ───────────────────────────────────────────────
-  const result = await scrapeIndex(title, year, mediaType);
+  async function tryIndex() {
+    const result = await scrapeIndex(title, year, mediaType);
 
-  // TV: if a season number is given, drill one level deeper automatically
-  if (mediaType === 'tv' && season && result.folders.length && !result.videos.length) {
-    const seasonNum = Number(season);
-    const seasonFolder = result.folders.find((f) => {
-      const n = normalizeTitle(f.name);
-      return (
-        n.includes(`season ${seasonNum}`) ||
-        n.includes(`s${String(seasonNum).padStart(2, '0')}`) ||
-        n === String(seasonNum)
-      );
-    }) || result.folders[0]; // fall back to first folder
+    // TV: if a season number is given, drill one level deeper automatically
+    if (mediaType === 'tv' && season && result.folders.length && !result.videos.length) {
+      const seasonNum = Number(season);
+      const seasonFolder = result.folders.find((f) => {
+        const n = normalizeTitle(f.name);
+        return (
+          n.includes(`season ${seasonNum}`) ||
+          n.includes(`s${String(seasonNum).padStart(2, '0')}`) ||
+          n === String(seasonNum)
+        );
+      }) || result.folders[0];
 
-    if (seasonFolder) {
-      try {
-        const seasonResult = await fetchSubfolder(seasonFolder.url);
-        if (seasonResult.videos.length) {
-          // Optionally filter to a specific episode
-          let videos = seasonResult.videos;
-          if (episode) {
-            const epNum = String(episode).padStart(2, '0');
-            const filtered = videos.filter((v) =>
-              new RegExp(`[Ee]${epNum}|[Ee]pisode.?${epNum}`, 'i').test(v.name)
-            );
-            if (filtered.length) videos = filtered;
+      if (seasonFolder) {
+        try {
+          const seasonResult = await fetchSubfolder(seasonFolder.url);
+          if (seasonResult.videos.length) {
+            let videos = seasonResult.videos;
+            if (episode) {
+              const epNum = String(episode).padStart(2, '0');
+              const filtered = videos.filter((v) =>
+                new RegExp(`[Ee]${epNum}|[Ee]pisode.?${epNum}`, 'i').test(v.name)
+              );
+              if (filtered.length) videos = filtered;
+            }
+            return { folders: [], videos, source: '📁 index' };
           }
-          return { folders: [], videos, source: '📁 index' };
-        }
-      } catch (_) { /* return top-level result */ }
+        } catch (_) { /* return top-level result */ }
+      }
     }
+
+    if (result.videos.length || result.folders.length) {
+      return { ...result, source: '📁 index' };
+    }
+    throw new Error('index: not found');
   }
 
-  if (result.videos.length || result.folders.length) {
-    return { ...result, source: '📁 index' };
+  let finalResult;
+  try {
+    finalResult = await Promise.any([trySupabase(), tryIndex()]);
+  } catch (_) {
+    throw new Error(
+      `"${title}" (${year || '?'}) not found.\n` +
+      `Checked Supabase DB and ${BASE}.\n` +
+      `Try pasting a direct URL.`
+    );
   }
 
-  throw new Error(
-    `"${title}" (${year || '?'}) not found.\n` +
-    `Checked Supabase DB and ${BASE}.\n` +
-    `Try pasting a direct URL.`
-  );
+  // Cache successful result
+  cacheSet(ck, finalResult);
+  return finalResult;
 }
