@@ -485,7 +485,7 @@ export default function PrimePlayer({
     const onPause = () => setPlaying(false);
     const onTime = () => setCurrentTime(v.currentTime);
     const onDur = () => { if (v.duration && isFinite(v.duration)) setDuration(v.duration); };
-    const onLoaded = () => { if (v.duration && isFinite(v.duration)) setDuration(v.duration); };
+    const onLoaded = onDur;
     const onProg = () => {
       if (v.buffered.length) setBuffered(v.buffered.end(v.buffered.length - 1));
     };
