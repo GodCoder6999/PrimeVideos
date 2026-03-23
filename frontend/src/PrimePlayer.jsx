@@ -172,6 +172,7 @@ export default function PrimePlayer({
   const [buffered, setBuffered] = useState(0);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
+  const [prevVolume, setPrevVolume] = useState(1); // Remember volume before muting
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [seeking, setSeeking] = useState(false);
@@ -650,15 +651,29 @@ export default function PrimePlayer({
   const toggleMute = () => {
     const v = videoRef.current;
     if (!v) return;
-    v.muted = !muted;
-    setMuted(!muted);
+    if (muted) {
+      // Unmuting — restore previous volume
+      v.muted = false;
+      v.volume = prevVolume;
+      setMuted(false);
+      setVolume(prevVolume);
+    } else {
+      // Muting — save current volume and mute
+      setPrevVolume(volume);
+      v.muted = true;
+      setMuted(true);
+    }
   };
 
   const changeVolume = (val) => {
     const v = videoRef.current;
     setVolume(val);
-    setMuted(val === 0);
-    if (v) { v.volume = val; v.muted = val === 0; }
+    setPrevVolume(val); // Update prevVolume as user adjusts
+    setMuted(false); // Unmute when slider is used
+    if (v) { 
+      v.volume = val; 
+      v.muted = false; 
+    }
   };
 
   const toggleFullscreen = () => {
@@ -735,12 +750,12 @@ export default function PrimePlayer({
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [isDraggingVolume]);
+  }, [isDraggingVolume, volume]);
 
   // ─── DERIVED ─────────────────────────────────────────────────────────────
   const progressPct = duration > 0 ? (currentTime / duration) * 100 : 0;
   const bufferedPct = duration > 0 ? (buffered / duration) * 100 : 0;
-  const VolumeIcon = muted || volume === 0 ? VolumeMuteIcon : volume < 0.5 ? VolumeMidIcon : VolumeHighIcon;
+  const VolumeIcon = muted ? VolumeMuteIcon : volume === 0 ? VolumeMuteIcon : volume < 0.5 ? VolumeMidIcon : VolumeHighIcon;
 
   const curEmbed = embeds[embedIdx];
   const curDirect = directFiles[directIdx];
@@ -1154,8 +1169,8 @@ export default function PrimePlayer({
                       changeVolume(getVolumeFromMouseY(e));
                     }}
                   >
-                    <div className="volume-fill" style={{ height: `${(muted ? 0 : volume) * 100}%` }} />
-                    <div className="volume-knob" style={{ bottom: `${(muted ? 0 : volume) * 100}%` }} />
+                    <div className="volume-fill" style={{ height: `${volume * 100}%` }} />
+                    <div className="volume-knob" style={{ bottom: `${volume * 100}%` }} />
                   </div>
                 </div>
               )}
