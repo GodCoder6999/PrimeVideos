@@ -232,6 +232,40 @@ export default function PrimePlayer({
     return () => v.removeEventListener('volumechange', onVolumeChange);
   }, []);
 
+  // AFTER existing audio warning effect, add this new effect
+useEffect(() => {
+  if (!audioWarning) return;
+
+  // Prefer a safe HLS level (<=1080p)
+  if (mode === 'hls' && hlsRef.current) {
+    const safe = hlsRef.current.levels
+      .map((l, i) => ({ i, h: l.height || 0 }))
+      .filter(l => l.h && l.h <= 1080)
+      .sort((a, b) => b.h - a.h)[0];
+
+    if (safe) {
+      hlsRef.current.autoLevelCapping = safe.i;
+      hlsRef.current.currentLevel = safe.i;
+      setSelectedQuality(safe.i);
+      setAudioWarning(false);
+      return;
+    }
+  }
+
+  // Otherwise, try next direct source
+  if (mode === 'direct' && directIdx < directFiles.length - 1) {
+    setDirectIdx(i => i + 1);
+    setAudioWarning(false);
+    return;
+  }
+
+  // Final fallback: iframe sources
+  setMode('iframe');
+  setEmbedIdx(0);
+  setEmbedPhase('loading');
+  setAudioWarning(false);
+}, [audioWarning, mode, directIdx, directFiles.length, setSelectedQuality]);
+
   useEffect(() => {
     if (!playing || !isVideoMode || muted || volume === 0) {
       setAudioWarning(false);
