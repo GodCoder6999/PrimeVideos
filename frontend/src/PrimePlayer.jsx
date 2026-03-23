@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Hls from 'hls.js';
-// reelstreamResolver no longer needed — VidSrc extraction handles stream resolution
 
 // ─── ICONS (inline SVGs matching Prime Video exactly) ──────────────────────
 const SubtitlesIcon = () => (
@@ -170,62 +169,102 @@ export default function PrimePlayer({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [buffered, setBuffered] = useState(0);
+  
+  // Audio state - source of truth is now the DOM video element
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
-  const [prevVolume, setPrevVolume] = useState(1); // Remember volume before muting
+  const [prevVolume, setPrevVolume] = useState(1);
+  const [audioWarning, setAudioWarning] = useState(false); // detects broken AC3 streams
+
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [seeking, setSeeking] = useState(false);
   const [isDraggingVolume, setIsDraggingVolume] = useState(false);
 
   // ── Stream state ────────────────────────────────────────────────────────
-  // mode: 'loading' | 'hls' | 'direct' | 'iframe'
   const [mode, setMode] = useState('loading');
   const [hlsUrl, setHlsUrl] = useState(null);
   const [provider, setProvider] = useState('');
-  const [directFiles, setDirectFiles] = useState([]);   // [{name,url,quality}] sorted highest first
+  const [directFiles, setDirectFiles] = useState([]);   
   const [directIdx, setDirectIdx] = useState(0);
   const [directError, setDirectError] = useState(null);
-  const [resolverStatus, setResolverStatus] = useState('');
-  const [buffering, setBuffering] = useState(false); // shows spinner while video buffers
+  const [buffering, setBuffering] = useState(false); 
   const [embeds, setEmbeds] = useState([]);
   const [embedIdx, setEmbedIdx] = useState(0);
-  const [embedPhase, setEmbedPhase] = useState('loading'); // 'loading'|'playing'|'failed'
+  const [embedPhase, setEmbedPhase] = useState('loading'); 
   const [imdbId, setImdbId] = useState(null);
   const iframeTimerRef = useRef(null);
 
   // ── UI panel state ──────────────────────────────────────────────────────
-  const [activePanel, setActivePanel] = useState(null); // null | 'subtitles' | 'quality' | 'volume'
+  const [activePanel, setActivePanel] = useState(null); 
   const [quality, setQuality] = useState('Best');
   const [subtitleTrack, setSubtitleTrack] = useState('Off');
   const [audioTrack, setAudioTrack] = useState('हिन्दी');
 
   // ── X-Ray state ─────────────────────────────────────────────────────────
-  const [xrayOpen, setXrayOpen] = useState(false);         // compact overlay on player
-  const [xrayExpanded, setXrayExpanded] = useState(false); // full side panel
+  const [xrayOpen, setXrayOpen] = useState(false);         
+  const [xrayExpanded, setXrayExpanded] = useState(false); 
   const [xrayCast, setXrayCast] = useState([]);
-  const [xrayTab, setXrayTab] = useState('scene');         // 'scene' | 'cast'
+  const [xrayTab, setXrayTab] = useState('scene');         
   const [expandedCastId, setExpandedCastId] = useState(null);
   const [movieTitle, setMovieTitle] = useState(title);
 
-  // ── Seek preview ────────────────────────────────────────────────────────
   const [hoverTime, setHoverTime] = useState(null);
   const [hoverX, setHoverX] = useState(0);
+  const [skipFeedback, setSkipFeedback] = useState(null); 
 
-  // ── Skip feedback ────────────────────────────────────────────────────────
-  const [skipFeedback, setSkipFeedback] = useState(null); // 'back' | 'forward'
+  const chapterMarkers = duration > 0 ? [0.16, 0.33, 0.5, 0.66, 0.83].map(p => p * duration) : [];
+  const isVideoMode = mode === 'hls' || mode === 'direct';
 
-  // ── Chapter markers (evenly spaced, like Prime) ─────────────────────────
-  const chapterMarkers = duration > 0
-    ? [0.16, 0.33, 0.5, 0.66, 0.83].map(p => p * duration)
-    : [];
+  // ─── AUDIO SYNC & CODEC AUTO-DETECT (THE FIX) ────────────────────────────
+  // 1. Sync React UI with DOM Mute/Volume (handles Browser Autoplay Muting)
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const onVolumeChange = () => {
+      setMuted(v.muted);
+      setVolume(v.volume);
+    };
+    v.addEventListener('volumechange', onVolumeChange);
+    return () => v.removeEventListener('volumechange', onVolumeChange);
+  }, []);
+
+  // 2. Detect AC-3 / E-AC3 Codec Silence (Chrome/Edge drop audio silently)
+  useEffect(() => {
+    if (!playing || !isVideoMode || muted || volume === 0) {
+      setAudioWarning(false);
+      return;
+    }
+
+    const v = videoRef.current;
+    const interval = setInterval(() => {
+      if (!v || v.paused) return;
+      // If video has been playing for 3 seconds, check if audio is actually decoding
+      if (v.currentTime > 3) {
+        // Chrome/Edge/Brave indicator
+        const chromeSilent = typeof v.webkitAudioDecodedByteCount === 'number' && v.webkitAudioDecodedByteCount === 0;
+        // Firefox indicator
+        const firefoxSilent = typeof v.mozHasAudio === 'boolean' && v.mozHasAudio === false;
+        // Safari indicator
+        const safariSilent = v.audioTracks && v.audioTracks.length === 0;
+
+        if (chromeSilent || firefoxSilent || safariSilent) {
+          console.warn('[PrimePlayer] Audio codec unsupported (AC3/E-AC3) or missing track.');
+          setAudioWarning(true);
+        } else {
+          setAudioWarning(false);
+        }
+      }
+    }, 2500);
+
+    return () => clearInterval(interval);
+  }, [playing, isVideoMode, muted, volume]);
+
 
   // ─── EMBED LIST BUILDER ──────────────────────────────────────────────────
-  // Iframe fallback list — only used when NuvioStreams extraction fails completely
   const buildEmbeds = (tid, iid, mType, s, e) => {
     const tv = mType === 'tv';
     const list = [];
-    // VidSrc family first (same providers we tried to extract from — reliable fallback)
     if (iid) {
       list.push({ name: 'VidSrc',    url: tv ? `https://vidsrc.xyz/embed/tv?imdb=${iid}&season=${s}&episode=${e}` : `https://vidsrc.xyz/embed/movie?imdb=${iid}` });
       list.push({ name: 'VidSrc.me', url: tv ? `https://vidsrc.me/embed/tv?imdb=${iid}&season=${s}&episode=${e}` : `https://vidsrc.me/embed/movie?imdb=${iid}` });
@@ -238,36 +277,25 @@ export default function PrimePlayer({
   };
 
   // ─── MAIN INIT — 3-TIER RESOLUTION ──────────────────────────────────────
-  // ─── MAIN STREAM INIT ───────────────────────────────────────────────────────
-  // Resolution order:
-  //   1. /api/multi-stream → NuvioStreams + VidZee + MP4Hydra + SoaperTV (parallel)
-  //      Returns up to 3 streams sorted by quality. We try each in order.
-  //      m3u8 → HLS.js (with proxy to rewrite segment URLs past CORS)
-  //      mp4  → <video src> direct (no proxy — CDN URLs are IP-locked)
-  //             falls back to proxied version if direct 404s/errors
-  //   2. VidSrc iframe embeds (absolute last resort)
   useEffect(() => {
     if (!tmdbId) return;
 
-    // ── Reset everything ──
     setMode('loading');
     setHlsUrl(null);
     setProvider('');
     setDirectFiles([]);
     setDirectIdx(0);
     setDirectError(null);
-    setResolverStatus('');
     setBuffering(false);
     setEmbeds([]);
     setEmbedIdx(0);
     setEmbedPhase('loading');
     setPlaying(false);
+    setAudioWarning(false);
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
 
     let _cancelled = false;
 
-    // ── TMDB metadata — background, non-blocking ──
-    // Fires immediately but we do NOT await it before starting playback.
     const ctrl0 = new AbortController();
     const t0    = setTimeout(() => ctrl0.abort(), 8000);
     fetch(
@@ -284,19 +312,12 @@ export default function PrimePlayer({
           id: p.id, name: p.name, character: p.character,
           profile: p.profile_path ? `https://image.tmdb.org/t/p/w185${p.profile_path}` : null,
         })));
-        // Update embeds with IMDB ID once we have it
         setEmbeds(buildEmbeds(tmdbId, iid, mediaType, season, episode));
-      })
-      .catch(() => {});
+      }).catch(() => {});
 
-    // Pre-populate embeds immediately with tmdb id (for iframe fallback)
     setEmbeds(buildEmbeds(tmdbId, null, mediaType, season, episode));
 
-    // ── Stream resolution ──
     (async () => {
-      // ── Step 1: Call /api/multi-stream ──
-      // Server races NuvioStreams + VidZee + MP4Hydra + SoaperTV in parallel.
-      // Returns up to 3 streams sorted best quality first.
       let streams = [];
       try {
         const ctrl = new AbortController();
@@ -311,21 +332,15 @@ export default function PrimePlayer({
             streams = data.streams.filter(s => s?.url && s.url.startsWith('http'));
           }
         }
-      } catch (e) {
-        console.warn('[PrimePlayer] /api/multi-stream error:', e.message);
-      }
+      } catch (e) { console.warn('[PrimePlayer] /api/multi-stream error:', e.message); }
 
       if (_cancelled) return;
 
       if (streams.length > 0) {
-        // Build the directFiles list from all returned streams.
-        // For each stream: if it's m3u8 we handle it via HLS mode.
-        // If it's mp4 we add both the raw URL and proxied URL as fallbacks.
         const firstStream = streams[0];
         const rawUrl      = firstStream.url;
 
         if (rawUrl.includes('.m3u8') || rawUrl.includes('mpegurl') || rawUrl.includes('playlist')) {
-          // HLS stream — proxy it so segment fetches don't hit CORS
           const proxiedUrl = `/api/proxy?url=${encodeURIComponent(rawUrl)}`;
           if (!_cancelled) {
             setHlsUrl(proxiedUrl);
@@ -336,18 +351,13 @@ export default function PrimePlayer({
           return;
         }
 
-        // mp4 / mkv / direct video
-        // Build fallback chain: [raw, proxy of raw, next stream raw, next stream proxy, ...]
         const files = [];
         streams.forEach(s => {
           if (!s.url) return;
-          // Raw first — CDN URLs are often IP-locked so proxy breaks them
           files.push({ url: s.url, quality: s.quality || 'Auto', provider: s.provider || 'Stream' });
-          // Proxied fallback — helps if raw has strict CORS (rare for mp4 but possible)
           files.push({
-            url:      `/api/proxy?url=${encodeURIComponent(s.url)}`,
-            quality:  s.quality || 'Auto',
-            provider: (s.provider || 'Stream') + '↑',
+            url: `/api/proxy?url=${encodeURIComponent(s.url)}`,
+            quality: s.quality || 'Auto', provider: (s.provider || 'Stream') + '↑',
           });
         });
 
@@ -359,11 +369,7 @@ export default function PrimePlayer({
         }
         return;
       }
-
       if (_cancelled) return;
-
-      // ── Step 2: All providers failed → VidSrc iframe ──
-      console.warn('[PrimePlayer] All stream providers failed — using iframe fallback');
       setMode('iframe');
     })();
 
@@ -382,19 +388,10 @@ export default function PrimePlayer({
 
     if (Hls.isSupported()) {
       const hls = new Hls({
-        enableWorker:            true,
-        backBufferLength:        60,
-        maxBufferLength:         30,
-        lowLatencyMode:          false,
-        // Generous timeouts — segments go through /api/proxy which adds latency
-        fragLoadingTimeOut:      30000,
-        manifestLoadingTimeOut:  20000,
-        levelLoadingTimeOut:     20000,
-        fragLoadingMaxRetry:     6,
-        manifestLoadingMaxRetry: 4,
-        levelLoadingMaxRetry:    4,
-        fragLoadingRetryDelay:   500,
-        xhrSetup: (xhr) => { xhr.withCredentials = false; },
+        enableWorker: true, backBufferLength: 60, maxBufferLength: 30, lowLatencyMode: false,
+        fragLoadingTimeOut: 30000, manifestLoadingTimeOut: 20000, levelLoadingTimeOut: 20000,
+        fragLoadingMaxRetry: 6, manifestLoadingMaxRetry: 4, levelLoadingMaxRetry: 4,
+        fragLoadingRetryDelay: 500, xhrSetup: (xhr) => { xhr.withCredentials = false; },
       });
       hlsRef.current = hls;
       hls.loadSource(hlsUrl);
@@ -402,11 +399,9 @@ export default function PrimePlayer({
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         setBuffering(false);
-        // Explicitly set sound preferences derived from React state
         vid.volume = volume;
         vid.muted = muted;
         vid.play().then(() => setPlaying(true)).catch(() => {
-          // Autoplay blocked — show play button, user will click it
           setPlaying(false);
           setBuffering(false);
         });
@@ -415,8 +410,15 @@ export default function PrimePlayer({
       let _netRetries = 0;
       let _mediaRetries = 0;
       hls.on(Hls.Events.ERROR, (_, d) => {
-        console.warn('[HLS]', d.type, d.details, 'fatal:', d.fatal);
-        if (!d.fatal) return; // non-fatal errors are handled by hls.js internally
+        // HLS AUDIO ERROR CATCH: Proxy breaking relative audio paths
+        if (d.details === Hls.ErrorDetails.AUDIO_TRACK_LOAD_ERROR || d.details === Hls.ErrorDetails.AUDIO_TRACK_LOAD_TIMEOUT) {
+          console.warn('[HLS] Audio track missing/failed. Forcing fallback to next source.');
+          hls.destroy();
+          setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading');
+          return;
+        }
+
+        if (!d.fatal) return; 
         if (d.type === Hls.ErrorTypes.NETWORK_ERROR) {
           if (_netRetries < 4) {
             _netRetries++;
@@ -432,12 +434,10 @@ export default function PrimePlayer({
             setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading');
           }
         } else {
-          // Unrecoverable
           setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading');
         }
       });
     } else if (vid.canPlayType('application/vnd.apple.mpegurl')) {
-      // Safari — native HLS support
       vid.src = hlsUrl;
       vid.addEventListener('loadedmetadata', () => {
         setBuffering(false);
@@ -451,77 +451,56 @@ export default function PrimePlayer({
     return () => { if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; } };
   }, [hlsUrl, mode]);
 
-  // ─── DIRECT MODE: load + play ────────────────────────────────────────────
+  // ─── DIRECT MODE ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (mode !== 'direct' || !videoRef.current || !directFiles.length) return;
     const vid  = videoRef.current;
     const file = directFiles[directIdx];
     if (!file?.url) return;
 
-    console.log('[Direct] Trying:', file.provider, file.url.slice(0, 80));
-
-    setCurrentTime(0);
-    setDuration(0);
-    setBuffered(0);
-    setPlaying(false);
-    setBuffering(true);
-    setDirectError(null);
+    setCurrentTime(0); setDuration(0); setBuffered(0); setPlaying(false);
+    setBuffering(true); setDirectError(null); setAudioWarning(false);
 
     vid.pause();
     vid.removeAttribute('src');
     vid.load();
 
-    // Small delay so the browser fully releases the previous source
     const loadTimer = setTimeout(() => {
       if (!videoRef.current) return;
       vid.src  = file.url;
       vid.load();
     }, 80);
 
-    let cancelled    = false;
-    let stallTimer   = null;
+    let cancelled = false;
+    let stallTimer = null;
 
     const tryNext = (reason) => {
       if (cancelled) return;
       cancelled = true;
       clearTimeout(stallTimer);
-      console.warn('[Direct] Fallback reason:', reason, '| idx:', directIdx, '/', directFiles.length - 1);
-      if (directIdx < directFiles.length - 1) {
-        setDirectIdx(i => i + 1);
-      } else {
-        // All direct URLs exhausted — go to iframe
-        setMode('iframe');
-        setEmbedIdx(0);
-        setEmbedPhase('loading');
-      }
+      if (directIdx < directFiles.length - 1) setDirectIdx(i => i + 1);
+      else { setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading'); }
     };
 
     const onCanPlay = () => {
       if (cancelled) return;
       setBuffering(false);
-      // Explicitly set sound preferences derived from React state
       vid.volume = volume;
       vid.muted = muted;
       vid.play()
         .then(() => { if (!cancelled) setPlaying(true); })
-        .catch(err => {
-          // Autoplay policy blocked — user must tap play
-          if (!cancelled) { setPlaying(false); setBuffering(false); }
-        });
+        .catch(err => { if (!cancelled) { setPlaying(false); setBuffering(false); } });
     };
 
     const onError = () => {
       const e = vid.error;
-      // Code 1 = MEDIA_ERR_ABORTED (user action) — ignore
       if (!e || e.code === 1) return;
       tryNext('video error code=' + e.code);
     };
 
-    // If nothing loads within 10s, move on
     stallTimer = setTimeout(() => tryNext('load timeout 10s'), 10000);
 
     const onProgress = () => {
-      // Data arriving — reset stall timer
       clearTimeout(stallTimer);
       stallTimer = setTimeout(() => {
         if (vid.readyState < 3 && !vid.paused) tryNext('stall after progress');
@@ -534,10 +513,9 @@ export default function PrimePlayer({
 
     return () => {
       cancelled = true;
-      clearTimeout(loadTimer);
-      clearTimeout(stallTimer);
-      vid.removeEventListener('canplay',  onCanPlay);
-      vid.removeEventListener('error',    onError);
+      clearTimeout(loadTimer); clearTimeout(stallTimer);
+      vid.removeEventListener('canplay', onCanPlay);
+      vid.removeEventListener('error', onError);
       vid.removeEventListener('progress', onProgress);
     };
   }, [mode, directIdx, directFiles]);
@@ -565,9 +543,8 @@ export default function PrimePlayer({
   useEffect(() => {
     resetControlsTimer();
     return () => clearTimeout(controlsTimerRef.current);
-  }, []);
+  }, [resetControlsTimer]);
 
-  // Keep controls visible while a panel is open
   useEffect(() => {
     if (activePanel || xrayOpen) {
       setShowControls(true);
@@ -575,7 +552,7 @@ export default function PrimePlayer({
     } else {
       resetControlsTimer();
     }
-  }, [activePanel, xrayOpen]);
+  }, [activePanel, xrayOpen, resetControlsTimer]);
 
   // ─── KEYBOARD ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -588,9 +565,7 @@ export default function PrimePlayer({
         case 'f': toggleFullscreen(); break;
         case 'm': toggleMute(); break;
         case 'Escape':
-          setActivePanel(null);
-          setXrayOpen(false);
-          setXrayExpanded(false);
+          setActivePanel(null); setXrayOpen(false); setXrayExpanded(false);
           break;
         default: break;
       }
@@ -606,7 +581,7 @@ export default function PrimePlayer({
     return () => document.removeEventListener('fullscreenchange', onFsChange);
   }, []);
 
-  // ─── VIDEO EVENTS — fires for BOTH hls and direct modes ─────────────────
+  // ─── VIDEO EVENTS ────────────────────────────────────────────────────────
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -639,13 +614,20 @@ export default function PrimePlayer({
       v.removeEventListener('canplay',        onCanPlay);
       v.removeEventListener('stalled',        onStalled);
     };
-  }, []); // mount-only — video element never changes
+  }, []); 
 
   // ─── ACTIONS ─────────────────────────────────────────────────────────────
   const togglePlay = () => {
     const v = videoRef.current;
     if (!v) return;
-    playing ? v.pause() : v.play();
+    if (playing) {
+      v.pause();
+    } else {
+      // Force sound settings on user interaction
+      v.muted = muted;
+      v.volume = volume;
+      v.play().then(() => setPlaying(true)).catch(console.error);
+    }
   };
 
   const skip = (sec) => {
@@ -659,28 +641,26 @@ export default function PrimePlayer({
   const toggleMute = () => {
     const v = videoRef.current;
     if (!v) return;
-    if (muted) {
-      // Unmuting — restore previous volume
+    if (v.muted || v.volume === 0) {
+      const restoreVol = prevVolume > 0 ? prevVolume : 1;
       v.muted = false;
-      v.volume = prevVolume;
-      setMuted(false);
-      setVolume(prevVolume);
+      v.volume = restoreVol;
     } else {
-      // Muting — save current volume and mute
-      setPrevVolume(volume);
+      setPrevVolume(v.volume);
       v.muted = true;
-      setMuted(true);
     }
   };
 
   const changeVolume = (val) => {
     const v = videoRef.current;
-    setVolume(val);
-    setPrevVolume(val); // Update prevVolume as user adjusts
-    setMuted(false); // Unmute when slider is used
-    if (v) { 
-      v.volume = val; 
-      v.muted = false; 
+    if (!v) return;
+    if (val > 0) {
+      setPrevVolume(val);
+      v.muted = false;
+      v.volume = val;
+    } else {
+      v.muted = true;
+      v.volume = 0;
     }
   };
 
@@ -696,15 +676,12 @@ export default function PrimePlayer({
     const v = videoRef.current;
     if (!v) return;
     try {
-      if (document.pictureInPictureElement) {
-        await document.exitPictureInPicture();
-      } else {
-        await v.requestPictureInPicture();
-      }
+      if (document.pictureInPictureElement) await document.exitPictureInPicture();
+      else await v.requestPictureInPicture();
     } catch (_) {}
   };
 
-  // ─── PROGRESS BAR ────────────────────────────────────────────────────────
+  // ─── PROGRESS & VOLUME SLIDERS ──────────────────────────────────────────
   const getSeekTime = (e) => {
     const bar = progressBarRef.current;
     if (!bar || !duration) return 0;
@@ -715,15 +692,10 @@ export default function PrimePlayer({
 
   const onProgressMouseMove = (e) => {
     const t = getSeekTime(e);
-    const bar = progressBarRef.current;
-    if (bar) {
-      const rect = bar.getBoundingClientRect();
-      setHoverX(e.clientX - rect.left);
-    }
+    if (progressBarRef.current) setHoverX(e.clientX - progressBarRef.current.getBoundingClientRect().left);
     setHoverTime(t);
-    if (seeking) {
-      const v = videoRef.current;
-      if (v) v.currentTime = t;
+    if (seeking && videoRef.current) {
+      videoRef.current.currentTime = t;
       setCurrentTime(t);
     }
   };
@@ -731,15 +703,13 @@ export default function PrimePlayer({
   const onProgressMouseDown = (e) => {
     setSeeking(true);
     const t = getSeekTime(e);
-    const v = videoRef.current;
-    if (v) v.currentTime = t;
+    if (videoRef.current) videoRef.current.currentTime = t;
     setCurrentTime(t);
   };
 
   const onProgressMouseUp = () => setSeeking(false);
   const onProgressMouseLeave = () => { setHoverTime(null); if (seeking) setSeeking(false); };
 
-  // ─── VOLUME SLIDER (vertical, drag) ──────────────────────────────────────
   const getVolumeFromMouseY = (e) => {
     const slider = volumeSliderRef.current;
     if (!slider) return volume;
@@ -753,7 +723,7 @@ export default function PrimePlayer({
     const onMove = (e) => changeVolume(getVolumeFromMouseY(e));
     const onUp = () => {
       setIsDraggingVolume(false);
-      setActivePanel(null); // Close panel when finished dragging
+      setActivePanel(null);
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -761,18 +731,16 @@ export default function PrimePlayer({
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [isDraggingVolume]); // 👈 Removed 'volume' to fix stuttering glitch
+  }, [isDraggingVolume]);
 
-  // ─── DERIVED ─────────────────────────────────────────────────────────────
   const progressPct = duration > 0 ? (currentTime / duration) * 100 : 0;
   const bufferedPct = duration > 0 ? (buffered / duration) * 100 : 0;
   const VolumeIcon = muted ? VolumeMuteIcon : volume === 0 ? VolumeMuteIcon : volume < 0.5 ? VolumeMidIcon : VolumeHighIcon;
 
   const curEmbed = embeds[embedIdx];
   const curDirect = directFiles[directIdx];
-  const isVideoMode = mode === 'hls' || mode === 'direct';
 
-    // ─── RENDER ──────────────────────────────────────────────────────────────
+  // ─── RENDER ──────────────────────────────────────────────────────────────
   return (
     <div
       ref={containerRef}
@@ -780,137 +748,73 @@ export default function PrimePlayer({
       onMouseMove={resetControlsTimer}
       onClick={() => { setActivePanel(null); }}
       style={{
-        position: 'fixed', inset: 0,
-        background: '#000',
+        position: 'fixed', inset: 0, background: '#000',
         fontFamily: "'Amazon Ember', 'Segoe UI', system-ui, sans-serif",
-        userSelect: 'none',
-        cursor: showControls ? 'default' : 'none',
-        zIndex: 9999,
+        userSelect: 'none', cursor: showControls ? 'default' : 'none', zIndex: 9999,
       }}
     >
       <style>{`
-        :root {
-          --c: #AAAAAA;
-          --c-dim: rgba(170,170,170,0.35);
-          --c-track: rgba(170,170,170,0.22);
-        }
+        :root { --c: #AAAAAA; --c-dim: rgba(170,170,170,0.35); --c-track: rgba(170,170,170,0.22); }
         .prime-player * { box-sizing: border-box; }
-
-        /* ── Buttons — all exactly #AAAAAA, no hover color change ── */
-        .prime-btn {
-          background: none; border: none; cursor: pointer;
-          color: var(--c); padding: 6px;
-          border-radius: 2px; display: flex; align-items: center; justify-content: center;
-          transition: opacity 0.1s;
-        }
+        .prime-btn { background: none; border: none; cursor: pointer; color: var(--c); padding: 6px; border-radius: 2px; display: flex; align-items: center; justify-content: center; transition: opacity 0.1s; }
         .prime-btn:hover { color: var(--c); opacity: 0.8; background: none; }
         .prime-btn.active { color: var(--c); }
-
-        /* ── Progress bar — #AAAAAA played, dim track ── */
-        .progress-track {
-          position: relative; height: 3px; border-radius: 0;
-          background: var(--c-track); cursor: pointer;
-          transition: height 0.12s;
-        }
+        .progress-track { position: relative; height: 3px; border-radius: 0; background: var(--c-track); cursor: pointer; transition: height 0.12s; }
         .progress-track:hover { height: 5px; }
         .progress-track:hover .progress-thumb { opacity: 1; transform: translate(-50%,-50%) scale(1); }
-        .progress-buffered {
-          position: absolute; top: 0; left: 0; height: 100%;
-          background: rgba(170,170,170,0.28); border-radius: 0; pointer-events: none;
-        }
-        .progress-played {
-          position: absolute; top: 0; left: 0; height: 100%;
-          background: var(--c); border-radius: 0; pointer-events: none;
-        }
-        .progress-thumb {
-          position: absolute; top: 50%; width: 12px; height: 12px;
-          background: var(--c); border-radius: 50%;
-          transform: translate(-50%,-50%) scale(0.7);
-          opacity: 0; pointer-events: none; transition: opacity 0.12s, transform 0.12s;
-        }
-        .chapter-dot {
-          position: absolute; top: 50%; width: 3px; height: 3px;
-          background: rgba(0,0,0,0.6); border-radius: 50%;
-          transform: translate(-50%,-50%); pointer-events: none; z-index: 2;
-        }
-
-        /* ── Panels ── */
-        .panel {
-          position: absolute; top: 48px; right: 0;
-          background: #111; border-radius: 3px 0 0 3px;
-          min-width: 280px; overflow: hidden;
-          box-shadow: 0 6px 24px rgba(0,0,0,0.9);
-          animation: panelIn 0.1s ease-out;
-        }
-        @keyframes panelIn {
-          from { opacity: 0; transform: translateY(-5px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-
-        /* ── Volume popup ── */
-        .volume-popup {
-          position: absolute; bottom: 46px; left: 50%; transform: translateX(-50%);
-          background: #111; border-radius: 4px;
-          padding: 14px 11px; width: 40px;
-          display: flex; flex-direction: column; align-items: center; gap: 10px;
-          box-shadow: 0 6px 20px rgba(0,0,0,0.9);
-          animation: panelIn 0.1s ease-out;
-        }
-        .volume-track {
-          width: 3px; height: 120px; background: var(--c-track);
-          border-radius: 2px; position: relative; cursor: pointer;
-        }
-        .volume-fill {
-          position: absolute; bottom: 0; left: 0; width: 100%;
-          background: var(--c); border-radius: 2px; pointer-events: none;
-        }
-        .volume-knob {
-          position: absolute; left: 50%; width: 11px; height: 11px;
-          background: var(--c); border-radius: 50%; transform: translate(-50%, 50%);
-          pointer-events: none;
-        }
-
-        /* ── X-Ray overlay ── */
-        .xray-overlay {
-          position: absolute; top: 52px; left: 14px;
-          background: rgba(0,0,0,0.9); border-radius: 3px;
-          padding: 8px 0; min-width: 250px; max-height: 55vh;
-          overflow-y: auto; scrollbar-width: none;
-          animation: panelIn 0.12s ease-out;
-        }
+        .progress-buffered { position: absolute; top: 0; left: 0; height: 100%; background: rgba(170,170,170,0.28); border-radius: 0; pointer-events: none; }
+        .progress-played { position: absolute; top: 0; left: 0; height: 100%; background: var(--c); border-radius: 0; pointer-events: none; }
+        .progress-thumb { position: absolute; top: 50%; width: 12px; height: 12px; background: var(--c); border-radius: 50%; transform: translate(-50%,-50%) scale(0.7); opacity: 0; pointer-events: none; transition: opacity 0.12s, transform 0.12s; }
+        .chapter-dot { position: absolute; top: 50%; width: 3px; height: 3px; background: rgba(0,0,0,0.6); border-radius: 50%; transform: translate(-50%,-50%); pointer-events: none; z-index: 2; }
+        .panel { position: absolute; top: 48px; right: 0; background: #111; border-radius: 3px 0 0 3px; min-width: 280px; overflow: hidden; box-shadow: 0 6px 24px rgba(0,0,0,0.9); animation: panelIn 0.1s ease-out; }
+        @keyframes panelIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+        .volume-popup { position: absolute; bottom: 46px; left: 50%; transform: translateX(-50%); background: #111; border-radius: 4px; padding: 14px 11px; width: 40px; display: flex; flex-direction: column; align-items: center; gap: 10px; box-shadow: 0 6px 20px rgba(0,0,0,0.9); animation: panelIn 0.1s ease-out; }
+        .volume-track { width: 3px; height: 120px; background: var(--c-track); border-radius: 2px; position: relative; cursor: pointer; }
+        .volume-fill { position: absolute; bottom: 0; left: 0; width: 100%; background: var(--c); border-radius: 2px; pointer-events: none; }
+        .volume-knob { position: absolute; left: 50%; width: 11px; height: 11px; background: var(--c); border-radius: 50%; transform: translate(-50%, 50%); pointer-events: none; }
+        .xray-overlay { position: absolute; top: 52px; left: 14px; background: rgba(0,0,0,0.9); border-radius: 3px; padding: 8px 0; min-width: 250px; max-height: 55vh; overflow-y: auto; scrollbar-width: none; animation: panelIn 0.12s ease-out; }
         .xray-overlay::-webkit-scrollbar { display: none; }
-
-        /* ── X-Ray side panel ── */
-        .xray-panel {
-          position: absolute; top: 0; right: 0; bottom: 0;
-          width: 340px; background: #080808;
-          border-left: 1px solid rgba(170,170,170,0.08);
-          display: flex; flex-direction: column;
-          animation: slideIn 0.18s ease-out; z-index: 10;
-        }
-        @keyframes slideIn {
-          from { transform: translateX(100%); }
-          to   { transform: translateX(0); }
-        }
-
-        /* ── Skip flash ── */
-        .skip-flash {
-          position: absolute; top: 50%; transform: translateY(-50%);
-          pointer-events: none; animation: skipFlash 0.4s ease-out forwards;
-        }
+        .xray-panel { position: absolute; top: 0; right: 0; bottom: 0; width: 340px; background: #080808; border-left: 1px solid rgba(170,170,170,0.08); display: flex; flex-direction: column; animation: slideIn 0.18s ease-out; z-index: 10; }
+        @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+        .skip-flash { position: absolute; top: 50%; transform: translateY(-50%); pointer-events: none; animation: skipFlash 0.4s ease-out forwards; }
         @keyframes skipFlash { 0% { opacity: 0.8; } 100% { opacity: 0; } }
-
-        /* ── Loader — white arc on black ── */
-        .spin {
-          width: 48px; height: 48px; border-radius: 50%;
-          border: 2px solid rgba(170,170,170,0.2);
-          border-top-color: #AAAAAA;
-          animation: spin 0.85s linear infinite;
-        }
+        .spin { width: 48px; height: 48px; border-radius: 50%; border: 2px solid rgba(170,170,170,0.2); border-top-color: #AAAAAA; animation: spin 0.85s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
 
-      {/* ── SHARED <video> ELEMENT — used for both HLS and Direct modes ── */}
+      {/* ── AUDIO WARNING BANNER (For AC3/Silent codecs) ── */}
+      {audioWarning && isVideoMode && (
+        <div style={{
+          position: 'absolute', top: 70, left: '50%', transform: 'translateX(-50%)',
+          background: 'rgba(0,0,0,0.85)', border: '1px solid #f87171', color: '#fff',
+          padding: '12px 20px', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 16,
+          zIndex: 50, backdropFilter: 'blur(4px)', boxShadow: '0 4px 12px rgba(0,0,0,0.8)'
+        }}>
+          <div>
+            <div style={{ color: '#f87171', fontWeight: 700, fontSize: 15, marginBottom: 2 }}>No Sound Detected</div>
+            <div style={{ color: '#AAAAAA', fontSize: 13 }}>Your browser doesn't support this video's audio format.</div>
+          </div>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setAudioWarning(false);
+              if (mode === 'direct' && directIdx < directFiles.length - 1) {
+                setDirectIdx(i => i + 1);
+              } else {
+                setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading');
+              }
+            }}
+            style={{
+              background: '#f87171', color: '#000', border: 'none', padding: '8px 16px',
+              borderRadius: 4, fontWeight: 700, cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap'
+            }}
+          >
+            Try Next Source
+          </button>
+        </div>
+      )}
+
+      {/* ── SHARED <video> ELEMENT ── */}
       <video
         ref={videoRef}
         style={{
@@ -922,7 +826,7 @@ export default function PrimePlayer({
         onClick={(e) => { e.stopPropagation(); if (isVideoMode) togglePlay(); }}
       />
 
-      {/* ── DIRECT MODE: error overlay ── */}
+      {/* ── DIRECT MODE ERROR ── */}
       {mode === 'direct' && directError && (
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', zIndex: 8 }}>
           <div className="spin" />
@@ -932,7 +836,6 @@ export default function PrimePlayer({
       {/* ── IFRAME MODE ── */}
       {mode === 'iframe' && (
         <>
-          {/* Loading/failed overlays */}
           {embedPhase === 'loading' && (
             <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', zIndex: 6, pointerEvents: 'none' }}>
               <div className="spin" />
@@ -959,8 +862,6 @@ export default function PrimePlayer({
               allowFullScreen
               referrerPolicy="no-referrer"
               onLoad={() => {
-                // Give the iframe 2s to actually start — empty/error pages load instantly
-                // then redirect, so a small delay filters false positives
                 clearTimeout(iframeTimerRef.current);
                 iframeTimerRef.current = setTimeout(() => setEmbedPhase('playing'), 1500);
               }}
@@ -968,7 +869,6 @@ export default function PrimePlayer({
             />
           )}
 
-          {/* Source switcher nudge */}
           {embedPhase === 'playing' && embedIdx < embeds.length - 1 && showControls && (
             <div style={{ position: 'absolute', bottom: 72, right: 16, zIndex: 20 }}>
               <button
@@ -982,8 +882,7 @@ export default function PrimePlayer({
         </>
       )}
 
-      {/* ── LOADING / BUFFERING SPINNER ── */}
-      {/* Shows during initial stream search AND while video is buffering */}
+      {/* ── BUFFERING SPINNER ── */}
       {(mode === 'loading' || (isVideoMode && buffering)) && (
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: mode === 'loading' ? '#000' : 'transparent', zIndex: 8, pointerEvents: 'none' }}>
           <div className="spin" />
@@ -991,130 +890,61 @@ export default function PrimePlayer({
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════
-          CONTROLS OVERLAY — only shown when showControls is true
+          CONTROLS OVERLAY
           ═══════════════════════════════════════════════════════════════════ */}
       <div style={{
         position: 'absolute', inset: 0,
-        opacity: showControls ? 1 : 0,
-        transition: 'opacity 0.3s ease',
-        // 👈 Allow clicks to pass through to the underlying iframe if it's playing
+        opacity: showControls ? 1 : 0, transition: 'opacity 0.3s ease',
         pointerEvents: mode === 'iframe' ? 'none' : (showControls ? 'auto' : 'none'),
         zIndex: 5,
       }}>
-
-        {/* Top gradient */}
-        <div style={{
-          position: 'absolute', top: 0, left: 0, right: 0, height: 80,
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.65) 0%, transparent 100%)',
-          pointerEvents: 'none',
-        }} />
-
-        {/* Bottom gradient */}
-        <div style={{
-          position: 'absolute', bottom: 0, left: 0, right: 0, height: 120,
-          background: 'linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%)',
-          pointerEvents: 'none',
-        }} />
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 80, background: 'linear-gradient(to bottom, rgba(0,0,0,0.65) 0%, transparent 100%)', pointerEvents: 'none' }} />
+        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 120, background: 'linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%)', pointerEvents: 'none' }} />
 
         {/* ── TOP BAR ── */}
-        <div style={{
-          position: 'absolute', top: 0, left: 0, right: 0,
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '12px 16px', zIndex: 10,
-          pointerEvents: 'auto', // 👈 Top bar must explicitly catch clicks
-        }}>
-          {/* X-Ray */}
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', zIndex: 10, pointerEvents: 'auto' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <button
-              className="prime-btn"
-              onClick={(e) => { e.stopPropagation(); setXrayOpen(v => !v); setXrayExpanded(false); setActivePanel(null); }}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', color: '#AAAAAA' }}
-            >
+            <button className="prime-btn" onClick={(e) => { e.stopPropagation(); setXrayOpen(v => !v); setXrayExpanded(false); setActivePanel(null); }} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', color: '#AAAAAA' }}>
               <span style={{ fontSize: 14, fontWeight: 400, letterSpacing: 0.3 }}>X-Ray</span>
               {xrayOpen ? <ChevronUpIcon /> : null}
             </button>
-
-            <div style={{
-              background: '#f5c518', color: '#000', fontSize: 11, fontWeight: 800,
-              padding: '2px 5px', borderRadius: 3, letterSpacing: 0.5,
-            }}>IMDb</div>
-
-            <button
-              className="prime-btn"
-              style={{ fontSize: 14, color: '#AAAAAA', display: 'flex', alignItems: 'center', gap: 3 }}
-              onClick={(e) => { e.stopPropagation(); setXrayExpanded(true); setXrayOpen(false); setActivePanel(null); }}
-            >
+            <div style={{ background: '#f5c518', color: '#000', fontSize: 11, fontWeight: 800, padding: '2px 5px', borderRadius: 3, letterSpacing: 0.5 }}>IMDb</div>
+            <button className="prime-btn" style={{ fontSize: 14, color: '#AAAAAA', display: 'flex', alignItems: 'center', gap: 3 }} onClick={(e) => { e.stopPropagation(); setXrayExpanded(true); setXrayOpen(false); setActivePanel(null); }}>
               All <ChevronRightIcon />
             </button>
           </div>
 
-          {/* Title */}
           <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', color: '#fff', fontSize: 17, fontWeight: 400, letterSpacing: 0.1, whiteSpace: 'nowrap' }}>
             {movieTitle}
           </div>
 
-          {/* Right controls */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            {/* Subtitles */}
             <div style={{ position: 'relative' }}>
-              <button
-                className={`prime-btn ${activePanel === 'subtitles' ? 'active' : ''}`}
-                onClick={(e) => { e.stopPropagation(); setActivePanel(activePanel === 'subtitles' ? null : 'subtitles'); }}
-                title="Subtitles & Audio"
-              >
+              <button className={`prime-btn ${activePanel === 'subtitles' ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); setActivePanel(activePanel === 'subtitles' ? null : 'subtitles'); }} title="Subtitles & Audio">
                 <SubtitlesIcon />
               </button>
-
               {activePanel === 'subtitles' && (
                 <div className="panel" style={{ right: 0, width: 420 }} onClick={e => e.stopPropagation()}>
                   <div style={{ display: 'flex', gap: 0, padding: 0 }}>
-                    {/* Subtitles column */}
                     <div style={{ flex: 1, borderRight: '1px solid rgba(255,255,255,0.15)', padding: '20px 16px' }}>
                       <div style={{ color: '#fff', fontSize: 16, fontWeight: 700, marginBottom: 16 }}>Subtitles</div>
                       {['Off', 'English', 'English CC', 'العربية'].map(s => (
-                        <div key={s}
-                          style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 4px', cursor: 'pointer', borderRadius: 4 }}
-                          onClick={() => setSubtitleTrack(s)}
-                        >
-                          <div style={{ width: 20, flexShrink: 0 }}>
-                            {subtitleTrack === s && <CheckIcon />}
-                          </div>
+                        <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 4px', cursor: 'pointer', borderRadius: 4 }} onClick={() => setSubtitleTrack(s)}>
+                          <div style={{ width: 20, flexShrink: 0 }}>{subtitleTrack === s && <CheckIcon />}</div>
                           <span style={{ color: subtitleTrack === s ? '#fff' : 'rgba(255,255,255,0.7)', fontSize: 15 }}>
-                            {s === 'English CC' ? (
-                              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                English
-                                <span style={{ border: '1px solid rgba(170,170,170,0.5)', borderRadius: 3, padding: '1px 4px', fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>CC</span>
-                              </span>
-                            ) : s}
+                            {s === 'English CC' ? (<span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>English <span style={{ border: '1px solid rgba(170,170,170,0.5)', borderRadius: 3, padding: '1px 4px', fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>CC</span></span>) : s}
                           </span>
                         </div>
                       ))}
-                      <div style={{ marginTop: 16, borderTop: '1px solid rgba(255,255,255,0.15)', paddingTop: 12 }}>
-                        <button style={{ background: 'none', border: 'none', color: '#AAAAAA', fontSize: 14, cursor: 'pointer', fontWeight: 600 }}>
-                          Subtitles Settings
-                        </button>
-                      </div>
                     </div>
-
-                    {/* Audio column */}
                     <div style={{ flex: 1, padding: '20px 16px' }}>
                       <div style={{ color: '#fff', fontSize: 16, fontWeight: 700, marginBottom: 16 }}>Audio</div>
                       {['English', 'हिन्दी', 'हिन्दी ऑडियो विवरण', 'हिन्दी Dialogue'].map(a => (
-                        <div key={a}
-                          style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 4px', cursor: 'pointer', borderRadius: 4 }}
-                          onClick={() => setAudioTrack(a)}
-                        >
-                          <div style={{ width: 20, flexShrink: 0 }}>
-                            {audioTrack === a && <CheckIcon />}
-                          </div>
+                        <div key={a} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 4px', cursor: 'pointer', borderRadius: 4 }} onClick={() => setAudioTrack(a)}>
+                          <div style={{ width: 20, flexShrink: 0 }}>{audioTrack === a && <CheckIcon />}</div>
                           <div>
                             <span style={{ color: audioTrack === a ? '#fff' : 'rgba(255,255,255,0.7)', fontSize: 15 }}>{a}</span>
-                            {a === 'हिन्दी ऑडियो विवरण' && (
-                              <span style={{ marginLeft: 6, border: '1px solid rgba(170,170,170,0.4)', borderRadius: 3, padding: '1px 5px', fontSize: 10, color: 'rgba(255,255,255,0.6)' }}>ऑडियो विवरण</span>
-                            )}
-                            {a === 'हिन्दी Dialogue' && (
-                              <div style={{ fontSize: 11, color: 'rgba(170,170,170,0.55)', marginTop: 2 }}>Boost: Medium</div>
-                            )}
+                            {a === 'हिन्दी ऑडियो विवरण' && (<span style={{ marginLeft: 6, border: '1px solid rgba(170,170,170,0.4)', borderRadius: 3, padding: '1px 5px', fontSize: 10, color: 'rgba(255,255,255,0.6)' }}>ऑडियो विवरण</span>)}
                           </div>
                         </div>
                       ))}
@@ -1124,32 +954,17 @@ export default function PrimePlayer({
               )}
             </div>
 
-            {/* Settings / Quality */}
             <div style={{ position: 'relative' }}>
-              <button
-                className={`prime-btn ${activePanel === 'quality' ? 'active' : ''}`}
-                onClick={(e) => { e.stopPropagation(); setActivePanel(activePanel === 'quality' ? null : 'quality'); }}
-                title="Video Quality"
-              >
+              <button className={`prime-btn ${activePanel === 'quality' ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); setActivePanel(activePanel === 'quality' ? null : 'quality'); }} title="Video Quality">
                 <SettingsIcon />
               </button>
-
               {activePanel === 'quality' && (
                 <div className="panel" style={{ right: 0, width: 320 }} onClick={e => e.stopPropagation()}>
                   <div style={{ padding: '20px 20px 8px' }}>
                     <div style={{ color: '#fff', fontSize: 18, fontWeight: 700, marginBottom: 16 }}>Video Quality</div>
-                    {[
-                      { label: 'Good', sub: 'Uses about 0.38 GB per hour' },
-                      { label: 'Better', sub: 'Uses about 1.40 GB per hour' },
-                      { label: 'Best', sub: 'Uses about 6.84 GB per hour' },
-                    ].map(q => (
-                      <div key={q.label}
-                        style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 4px', cursor: 'pointer', borderRadius: 4 }}
-                        onClick={() => { setQuality(q.label); setActivePanel(null); }}
-                      >
-                        <div style={{ width: 24, flexShrink: 0 }}>
-                          {quality === q.label && <CheckIcon />}
-                        </div>
+                    {[{ label: 'Good', sub: 'Uses about 0.38 GB per hour' }, { label: 'Better', sub: 'Uses about 1.40 GB per hour' }, { label: 'Best', sub: 'Uses about 6.84 GB per hour' }].map(q => (
+                      <div key={q.label} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 4px', cursor: 'pointer', borderRadius: 4 }} onClick={() => { setQuality(q.label); setActivePanel(null); }}>
+                        <div style={{ width: 24, flexShrink: 0 }}>{quality === q.label && <CheckIcon />}</div>
                         <div>
                           <div style={{ color: quality === q.label ? '#fff' : 'rgba(255,255,255,0.85)', fontSize: 16, fontWeight: quality === q.label ? 700 : 400 }}>{q.label}</div>
                           <div style={{ color: 'rgba(170,170,170,0.6)', fontSize: 13, marginTop: 2 }}>{q.sub}</div>
@@ -1161,34 +976,13 @@ export default function PrimePlayer({
               )}
             </div>
 
-            {/* Volume */}
-            <div 
-              style={{ position: 'relative' }}
-              onMouseEnter={() => setActivePanel('volume')}
-              onMouseLeave={() => { if (!isDraggingVolume) setActivePanel(null); }}
-            >
-              <button
-                className={`prime-btn ${activePanel === 'volume' ? 'active' : ''}`}
-                onClick={(e) => { 
-                  e.stopPropagation(); 
-                  toggleMute(); 
-                }}
-                title="Volume"
-              >
+            <div style={{ position: 'relative' }} onMouseEnter={() => setActivePanel('volume')} onMouseLeave={() => { if (!isDraggingVolume) setActivePanel(null); }}>
+              <button className={`prime-btn ${activePanel === 'volume' ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); toggleMute(); }} title="Volume">
                 <VolumeIcon />
               </button>
-
               {activePanel === 'volume' && (
                 <div className="volume-popup" onClick={e => e.stopPropagation()}>
-                  <div
-                    ref={volumeSliderRef}
-                    className="volume-track"
-                    onMouseDown={(e) => {
-                      e.stopPropagation();
-                      setIsDraggingVolume(true);
-                      changeVolume(getVolumeFromMouseY(e));
-                    }}
-                  >
+                  <div ref={volumeSliderRef} className="volume-track" onMouseDown={(e) => { e.stopPropagation(); setIsDraggingVolume(true); changeVolume(getVolumeFromMouseY(e)); }}>
                     <div className="volume-fill" style={{ height: `${volume * 100}%` }} />
                     <div className="volume-knob" style={{ bottom: `${volume * 100}%` }} />
                   </div>
@@ -1196,38 +990,19 @@ export default function PrimePlayer({
               )}
             </div>
 
-            {/* PiP */}
-            <button className="prime-btn" onClick={(e) => { e.stopPropagation(); togglePiP(); }} title="Picture in Picture">
-              <PiPIcon />
-            </button>
-
-            {/* Fullscreen */}
+            <button className="prime-btn" onClick={(e) => { e.stopPropagation(); togglePiP(); }} title="Picture in Picture"><PiPIcon /></button>
             <button className="prime-btn" onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }} title="Fullscreen">
               {isFullscreen ? <ExitFullscreenIcon /> : <FullscreenIcon />}
             </button>
 
-            {/* Source/Quality badge for video modes */}
             {(mode === 'hls' || mode === 'direct') && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginRight: 4 }}>
-                {/* Mode badge */}
-                <div style={{
-                  fontSize: 9, fontWeight: 800, letterSpacing: 0.8,
-                  padding: '2px 7px', borderRadius: 4, border: '1px solid',
-                  color: '#AAAAAA',
-                  borderColor: 'rgba(170,170,170,0.4)',
-                  background: 'transparent',
-                  textTransform: 'uppercase',
-                }}>
+                <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: 0.8, padding: '2px 7px', borderRadius: 4, border: '1px solid', color: '#AAAAAA', borderColor: 'rgba(170,170,170,0.4)', textTransform: 'uppercase' }}>
                   {mode === 'direct' ? (curDirect?.provider ? (curDirect.provider + ' ' + (curDirect.quality || '')).trim() : (curDirect?.quality || 'Direct')) : (provider || 'HLS')}
                 </div>
-                {/* Quality switcher for direct mode */}
                 {mode === 'direct' && directFiles.length > 1 && (
                   <div style={{ position: 'relative' }}>
-                    <button
-                      className="prime-btn"
-                      onClick={(e) => { e.stopPropagation(); setActivePanel(activePanel === 'directQuality' ? null : 'directQuality'); }}
-                      style={{ fontSize: 10, fontWeight: 400, padding: '2px 6px', color: '#AAAAAA' }}
-                    >
+                    <button className="prime-btn" onClick={(e) => { e.stopPropagation(); setActivePanel(activePanel === 'directQuality' ? null : 'directQuality'); }} style={{ fontSize: 10, fontWeight: 400, padding: '2px 6px', color: '#AAAAAA' }}>
                       Quality ▾
                     </button>
                     {activePanel === 'directQuality' && (
@@ -1235,15 +1010,10 @@ export default function PrimePlayer({
                         <div style={{ padding: '14px 16px 8px' }}>
                           <div style={{ color: '#fff', fontSize: 15, fontWeight: 700, marginBottom: 12 }}>Quality</div>
                           {directFiles.map((f, i) => (
-                            <div key={i}
-                              style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 4px', cursor: 'pointer' }}
-                              onClick={() => { setDirectIdx(i); setActivePanel(null); }}
-                            >
+                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 4px', cursor: 'pointer' }} onClick={() => { setDirectIdx(i); setActivePanel(null); }}>
                               <div style={{ width: 20 }}>{directIdx === i && <CheckIcon />}</div>
-                              <div>
-                                <div style={{ color: directIdx === i ? '#fff' : 'rgba(255,255,255,0.8)', fontSize: 14, fontWeight: directIdx === i ? 700 : 400 }}>
-                                  {f.quality || 'SD'}
-                                </div>
+                              <div style={{ color: directIdx === i ? '#fff' : 'rgba(255,255,255,0.8)', fontSize: 14, fontWeight: directIdx === i ? 700 : 400 }}>
+                                {f.quality || 'SD'}
                               </div>
                             </div>
                           ))}
@@ -1254,38 +1024,26 @@ export default function PrimePlayer({
                 )}
               </div>
             )}
-
-            {/* Separator */}
             <div style={{ width: 1, height: 22, background: '#AAAAAA', margin: '0 6px', opacity: 0.4 }} />
-
-            {/* Close */}
-            <button className="prime-btn" onClick={(e) => { e.stopPropagation(); onClose?.(); }} title="Close">
-              <CloseIcon />
-            </button>
+            <button className="prime-btn" onClick={(e) => { e.stopPropagation(); onClose?.(); }} title="Close"><CloseIcon /></button>
           </div>
         </div>
 
-        {/* ── X-RAY COMPACT OVERLAY ── */}
         {xrayOpen && xrayCast.length > 0 && (
           <div className="xray-overlay" onClick={e => e.stopPropagation()}>
             <div style={{ padding: '0 16px 10px', borderBottom: '1px solid rgba(255,255,255,0.1)', marginBottom: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ color: '#AAAAAA', fontWeight: 400, fontSize: 14 }}>X-Ray</span>
                 <div style={{ background: '#f5c518', color: '#000', fontSize: 10, fontWeight: 800, padding: '2px 4px', borderRadius: 3 }}>IMDb</div>
-                <button
-                  style={{ marginLeft: 4, background: 'none', border: 'none', color: '#AAAAAA', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, fontSize: 13 }}
-                  onClick={() => { setXrayExpanded(true); setXrayOpen(false); }}
-                >
+                <button style={{ marginLeft: 4, background: 'none', border: 'none', color: '#AAAAAA', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, fontSize: 13 }} onClick={() => { setXrayExpanded(true); setXrayOpen(false); }}>
                   All <ChevronRightIcon />
                 </button>
               </div>
             </div>
             {xrayCast.slice(0, 3).map(person => (
-              <div key={person.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px', cursor: 'pointer' }}
-                onClick={() => { setXrayExpanded(true); setXrayOpen(false); }}>
+              <div key={person.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px', cursor: 'pointer' }} onClick={() => { setXrayExpanded(true); setXrayOpen(false); }}>
                 {person.profile ? (
-                  <img src={person.profile} alt={person.name}
-                    style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />
+                  <img src={person.profile} alt={person.name} style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />
                 ) : (
                   <div style={{ width: 64, height: 64, background: '#111', borderRadius: 4, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 20, fontWeight: 700 }}>
                     {person.name.charAt(0)}
@@ -1300,214 +1058,90 @@ export default function PrimePlayer({
           </div>
         )}
 
-        {/* ── CENTER CONTROLS (video modes — iframe has its own controls) ── */}
         {isVideoMode && (
-          <div style={{
-            position: 'absolute', top: '50%', left: '50%',
-            transform: 'translate(-50%, -50%)',
-            display: 'flex', alignItems: 'center', gap: 48,
-            zIndex: 8,
-          }}
-            onClick={e => e.stopPropagation()}
-          >
-            {/* Rewind */}
-            <button
-              className="prime-btn"
-              style={{ color: '#AAAAAA', padding: 0, position: 'relative' }}
-              onClick={() => skip(-10)}
-            >
+          <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', display: 'flex', alignItems: 'center', gap: 48, zIndex: 8 }} onClick={e => e.stopPropagation()}>
+            <button className="prime-btn" style={{ color: '#AAAAAA', padding: 0, position: 'relative' }} onClick={() => skip(-10)}>
               <Rewind10Icon />
-              {skipFeedback === 'back' && (
-                <div className="skip-flash" style={{ left: '50%', transform: 'translate(-50%, -50%)', color: '#AAAAAA', fontSize: 22, fontWeight: 400 }}>-10</div>
-              )}
+              {skipFeedback === 'back' && <div className="skip-flash" style={{ left: '50%', transform: 'translate(-50%, -50%)', color: '#AAAAAA', fontSize: 22, fontWeight: 400 }}>-10</div>}
             </button>
-
-            {/* Play/Pause */}
             <button className="prime-btn" style={{ color: '#AAAAAA', padding: 0 }} onClick={togglePlay}>
               {playing ? <PauseIcon /> : <PlayIcon />}
             </button>
-
-            {/* Forward */}
-            <button
-              className="prime-btn"
-              style={{ color: '#AAAAAA', padding: 0, position: 'relative' }}
-              onClick={() => skip(10)}
-            >
+            <button className="prime-btn" style={{ color: '#AAAAAA', padding: 0, position: 'relative' }} onClick={() => skip(10)}>
               <Forward10Icon />
-              {skipFeedback === 'forward' && (
-                <div className="skip-flash" style={{ left: '50%', transform: 'translate(-50%, -50%)', color: '#AAAAAA', fontSize: 22, fontWeight: 400 }}>+10</div>
-              )}
+              {skipFeedback === 'forward' && <div className="skip-flash" style={{ left: '50%', transform: 'translate(-50%, -50%)', color: '#AAAAAA', fontSize: 22, fontWeight: 400 }}>+10</div>}
             </button>
           </div>
         )}
 
-        {/* ── BOTTOM BAR ── */}
         {isVideoMode && (
-          <div style={{
-            position: 'absolute', bottom: 0, left: 0, right: 0,
-            padding: '0 0 28px', zIndex: 10,
-          }}>
-            {/* Progress bar */}
-            <div
-              ref={progressBarRef}
-              className="progress-track"
-              style={{ marginBottom: 12, cursor: isVideoMode ? 'pointer' : 'default', borderRadius: 0 }}
-              onMouseDown={isVideoMode ? onProgressMouseDown : undefined}
-              onMouseMove={isVideoMode ? onProgressMouseMove : undefined}
-              onMouseUp={isVideoMode ? onProgressMouseUp : undefined}
-              onMouseLeave={isVideoMode ? onProgressMouseLeave : undefined}
-              onClick={e => e.stopPropagation()}
-            >
-              {/* Buffered */}
+          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '0 0 28px', zIndex: 10 }}>
+            <div ref={progressBarRef} className="progress-track" style={{ marginBottom: 12, cursor: isVideoMode ? 'pointer' : 'default', borderRadius: 0 }} onMouseDown={isVideoMode ? onProgressMouseDown : undefined} onMouseMove={isVideoMode ? onProgressMouseMove : undefined} onMouseUp={isVideoMode ? onProgressMouseUp : undefined} onMouseLeave={isVideoMode ? onProgressMouseLeave : undefined} onClick={e => e.stopPropagation()}>
               <div className="progress-buffered" style={{ width: `${bufferedPct}%` }} />
-              {/* Played */}
               <div className="progress-played" style={{ width: `${progressPct}%` }} />
-              {/* Chapter markers */}
-              {chapterMarkers.map((t, i) => (
-                <div key={i} className="chapter-dot" style={{ left: `${(t / duration) * 100}%` }} />
-              ))}
-              {/* Thumb */}
+              {chapterMarkers.map((t, i) => <div key={i} className="chapter-dot" style={{ left: `${(t / duration) * 100}%` }} />)}
               <div className="progress-thumb" style={{ left: `${progressPct}%` }} />
-              {/* Hover time tooltip */}
               {hoverTime !== null && (
-                <div style={{
-                  position: 'absolute', bottom: 16,
-                  left: Math.max(24, Math.min(hoverX, (progressBarRef.current?.offsetWidth || 0) - 24)),
-                  transform: 'translateX(-50%)',
-                  background: 'rgba(0,0,0,0.85)', color: '#AAAAAA',
-                  fontSize: 11, fontWeight: 400, padding: '3px 8px',
-                  borderRadius: 4, whiteSpace: 'nowrap', pointerEvents: 'none',
-                }}>
+                <div style={{ position: 'absolute', bottom: 16, left: Math.max(24, Math.min(hoverX, (progressBarRef.current?.offsetWidth || 0) - 24)), transform: 'translateX(-50%)', background: 'rgba(0,0,0,0.85)', color: '#AAAAAA', fontSize: 11, fontWeight: 400, padding: '3px 8px', borderRadius: 4, whiteSpace: 'nowrap', pointerEvents: 'none' }}>
                   {fmtTime(hoverTime)}
                 </div>
               )}
             </div>
-
-            {/* Time */}
             <div style={{ color: '#AAAAAA', fontSize: 13, fontWeight: 400, letterSpacing: 0.2, paddingLeft: 20 }}>
               {fmtTime(currentTime)}
-              {duration > 0 && (
-                <span style={{ color: '#AAAAAA', fontWeight: 400 }}>
-                  {' / '}{fmtTime(duration)}
-                </span>
-              )}
+              {duration > 0 && <span style={{ color: '#AAAAAA', fontWeight: 400 }}>{' / '}{fmtTime(duration)}</span>}
             </div>
           </div>
         )}
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════════
-          X-RAY EXPANDED SIDE PANEL (always rendered when expanded)
+          X-RAY EXPANDED SIDE PANEL
           ═══════════════════════════════════════════════════════════════════ */}
       {xrayExpanded && (
         <div className="xray-panel" onClick={e => e.stopPropagation()}>
-          {/* Panel header */}
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '18px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)',
-            flexShrink: 0,
-          }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0 }}>
             <span style={{ color: '#AAAAAA', fontSize: 17, fontWeight: 400, letterSpacing: 0.2 }}>X-Ray</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <button className="prime-btn" title="Expand" onClick={() => {}}>
-                <XRayExpandIcon />
-              </button>
+              <button className="prime-btn" title="Expand" onClick={() => {}}><XRayExpandIcon /></button>
               <div style={{ width: 1, height: 22, background: 'rgba(255,255,255,0.2)' }} />
-              <button className="prime-btn" onClick={() => setXrayExpanded(false)}>
-                <CloseIcon />
-              </button>
+              <button className="prime-btn" onClick={() => setXrayExpanded(false)}><CloseIcon /></button>
             </div>
           </div>
-
-          {/* Tabs */}
           <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0 }}>
             {['scene', 'cast'].map(tab => (
-              <button key={tab}
-                onClick={() => setXrayTab(tab)}
-                style={{
-                  flex: 1, padding: '14px 0', background: 'none', border: 'none',
-                  color: xrayTab === tab ? '#fff' : 'rgba(255,255,255,0.5)',
-                  fontSize: 15, fontWeight: xrayTab === tab ? 600 : 400, cursor: 'pointer',
-                  borderBottom: xrayTab === tab ? '2px solid #fff' : '2px solid transparent',
-                  marginBottom: -1, transition: 'all 0.15s',
-                }}
-              >
+              <button key={tab} onClick={() => setXrayTab(tab)} style={{ flex: 1, padding: '14px 0', background: 'none', border: 'none', color: xrayTab === tab ? '#fff' : 'rgba(255,255,255,0.5)', fontSize: 15, fontWeight: xrayTab === tab ? 600 : 400, cursor: 'pointer', borderBottom: xrayTab === tab ? '2px solid #fff' : '2px solid transparent', marginBottom: -1, transition: 'all 0.15s' }}>
                 {tab === 'scene' ? 'In Scene' : 'Cast'}
               </button>
             ))}
           </div>
-
-          {/* Cast list */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '12px 0', scrollbarWidth: 'none' }}>
             {xrayCast.map(person => (
               <div key={person.id} style={{ marginBottom: 2 }}>
-                <div
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 14,
-                    padding: '12px 16px', cursor: 'pointer',
-                    background: expandedCastId === person.id ? 'rgba(255,255,255,0.06)' : 'transparent',
-                    transition: 'background 0.15s',
-                  }}
-                  onClick={() => setExpandedCastId(expandedCastId === person.id ? null : person.id)}
-                >
-                  {/* Photo */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px', cursor: 'pointer', background: expandedCastId === person.id ? 'rgba(255,255,255,0.06)' : 'transparent', transition: 'background 0.15s' }} onClick={() => setExpandedCastId(expandedCastId === person.id ? null : person.id)}>
                   <div style={{ position: 'relative', flexShrink: 0 }}>
                     {person.profile ? (
-                      <img src={person.profile} alt={person.name}
-                        style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
+                      <img src={person.profile} alt={person.name} style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
                     ) : (
-                      <div style={{ width: 72, height: 72, background: '#111', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 22, fontWeight: 700 }}>
-                        {person.name.charAt(0)}
-                      </div>
+                      <div style={{ width: 72, height: 72, background: '#111', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 22, fontWeight: 700 }}>{person.name.charAt(0)}</div>
                     )}
-                    <div style={{
-                      position: 'absolute', bottom: 4, left: 4,
-                      background: '#f5c518', color: '#000', fontSize: 8, fontWeight: 800,
-                      padding: '1px 3px', borderRadius: 2, letterSpacing: 0.5,
-                    }}>IMDb</div>
+                    <div style={{ position: 'absolute', bottom: 4, left: 4, background: '#f5c518', color: '#000', fontSize: 8, fontWeight: 800, padding: '1px 3px', borderRadius: 2, letterSpacing: 0.5 }}>IMDb</div>
                   </div>
-
-                  {/* Info */}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ color: '#AAAAAA', fontSize: 14, fontWeight: 400, marginBottom: 3 }}>{person.name}</div>
-                    <div style={{ color: 'rgba(170,170,170,0.65)', fontSize: 12 }}>
-                      Portrays: <span style={{ color: 'rgba(170,170,170,0.7)' }}>{person.character}</span>
-                    </div>
+                    <div style={{ color: 'rgba(170,170,170,0.65)', fontSize: 12 }}>Portrays: <span style={{ color: 'rgba(170,170,170,0.7)' }}>{person.character}</span></div>
                   </div>
-
-                  {/* Chevron */}
-                  <div style={{ color: '#AAAAAA', flexShrink: 0 }}>
-                    {expandedCastId === person.id ? <ChevronUpIcon /> : <ChevronDownIcon />}
-                  </div>
+                  <div style={{ color: '#AAAAAA', flexShrink: 0 }}>{expandedCastId === person.id ? <ChevronUpIcon /> : <ChevronDownIcon />}</div>
                 </div>
-
-                {/* Expanded cast detail */}
                 {expandedCastId === person.id && (
-                  <div style={{
-                    padding: '12px 16px 16px 102px',
-                    background: 'rgba(255,255,255,0.03)',
-                    animation: 'panelIn 0.15s ease-out',
-                  }}>
-                    <div style={{ color: 'rgba(170,170,170,0.7)', fontSize: 12, lineHeight: 1.6 }}>
-                      Known for their roles in various acclaimed productions. View full biography on IMDb.
-                    </div>
-                    <button style={{
-                      marginTop: 10, background: 'none', border: '1px solid rgba(255,255,255,0.2)',
-                      color: '#f5c518', fontSize: 12, fontWeight: 600, padding: '5px 12px',
-                      borderRadius: 4, cursor: 'pointer',
-                    }}>
-                      View on IMDb
-                    </button>
+                  <div style={{ padding: '12px 16px 16px 102px', background: 'rgba(255,255,255,0.03)', animation: 'panelIn 0.15s ease-out' }}>
+                    <div style={{ color: 'rgba(170,170,170,0.7)', fontSize: 12, lineHeight: 1.6 }}>Known for their roles in various acclaimed productions. View full biography on IMDb.</div>
+                    <button style={{ marginTop: 10, background: 'none', border: '1px solid rgba(255,255,255,0.2)', color: '#f5c518', fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 4, cursor: 'pointer' }}>View on IMDb</button>
                   </div>
                 )}
               </div>
             ))}
-
-            {xrayCast.length === 0 && (
-              <div style={{ padding: '40px 20px', textAlign: 'center', color: 'rgba(170,170,170,0.5)', fontSize: 13 }}>
-                Loading cast information...
-              </div>
-            )}
+            {xrayCast.length === 0 && <div style={{ padding: '40px 20px', textAlign: 'center', color: 'rgba(170,170,170,0.5)', fontSize: 13 }}>Loading cast information...</div>}
           </div>
         </div>
       )}
