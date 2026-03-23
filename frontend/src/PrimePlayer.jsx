@@ -172,6 +172,7 @@ export default function PrimePlayer({
   const [buffered, setBuffered] = useState(0);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
+  const [prevVolume, setPrevVolume] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [seeking, setSeeking] = useState(false);
@@ -650,15 +651,23 @@ export default function PrimePlayer({
   const toggleMute = () => {
     const v = videoRef.current;
     if (!v) return;
-    v.muted = !muted;
-    setMuted(!muted);
+    if (!muted) {
+      setPrevVolume(volume || 1);
+      v.muted = true;
+      setMuted(true);
+    } else {
+      const restored = prevVolume;
+      v.muted = false;
+      v.volume = restored;
+      setMuted(false);
+      setVolume(restored);
+    }
   };
 
   const changeVolume = (val) => {
     const v = videoRef.current;
     setVolume(val);
-    setMuted(val === 0);
-    if (v) { v.volume = val; v.muted = val === 0; }
+    if (v) { v.volume = val; v.muted = false; setMuted(false); }
   };
 
   const toggleFullscreen = () => {
