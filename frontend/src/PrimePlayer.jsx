@@ -146,6 +146,27 @@ const fmtTime = (s) => {
 
 const TMDB_API_KEY = 'cb1dc311039e6ae85db0aa200345cbc5';
 
+// ─── SAFE PLAY HELPER ──────────────────────────────────────────────────────
+// Tries to play unmuted. If autoplay policy blocks it, falls back to muted play
+// and shows an "unmute" prompt so user can restore audio with one click.
+async function safePlay(videoEl, onMutedFallback) {
+  if (!videoEl) return;
+  videoEl.muted = false;
+  videoEl.volume = videoEl.volume > 0 ? videoEl.volume : 1;
+  try {
+    await videoEl.play();
+  } catch (e) {
+    // Autoplay with sound blocked — try muted
+    try {
+      videoEl.muted = true;
+      await videoEl.play();
+      if (onMutedFallback) onMutedFallback(); // signal UI to show unmute prompt
+    } catch (_) {
+      // Completely blocked, do nothing
+    }
+  }
+}
+
 // ─── MAIN PLAYER ───────────────────────────────────────────────────────────
 export default function PrimePlayer({
   tmdbId,
@@ -169,12 +190,14 @@ export default function PrimePlayer({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [buffered, setBuffered] = useState(0);
-  
-  // Audio state - source of truth is now the DOM video element
+
+  // Audio state
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
   const [prevVolume, setPrevVolume] = useState(1);
   const [audioWarning, setAudioWarning] = useState(false);
+  // NEW: shown when browser forces muted autoplay
+  const [mutedByAutoplay, setMutedByAutoplay] = useState(false);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
@@ -185,109 +208,126 @@ export default function PrimePlayer({
   const [mode, setMode] = useState('loading');
   const [hlsUrl, setHlsUrl] = useState(null);
   const [provider, setProvider] = useState('');
-  
-  // Dynamic Quality Array populated from source streams/HLS levels
-  const [availableQualities, setAvailableQualities] = useState([]); 
-  const [selectedQuality, setSelectedQuality] = useState(-1); // -1 = Auto
 
-  const [directFiles, setDirectFiles] = useState([]);   
+  const [availableQualities, setAvailableQualities] = useState([]);
+  const [selectedQuality, setSelectedQuality] = useState(-1);
+
+  const [directFiles, setDirectFiles] = useState([]);
   const [directIdx, setDirectIdx] = useState(0);
   const [directError, setDirectError] = useState(null);
-  const [buffering, setBuffering] = useState(false); 
+  const [buffering, setBuffering] = useState(false);
   const [embeds, setEmbeds] = useState([]);
   const [embedIdx, setEmbedIdx] = useState(0);
-  const [embedPhase, setEmbedPhase] = useState('loading'); 
+  const [embedPhase, setEmbedPhase] = useState('loading');
   const [imdbId, setImdbId] = useState(null);
   const iframeTimerRef = useRef(null);
 
   // ── UI panel state ──────────────────────────────────────────────────────
-  const [activePanel, setActivePanel] = useState(null); 
+  const [activePanel, setActivePanel] = useState(null);
   const [subtitleTrack, setSubtitleTrack] = useState('Off');
   const [audioTrack, setAudioTrack] = useState('English');
 
   // ── X-Ray state ─────────────────────────────────────────────────────────
-  const [xrayOpen, setXrayOpen] = useState(false);         
-  const [xrayExpanded, setXrayExpanded] = useState(false); 
+  const [xrayOpen, setXrayOpen] = useState(false);
+  const [xrayExpanded, setXrayExpanded] = useState(false);
   const [xrayCast, setXrayCast] = useState([]);
-  const [xrayTab, setXrayTab] = useState('scene');         
+  const [xrayTab, setXrayTab] = useState('scene');
   const [expandedCastId, setExpandedCastId] = useState(null);
   const [movieTitle, setMovieTitle] = useState(title);
 
   const [hoverTime, setHoverTime] = useState(null);
   const [hoverX, setHoverX] = useState(0);
-  const [skipFeedback, setSkipFeedback] = useState(null); 
+  const [skipFeedback, setSkipFeedback] = useState(null);
 
   const chapterMarkers = duration > 0 ? [0.16, 0.33, 0.5, 0.66, 0.83].map(p => p * duration) : [];
   const isVideoMode = mode === 'hls' || mode === 'direct';
 
-  // ─── AUDIO SYNC & CODEC AUTO-DETECT ──────────────────────────────────────
+  // ─── SYNC audio state FROM video element ────────────────────────────────
+  // This is the single source of truth for muted/volume — read from the DOM.
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
     const onVolumeChange = () => {
       setMuted(v.muted);
       setVolume(v.volume);
+      // If user interacted and unmuted, clear autoplay-mute flag
+      if (!v.muted && v.volume > 0) setMutedByAutoplay(false);
     };
     v.addEventListener('volumechange', onVolumeChange);
     return () => v.removeEventListener('volumechange', onVolumeChange);
   }, []);
 
-  // AFTER existing audio warning effect, add this new effect
-useEffect(() => {
-  if (!audioWarning) return;
-
-  // Prefer a safe HLS level (<=1080p)
-  if (mode === 'hls' && hlsRef.current) {
-    const safe = hlsRef.current.levels
-      .map((l, i) => ({ i, h: l.height || 0 }))
-      .filter(l => l.h && l.h <= 1080)
-      .sort((a, b) => b.h - a.h)[0];
-
-    if (safe) {
-      hlsRef.current.autoLevelCapping = safe.i;
-      hlsRef.current.currentLevel = safe.i;
-      setSelectedQuality(safe.i);
-      setAudioWarning(false);
-      return;
-    }
-  }
-
-  // Otherwise, try next direct source
-  if (mode === 'direct' && directIdx < directFiles.length - 1) {
-    setDirectIdx(i => i + 1);
-    setAudioWarning(false);
-    return;
-  }
-
-  // Final fallback: iframe sources
-  setMode('iframe');
-  setEmbedIdx(0);
-  setEmbedPhase('loading');
-  setAudioWarning(false);
-}, [audioWarning, mode, directIdx, directFiles.length, setSelectedQuality]);
-
+  // ─── AUDIO WARNING — conservative, high-confidence only ─────────────────
+  // Only fires if Chrome's audio byte counter stays at ZERO for 10+ seconds
+  // after playback has been going for at least 8 seconds. This eliminates
+  // the false positives that were switching to iframe mode prematurely.
   useEffect(() => {
     if (!playing || !isVideoMode || muted || volume === 0) {
       setAudioWarning(false);
       return;
     }
     const v = videoRef.current;
+    let baselineBytes = -1;
+    let silentCount = 0;
+
     const interval = setInterval(() => {
-      if (!v || v.paused) return;
-      if (v.currentTime > 3) {
-        const chromeSilent = typeof v.webkitAudioDecodedByteCount === 'number' && v.webkitAudioDecodedByteCount === 0;
-        const firefoxSilent = typeof v.mozHasAudio === 'boolean' && v.mozHasAudio === false;
-        const safariSilent = v.audioTracks && v.audioTracks.length === 0;
-        if (chromeSilent || firefoxSilent || safariSilent) {
-          setAudioWarning(true);
+      if (!v || v.paused || v.currentTime < 8) return;
+
+      if (typeof v.webkitAudioDecodedByteCount === 'number') {
+        if (baselineBytes === -1) {
+          baselineBytes = v.webkitAudioDecodedByteCount;
+          return;
+        }
+        const currentBytes = v.webkitAudioDecodedByteCount;
+        if (currentBytes === baselineBytes && currentBytes === 0) {
+          silentCount++;
+          if (silentCount >= 2) setAudioWarning(true); // silent for 2 consecutive checks (10s)
         } else {
+          silentCount = 0;
           setAudioWarning(false);
         }
+        baselineBytes = currentBytes;
+        return;
       }
-    }, 2500);
+
+      // Firefox: mozHasAudio is definitive
+      if (typeof v.mozHasAudio === 'boolean' && v.mozHasAudio === false) {
+        setAudioWarning(true);
+      }
+    }, 5000);
     return () => clearInterval(interval);
   }, [playing, isVideoMode, muted, volume]);
 
+  // ─── AUDIO WARNING RECOVERY ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!audioWarning) return;
+
+    if (mode === 'hls' && hlsRef.current) {
+      const safe = hlsRef.current.levels
+        .map((l, i) => ({ i, h: l.height || 0 }))
+        .filter(l => l.h && l.h <= 1080)
+        .sort((a, b) => b.h - a.h)[0];
+
+      if (safe) {
+        hlsRef.current.autoLevelCapping = safe.i;
+        hlsRef.current.currentLevel = safe.i;
+        setSelectedQuality(safe.i);
+        setAudioWarning(false);
+        return;
+      }
+    }
+
+    if (mode === 'direct' && directIdx < directFiles.length - 1) {
+      setDirectIdx(i => i + 1);
+      setAudioWarning(false);
+      return;
+    }
+
+    setMode('iframe');
+    setEmbedIdx(0);
+    setEmbedPhase('loading');
+    setAudioWarning(false);
+  }, [audioWarning, mode, directIdx, directFiles.length]);
 
   // ─── EMBED LIST BUILDER ──────────────────────────────────────────────────
   const buildEmbeds = (tid, iid, mType, s, e) => {
@@ -322,12 +362,13 @@ useEffect(() => {
     setEmbedPhase('loading');
     setPlaying(false);
     setAudioWarning(false);
+    setMutedByAutoplay(false);
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
 
     let _cancelled = false;
 
     const ctrl0 = new AbortController();
-    const t0    = setTimeout(() => ctrl0.abort(), 8000);
+    const t0 = setTimeout(() => ctrl0.abort(), 8000);
     fetch(
       `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids,credits`,
       { signal: ctrl0.signal }
@@ -351,30 +392,30 @@ useEffect(() => {
       let streams = [];
       try {
         const ctrl = new AbortController();
-        const tid  = setTimeout(() => ctrl.abort(), 13000);
+        const tid = setTimeout(() => ctrl.abort(), 13000);
         const r = await fetch(
           `/api/multi-stream?${new URLSearchParams({ tmdbId, type: mediaType, season, episode })}`,
           { signal: ctrl.signal }
         ).finally(() => clearTimeout(tid));
-        
+
         if (r.ok) {
           const data = await r.json();
           if (data?.success && Array.isArray(data.streams)) {
             let fetchedStreams = data.streams.filter(s => s?.url && s.url.startsWith('http'));
-            
-            // Push 4K down the priority list
+
+            // Prefer 1080p > 720p > Auto > 4K (4K often has AC3 audio incompatible with browsers)
             fetchedStreams.sort((a, b) => {
               const getScore = (q) => {
                 const qStr = (q || '').toLowerCase();
                 if (qStr.includes('1080')) return 4;
-                if (qStr.includes('720')) return 3;
+                if (qStr.includes('720'))  return 3;
                 if (qStr.includes('auto')) return 2;
                 if (qStr.includes('4k') || qStr.includes('2160')) return 1;
                 return 0;
               };
               return getScore(b.quality) - getScore(a.quality);
             });
-            
+
             streams = fetchedStreams;
           }
         }
@@ -384,9 +425,8 @@ useEffect(() => {
 
       if (streams.length > 0) {
         const firstStream = streams[0];
-        const rawUrl      = firstStream.url;
+        const rawUrl = firstStream.url;
 
-        // --- M3U8 / HLS MODE ---
         if (rawUrl.includes('.m3u8') || rawUrl.includes('mpegurl') || rawUrl.includes('playlist')) {
           const proxiedUrl = `/api/proxy?url=${encodeURIComponent(rawUrl)}`;
           if (!_cancelled) {
@@ -398,7 +438,6 @@ useEffect(() => {
           return;
         }
 
-        // --- DIRECT MP4 MODE ---
         const files = [];
         streams.forEach(s => {
           if (!s.url) return;
@@ -412,15 +451,9 @@ useEffect(() => {
         if (!_cancelled) {
           setDirectFiles(files);
           setDirectIdx(0);
-          
-          // Populate the Video Quality UI for Direct mode
-          const dQualities = files.map((f, i) => ({
-            label: f.quality || `Source ${i+1}`,
-            value: i
-          }));
+          const dQualities = files.map((f, i) => ({ label: f.quality || `Source ${i + 1}`, value: i }));
           setAvailableQualities(dQualities);
           setSelectedQuality(0);
-
           setBuffering(true);
           setMode('direct');
         }
@@ -440,25 +473,20 @@ useEffect(() => {
   // ─── QUALITY SELECTOR HANDLER ───────────────────────────────────────────
   const handleQualityChange = (val) => {
     setSelectedQuality(val);
-    
+
     if (mode === 'hls' && hlsRef.current) {
       if (val === -1) {
-        // Reset to Auto
         hlsRef.current.currentLevel = -1;
-        
-        // Re-apply the 1080p Cap so it doesn't wander back to 4K
-        const max1080Index = hlsRef.current.levels.findIndex(l => l.height && l.height <= 1080 && l.height >= 720) || -1;
+        const max1080Index = hlsRef.current.levels.findIndex(l => l.height && l.height <= 1080 && l.height >= 720);
         if (max1080Index !== -1) hlsRef.current.autoLevelCapping = max1080Index;
-        
       } else {
-        // Force specific level (e.g., 720p or 480p)
         hlsRef.current.currentLevel = val;
       }
     } else if (mode === 'direct') {
       setDirectIdx(val);
     }
-    
-    setActivePanel(null); // Close panel
+
+    setActivePanel(null);
   };
 
   // ─── HLS SETUP ──────────────────────────────────────────────────────────
@@ -469,69 +497,96 @@ useEffect(() => {
 
     if (Hls.isSupported()) {
       const hls = new Hls({
-        enableWorker: true, backBufferLength: 60, maxBufferLength: 30, lowLatencyMode: false,
-        fragLoadingTimeOut: 30000, manifestLoadingTimeOut: 20000, levelLoadingTimeOut: 20000,
-        fragLoadingMaxRetry: 6, manifestLoadingMaxRetry: 4, levelLoadingMaxRetry: 4,
-        fragLoadingRetryDelay: 500, xhrSetup: (xhr) => { xhr.withCredentials = false; },
+        enableWorker: true,
+        backBufferLength: 60,
+        maxBufferLength: 30,
+        lowLatencyMode: false,
+        fragLoadingTimeOut: 30000,
+        manifestLoadingTimeOut: 20000,
+        levelLoadingTimeOut: 20000,
+        fragLoadingMaxRetry: 6,
+        manifestLoadingMaxRetry: 4,
+        levelLoadingMaxRetry: 4,
+        fragLoadingRetryDelay: 500,
+        // ── KEY FIX: always load all audio tracks ──
+        audioPreloadMax: 4,
+        xhrSetup: (xhr) => { xhr.withCredentials = false; },
       });
       hlsRef.current = hls;
       hls.loadSource(hlsUrl);
       hls.attachMedia(vid);
 
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
         setBuffering(false);
 
-        // --- POPULATE QUALITY MENU & ENFORCE 1080P MAX ---
         const levels = hls.levels;
         let max1080Index = -1;
         const qualities = [];
 
-        // HLS levels are sorted lowest to highest. We map them highest to lowest for UI.
         for (let i = levels.length - 1; i >= 0; i--) {
-            const h = levels[i].height;
-            if (h) {
-                // Find highest resolution that is 1080p or less to use as the Auto Cap
-                if (h <= 1080 && max1080Index === -1) {
-                    max1080Index = i;
-                }
-                
-                // Add to our Video Quality settings menu
-                qualities.push({ 
-                  label: h === 1080 ? '1080p Full HD' : h === 720 ? '720p HD' : `${h}p`, 
-                  value: i, 
-                  height: h 
-                });
-            }
+          const h = levels[i].height;
+          if (h) {
+            if (h <= 1080 && max1080Index === -1) max1080Index = i;
+            qualities.push({
+              label: h === 2160 ? '4K (2160p)' : h === 1080 ? '1080p Full HD' : h === 720 ? '720p HD' : `${h}p`,
+              value: i,
+              height: h,
+            });
+          }
         }
-        
+
         qualities.unshift({ label: 'Auto (Max 1080p)', value: -1 });
         setAvailableQualities(qualities);
-        setSelectedQuality(-1); // Default to Auto
+        setSelectedQuality(-1);
 
-        // CRITICAL: Block 4K in Auto mode to fix AC3 audio dropping
-        if (max1080Index !== -1) {
-            hls.autoLevelCapping = max1080Index; 
+        // Cap auto-ABR at 1080p to avoid 4K levels with AC3/EAC3 audio
+        if (max1080Index !== -1) hls.autoLevelCapping = max1080Index;
+
+        // ── KEY FIX: explicitly select the first available audio track ──
+        if (hls.audioTracks && hls.audioTracks.length > 0) {
+          hls.audioTrack = 0;
         }
 
-        vid.volume = volume;
-        vid.muted = muted;
-        vid.play().then(() => setPlaying(true)).catch(() => {
+        // ── KEY FIX: set volume BEFORE calling play, never rely on React state alone ──
+        vid.volume = 1;
+        vid.muted = false;
+
+        safePlay(vid, () => {
+          setMutedByAutoplay(true);
+          setMuted(true);
+        }).then(() => setPlaying(true)).catch(() => {
           setPlaying(false);
           setBuffering(false);
         });
       });
 
+      // ── KEY FIX: handle audio track load errors gracefully without bailing to iframe ──
+      hls.on(Hls.Events.AUDIO_TRACK_LOADED, () => {
+        // Audio track confirmed loaded — clear any pending warning
+        setAudioWarning(false);
+      });
+
       let _netRetries = 0;
       let _mediaRetries = 0;
       hls.on(Hls.Events.ERROR, (_, d) => {
-        if (d.details === Hls.ErrorDetails.AUDIO_TRACK_LOAD_ERROR || d.details === Hls.ErrorDetails.AUDIO_TRACK_LOAD_TIMEOUT) {
-          console.warn('[HLS] Audio track missing/failed. Forcing fallback to next source.');
-          hls.destroy();
-          setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading');
+        // Audio track errors: try switching to the next audio track first
+        if (
+          d.details === Hls.ErrorDetails.AUDIO_TRACK_LOAD_ERROR ||
+          d.details === Hls.ErrorDetails.AUDIO_TRACK_LOAD_TIMEOUT
+        ) {
+          console.warn('[HLS] Audio track load failed, trying next audio track');
+          if (hls.audioTracks && hls.audioTracks.length > 1) {
+            const nextTrack = (hls.audioTrack + 1) % hls.audioTracks.length;
+            hls.audioTrack = nextTrack;
+          } else {
+            // No alternative audio tracks — fall through to iframe
+            hls.destroy();
+            setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading');
+          }
           return;
         }
 
-        if (!d.fatal) return; 
+        if (!d.fatal) return;
         if (d.type === Hls.ErrorTypes.NETWORK_ERROR) {
           if (_netRetries < 4) {
             _netRetries++;
@@ -551,43 +606,53 @@ useEffect(() => {
         }
       });
     } else if (vid.canPlayType('application/vnd.apple.mpegurl')) {
+      // Safari native HLS
       vid.src = hlsUrl;
+      vid.volume = 1;
+      vid.muted = false;
       vid.addEventListener('loadedmetadata', () => {
         setBuffering(false);
-        vid.volume = volume;
-        vid.muted = muted;
-        vid.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+        safePlay(vid, () => { setMutedByAutoplay(true); setMuted(true); })
+          .then(() => setPlaying(true))
+          .catch(() => setPlaying(false));
       }, { once: true });
     } else {
       setMode('iframe');
     }
-    return () => { if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; } };
+
+    return () => {
+      if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+    };
   }, [hlsUrl, mode]);
 
   // ─── DIRECT MODE ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (mode !== 'direct' || !videoRef.current || !directFiles.length) return;
-    const vid  = videoRef.current;
-    const file = directFiles[directIdx];
-    if (!file?.url) return;
+    const vid = directFiles[directIdx];
+    if (!vid?.url) return;
 
+    const videoEl = videoRef.current;
     setCurrentTime(0); setDuration(0); setBuffered(0); setPlaying(false);
     setBuffering(true); setDirectError(null); setAudioWarning(false);
+    setMutedByAutoplay(false);
 
-    vid.pause();
-    vid.removeAttribute('src');
-    vid.load();
+    videoEl.pause();
+    videoEl.removeAttribute('src');
+    videoEl.load();
 
     const loadTimer = setTimeout(() => {
       if (!videoRef.current) return;
-      vid.src  = file.url;
-      vid.load();
+      // ── KEY FIX: always start unmuted with full volume ──
+      videoEl.volume = 1;
+      videoEl.muted = false;
+      videoEl.src = vid.url;
+      videoEl.load();
     }, 80);
 
     let cancelled = false;
     let stallTimer = null;
 
-    const tryNext = (reason) => {
+    const tryNext = () => {
       if (cancelled) return;
       cancelled = true;
       clearTimeout(stallTimer);
@@ -598,38 +663,39 @@ useEffect(() => {
     const onCanPlay = () => {
       if (cancelled) return;
       setBuffering(false);
-      vid.volume = volume;
-      vid.muted = muted;
-      vid.play()
+      // ── KEY FIX: re-affirm unmuted state right before play ──
+      videoEl.volume = 1;
+      videoEl.muted = false;
+      safePlay(videoEl, () => { setMutedByAutoplay(true); setMuted(true); })
         .then(() => { if (!cancelled) setPlaying(true); })
-        .catch(err => { if (!cancelled) { setPlaying(false); setBuffering(false); } });
+        .catch(() => { if (!cancelled) { setPlaying(false); setBuffering(false); } });
     };
 
     const onError = () => {
-      const e = vid.error;
+      const e = videoEl.error;
       if (!e || e.code === 1) return;
-      tryNext('video error code=' + e.code);
+      tryNext();
     };
 
-    stallTimer = setTimeout(() => tryNext('load timeout 10s'), 10000);
+    stallTimer = setTimeout(() => tryNext(), 10000);
 
     const onProgress = () => {
       clearTimeout(stallTimer);
       stallTimer = setTimeout(() => {
-        if (vid.readyState < 3 && !vid.paused) tryNext('stall after progress');
+        if (videoEl.readyState < 3 && !videoEl.paused) tryNext();
       }, 10000);
     };
 
-    vid.addEventListener('canplay',  onCanPlay,  { once: true });
-    vid.addEventListener('error',    onError,    { once: true });
-    vid.addEventListener('progress', onProgress);
+    videoEl.addEventListener('canplay',  onCanPlay,  { once: true });
+    videoEl.addEventListener('error',    onError,    { once: true });
+    videoEl.addEventListener('progress', onProgress);
 
     return () => {
       cancelled = true;
       clearTimeout(loadTimer); clearTimeout(stallTimer);
-      vid.removeEventListener('canplay', onCanPlay);
-      vid.removeEventListener('error', onError);
-      vid.removeEventListener('progress', onProgress);
+      videoEl.removeEventListener('canplay', onCanPlay);
+      videoEl.removeEventListener('error', onError);
+      videoEl.removeEventListener('progress', onProgress);
     };
   }, [mode, directIdx, directFiles]);
 
@@ -673,8 +739,8 @@ useEffect(() => {
       if (e.target.tagName === 'INPUT') return;
       switch (e.key) {
         case ' ': case 'k': e.preventDefault(); togglePlay(); break;
-        case 'ArrowLeft': e.preventDefault(); skip(-10); break;
-        case 'ArrowRight': e.preventDefault(); skip(10); break;
+        case 'ArrowLeft':  e.preventDefault(); skip(-10); break;
+        case 'ArrowRight': e.preventDefault(); skip(10);  break;
         case 'f': toggleFullscreen(); break;
         case 'm': toggleMute(); break;
         case 'Escape':
@@ -698,24 +764,24 @@ useEffect(() => {
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
-    const onPlay     = () => { setPlaying(true);  setBuffering(false); };
-    const onPause    = () => setPlaying(false);
-    const onTime     = () => setCurrentTime(v.currentTime);
-    const onDur      = () => { if (v.duration && isFinite(v.duration)) setDuration(v.duration); };
-    const onProg     = () => { if (v.buffered.length) setBuffered(v.buffered.end(v.buffered.length - 1)); };
-    const onWaiting  = () => setBuffering(true);
-    const onPlaying  = () => setBuffering(false);
-    const onCanPlay  = () => setBuffering(false);
-    const onStalled  = () => setBuffering(true);
-    v.addEventListener('play',            onPlay);
-    v.addEventListener('pause',           onPause);
-    v.addEventListener('timeupdate',      onTime);
-    v.addEventListener('durationchange',  onDur);
-    v.addEventListener('progress',        onProg);
-    v.addEventListener('waiting',         onWaiting);
-    v.addEventListener('playing',         onPlaying);
-    v.addEventListener('canplay',         onCanPlay);
-    v.addEventListener('stalled',         onStalled);
+    const onPlay    = () => { setPlaying(true);  setBuffering(false); };
+    const onPause   = () => setPlaying(false);
+    const onTime    = () => setCurrentTime(v.currentTime);
+    const onDur     = () => { if (v.duration && isFinite(v.duration)) setDuration(v.duration); };
+    const onProg    = () => { if (v.buffered.length) setBuffered(v.buffered.end(v.buffered.length - 1)); };
+    const onWaiting = () => setBuffering(true);
+    const onPlaying = () => setBuffering(false);
+    const onCanPlay = () => setBuffering(false);
+    const onStalled = () => setBuffering(true);
+    v.addEventListener('play',           onPlay);
+    v.addEventListener('pause',          onPause);
+    v.addEventListener('timeupdate',     onTime);
+    v.addEventListener('durationchange', onDur);
+    v.addEventListener('progress',       onProg);
+    v.addEventListener('waiting',        onWaiting);
+    v.addEventListener('playing',        onPlaying);
+    v.addEventListener('canplay',        onCanPlay);
+    v.addEventListener('stalled',        onStalled);
     return () => {
       v.removeEventListener('play',           onPlay);
       v.removeEventListener('pause',          onPause);
@@ -727,7 +793,7 @@ useEffect(() => {
       v.removeEventListener('canplay',        onCanPlay);
       v.removeEventListener('stalled',        onStalled);
     };
-  }, []); 
+  }, []);
 
   // ─── ACTIONS ─────────────────────────────────────────────────────────────
   const togglePlay = () => {
@@ -736,9 +802,9 @@ useEffect(() => {
     if (playing) {
       v.pause();
     } else {
-      v.muted = muted;
-      v.volume = volume;
-      v.play().then(() => setPlaying(true)).catch(console.error);
+      safePlay(v, () => { setMutedByAutoplay(true); setMuted(true); })
+        .then(() => setPlaying(true))
+        .catch(console.error);
     }
   };
 
@@ -757,10 +823,21 @@ useEffect(() => {
       const restoreVol = prevVolume > 0 ? prevVolume : 1;
       v.muted = false;
       v.volume = restoreVol;
+      setMutedByAutoplay(false);
     } else {
       setPrevVolume(v.volume);
       v.muted = true;
     }
+  };
+
+  // ── KEY FIX: unmute from the autoplay-muted banner ──
+  const handleUnmuteClick = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.muted = false;
+    v.volume = prevVolume > 0 ? prevVolume : 1;
+    setMutedByAutoplay(false);
+    setMuted(false);
   };
 
   const changeVolume = (val) => {
@@ -770,6 +847,7 @@ useEffect(() => {
       setPrevVolume(val);
       v.muted = false;
       v.volume = val;
+      setMutedByAutoplay(false);
     } else {
       v.muted = true;
       v.volume = 0;
@@ -777,11 +855,8 @@ useEffect(() => {
   };
 
   const toggleFullscreen = () => {
-    if (!document.fullscreenElement) {
-      containerRef.current?.requestFullscreen();
-    } else {
-      document.exitFullscreen();
-    }
+    if (!document.fullscreenElement) containerRef.current?.requestFullscreen();
+    else document.exitFullscreen();
   };
 
   const togglePiP = async () => {
@@ -819,35 +894,31 @@ useEffect(() => {
     setCurrentTime(t);
   };
 
-  const onProgressMouseUp = () => setSeeking(false);
+  const onProgressMouseUp   = () => setSeeking(false);
   const onProgressMouseLeave = () => { setHoverTime(null); if (seeking) setSeeking(false); };
 
   const getVolumeFromMouseY = (e) => {
     const slider = volumeSliderRef.current;
     if (!slider) return volume;
     const rect = slider.getBoundingClientRect();
-    const ratio = 1 - Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
-    return ratio;
+    return 1 - Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
   };
 
   useEffect(() => {
     if (!isDraggingVolume) return;
     const onMove = (e) => changeVolume(getVolumeFromMouseY(e));
-    const onUp = () => {
-      setIsDraggingVolume(false);
-      setActivePanel(null);
-    };
+    const onUp = () => { setIsDraggingVolume(false); setActivePanel(null); };
     window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    window.addEventListener('mouseup',   onUp);
     return () => {
       window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('mouseup',   onUp);
     };
   }, [isDraggingVolume]);
 
   const progressPct = duration > 0 ? (currentTime / duration) * 100 : 0;
   const bufferedPct = duration > 0 ? (buffered / duration) * 100 : 0;
-  const VolumeIcon = muted ? VolumeMuteIcon : volume === 0 ? VolumeMuteIcon : volume < 0.5 ? VolumeMidIcon : VolumeHighIcon;
+  const VolumeIcon = (muted || volume === 0) ? VolumeMuteIcon : volume < 0.5 ? VolumeMidIcon : VolumeHighIcon;
 
   const curEmbed = embeds[embedIdx];
 
@@ -891,43 +962,57 @@ useEffect(() => {
         @keyframes skipFlash { 0% { opacity: 0.8; } 100% { opacity: 0; } }
         .spin { width: 48px; height: 48px; border-radius: 50%; border: 2px solid rgba(170,170,170,0.2); border-top-color: #AAAAAA; animation: spin 0.85s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
-        
         .quality-item:hover { background: rgba(255,255,255,0.08); }
+        .unmute-banner { animation: unmuteIn 0.3s ease-out; }
+        @keyframes unmuteIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
 
-      {/* ── AUDIO WARNING BANNER ── */}
-      {audioWarning && isVideoMode && (
+      {/* ── AUTOPLAY-MUTED BANNER — shown when browser forces muted start ── */}
+      {mutedByAutoplay && isVideoMode && (
+        <div
+          className="unmute-banner"
+          style={{
+            position: 'absolute', bottom: 80, left: '50%', transform: 'translateX(-50%)',
+            background: 'rgba(0,0,0,0.82)', border: '1px solid rgba(170,170,170,0.3)',
+            color: '#fff', padding: '10px 20px', borderRadius: 8,
+            display: 'flex', alignItems: 'center', gap: 12, zIndex: 50,
+            backdropFilter: 'blur(8px)', boxShadow: '0 4px 20px rgba(0,0,0,0.7)',
+            cursor: 'pointer',
+          }}
+          onClick={(e) => { e.stopPropagation(); handleUnmuteClick(); }}
+        >
+          <VolumeMuteIcon />
+          <span style={{ fontSize: 14, fontWeight: 600 }}>Tap to unmute</span>
+        </div>
+      )}
+
+      {/* ── AUDIO WARNING BANNER (only for confirmed silent streams) ── */}
+      {audioWarning && isVideoMode && !mutedByAutoplay && (
         <div style={{
           position: 'absolute', top: 70, left: '50%', transform: 'translateX(-50%)',
           background: 'rgba(0,0,0,0.85)', border: '1px solid #f87171', color: '#fff',
           padding: '12px 20px', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 16,
-          zIndex: 50, backdropFilter: 'blur(4px)', boxShadow: '0 4px 12px rgba(0,0,0,0.8)'
+          zIndex: 50, backdropFilter: 'blur(4px)', boxShadow: '0 4px 12px rgba(0,0,0,0.8)',
         }}>
           <div>
             <div style={{ color: '#f87171', fontWeight: 700, fontSize: 15, marginBottom: 2 }}>No Sound Detected</div>
-            <div style={{ color: '#AAAAAA', fontSize: 13 }}>Your browser doesn't support this video's high-res audio format.</div>
+            <div style={{ color: '#AAAAAA', fontSize: 13 }}>This stream's audio codec may be unsupported by your browser.</div>
           </div>
           <button
             onClick={(e) => {
               e.stopPropagation();
               setAudioWarning(false);
-              // Force quality drop
-              const qualities = availableQualities.filter(q => q.value !== -1);
-              const safeQuality = qualities.find(q => q.height && q.height <= 1080);
-              if (safeQuality) {
-                 handleQualityChange(safeQuality.value);
-              } else if (mode === 'direct' && directIdx < directFiles.length - 1) {
-                setDirectIdx(i => i + 1);
-              } else {
-                setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading');
-              }
+              const safeQ = availableQualities.find(q => q.height && q.height <= 1080 && q.value !== -1);
+              if (safeQ) { handleQualityChange(safeQ.value); }
+              else if (mode === 'direct' && directIdx < directFiles.length - 1) { setDirectIdx(i => i + 1); }
+              else { setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading'); }
             }}
             style={{
               background: '#f87171', color: '#000', border: 'none', padding: '8px 16px',
-              borderRadius: 4, fontWeight: 700, cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap'
+              borderRadius: 4, fontWeight: 700, cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap',
             }}
           >
-            Force 1080p Stream
+            Try 1080p Stream
           </button>
         </div>
       )}
@@ -941,7 +1026,11 @@ useEffect(() => {
         }}
         playsInline
         preload="metadata"
-        onClick={(e) => { e.stopPropagation(); if (isVideoMode) togglePlay(); }}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (mutedByAutoplay) { handleUnmuteClick(); return; }
+          if (isVideoMode) togglePlay();
+        }}
       />
 
       {/* ── DIRECT MODE ERROR ── */}
@@ -969,7 +1058,6 @@ useEffect(() => {
               </button>
             </div>
           )}
-
           {curEmbed && embedPhase !== 'failed' && (
             <iframe
               ref={iframeRef}
@@ -986,7 +1074,6 @@ useEffect(() => {
               title={movieTitle}
             />
           )}
-
           {embedPhase === 'playing' && embedIdx < embeds.length - 1 && showControls && (
             <div style={{ position: 'absolute', bottom: 72, right: 16, zIndex: 20 }}>
               <button
@@ -1037,6 +1124,7 @@ useEffect(() => {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            {/* Subtitles */}
             <div style={{ position: 'relative' }}>
               <button className={`prime-btn ${activePanel === 'subtitles' ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); setActivePanel(activePanel === 'subtitles' ? null : 'subtitles'); }} title="Subtitles & Audio">
                 <SubtitlesIcon />
@@ -1072,7 +1160,7 @@ useEffect(() => {
               )}
             </div>
 
-            {/* ── QUALITY SETTINGS ── */}
+            {/* Quality */}
             <div style={{ position: 'relative' }}>
               <button className={`prime-btn ${activePanel === 'quality' ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); setActivePanel(activePanel === 'quality' ? null : 'quality'); }} title="Video Quality">
                 <SettingsIcon />
@@ -1081,39 +1169,40 @@ useEffect(() => {
                 <div className="panel" style={{ right: 0, width: 320 }} onClick={e => e.stopPropagation()}>
                   <div style={{ padding: '20px 20px 8px' }}>
                     <div style={{ color: '#fff', fontSize: 18, fontWeight: 700, marginBottom: 16 }}>Video Quality</div>
-                    
                     {availableQualities.length > 0 ? availableQualities.map((q) => (
-                      <div 
-                        key={q.value} 
+                      <div
+                        key={q.value}
                         className="quality-item"
-                        style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 4px', cursor: 'pointer', borderRadius: 4, transition: 'background 0.1s' }} 
+                        style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 4px', cursor: 'pointer', borderRadius: 4, transition: 'background 0.1s' }}
                         onClick={() => handleQualityChange(q.value)}
                       >
                         <div style={{ width: 24, flexShrink: 0 }}>{selectedQuality === q.value && <CheckIcon />}</div>
-                        <div>
-                          <div style={{ color: selectedQuality === q.value ? '#fff' : 'rgba(255,255,255,0.85)', fontSize: 16, fontWeight: selectedQuality === q.value ? 700 : 400 }}>
-                            {q.label}
-                          </div>
+                        <div style={{ color: selectedQuality === q.value ? '#fff' : 'rgba(255,255,255,0.85)', fontSize: 16, fontWeight: selectedQuality === q.value ? 700 : 400 }}>
+                          {q.label}
                         </div>
                       </div>
                     )) : (
                       <div style={{ color: '#AAAAAA', fontSize: 14, fontStyle: 'italic', paddingBottom: 10 }}>Loading qualities...</div>
                     )}
-
                   </div>
                 </div>
               )}
             </div>
 
+            {/* Volume */}
             <div style={{ position: 'relative' }} onMouseEnter={() => setActivePanel('volume')} onMouseLeave={() => { if (!isDraggingVolume) setActivePanel(null); }}>
-              <button className={`prime-btn ${activePanel === 'volume' ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); toggleMute(); }} title="Volume">
+              <button
+                className={`prime-btn ${activePanel === 'volume' ? 'active' : ''}`}
+                onClick={(e) => { e.stopPropagation(); toggleMute(); }}
+                title="Volume"
+              >
                 <VolumeIcon />
               </button>
               {activePanel === 'volume' && (
                 <div className="volume-popup" onClick={e => e.stopPropagation()}>
                   <div ref={volumeSliderRef} className="volume-track" onMouseDown={(e) => { e.stopPropagation(); setIsDraggingVolume(true); changeVolume(getVolumeFromMouseY(e)); }}>
-                    <div className="volume-fill" style={{ height: `${volume * 100}%` }} />
-                    <div className="volume-knob" style={{ bottom: `${volume * 100}%` }} />
+                    <div className="volume-fill" style={{ height: `${(muted ? 0 : volume) * 100}%` }} />
+                    <div className="volume-knob" style={{ bottom: `${(muted ? 0 : volume) * 100}%` }} />
                   </div>
                 </div>
               )}
@@ -1124,7 +1213,6 @@ useEffect(() => {
               {isFullscreen ? <ExitFullscreenIcon /> : <FullscreenIcon />}
             </button>
 
-            {/* Provider indicator */}
             {(mode === 'hls' || mode === 'direct') && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginRight: 4 }}>
                 <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: 0.8, padding: '2px 7px', borderRadius: 4, border: '1px solid', color: '#AAAAAA', borderColor: 'rgba(170,170,170,0.4)', textTransform: 'uppercase' }}>
@@ -1132,12 +1220,13 @@ useEffect(() => {
                 </div>
               </div>
             )}
-            
+
             <div style={{ width: 1, height: 22, background: '#AAAAAA', margin: '0 6px', opacity: 0.4 }} />
             <button className="prime-btn" onClick={(e) => { e.stopPropagation(); onClose?.(); }} title="Close"><CloseIcon /></button>
           </div>
         </div>
 
+        {/* X-Ray mini overlay */}
         {xrayOpen && xrayCast.length > 0 && (
           <div className="xray-overlay" onClick={e => e.stopPropagation()}>
             <div style={{ padding: '0 16px 10px', borderBottom: '1px solid rgba(255,255,255,0.1)', marginBottom: 8 }}>
@@ -1167,6 +1256,7 @@ useEffect(() => {
           </div>
         )}
 
+        {/* Center play/pause/skip controls */}
         {isVideoMode && (
           <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', display: 'flex', alignItems: 'center', gap: 48, zIndex: 8 }} onClick={e => e.stopPropagation()}>
             <button className="prime-btn" style={{ color: '#AAAAAA', padding: 0, position: 'relative' }} onClick={() => skip(-10)}>
@@ -1183,6 +1273,7 @@ useEffect(() => {
           </div>
         )}
 
+        {/* Progress bar */}
         {isVideoMode && (
           <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '0 0 28px', zIndex: 10 }}>
             <div ref={progressBarRef} className="progress-track" style={{ marginBottom: 12, cursor: isVideoMode ? 'pointer' : 'default', borderRadius: 0 }} onMouseDown={isVideoMode ? onProgressMouseDown : undefined} onMouseMove={isVideoMode ? onProgressMouseMove : undefined} onMouseUp={isVideoMode ? onProgressMouseUp : undefined} onMouseLeave={isVideoMode ? onProgressMouseLeave : undefined} onClick={e => e.stopPropagation()}>
