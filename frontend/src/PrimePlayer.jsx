@@ -216,7 +216,7 @@ export default function PrimePlayer({
   const chapterMarkers = duration > 0 ? [0.16, 0.33, 0.5, 0.66, 0.83].map(p => p * duration) : [];
   const isVideoMode = mode === 'hls' || mode === 'direct';
 
-  // ─── AUDIO SYNC & CODEC AUTO-DETECT (THE FIX) ────────────────────────────
+  // ─── AUDIO SYNC & CODEC AUTO-DETECT ──────────────────────────────────────
   // 1. Sync React UI with DOM Mute/Volume (handles Browser Autoplay Muting)
   useEffect(() => {
     const v = videoRef.current;
@@ -326,10 +326,29 @@ export default function PrimePlayer({
           `/api/multi-stream?${new URLSearchParams({ tmdbId, type: mediaType, season, episode })}`,
           { signal: ctrl.signal }
         ).finally(() => clearTimeout(tid));
+        
         if (r.ok) {
           const data = await r.json();
           if (data?.success && Array.isArray(data.streams)) {
-            streams = data.streams.filter(s => s?.url && s.url.startsWith('http'));
+            // Filter invalid URLs
+            let fetchedStreams = data.streams.filter(s => s?.url && s.url.startsWith('http'));
+            
+            // PRIORITIZATION LOGIC: 
+            // 1. We prioritize 1080p specifically, as these usually use standard AAC audio formats.
+            // 2. We de-prioritize 4K/2160p as they frequently use Dolby AC3/E-AC3 which browsers drop.
+            fetchedStreams.sort((a, b) => {
+              const getScore = (q) => {
+                const qStr = (q || '').toLowerCase();
+                if (qStr.includes('1080')) return 4; // Top priority: 1080p WebDLs (safe audio)
+                if (qStr.includes('720')) return 3;  // Safe fallback
+                if (qStr.includes('auto')) return 2; // HLS auto formats
+                if (qStr.includes('4k') || qStr.includes('2160')) return 1; // High risk of unsupported AC3
+                return 0; // Unknown
+              };
+              return getScore(b.quality) - getScore(a.quality);
+            });
+            
+            streams = fetchedStreams;
           }
         }
       } catch (e) { console.warn('[PrimePlayer] /api/multi-stream error:', e.message); }
@@ -792,7 +811,7 @@ export default function PrimePlayer({
         }}>
           <div>
             <div style={{ color: '#f87171', fontWeight: 700, fontSize: 15, marginBottom: 2 }}>No Sound Detected</div>
-            <div style={{ color: '#AAAAAA', fontSize: 13 }}>Your browser doesn't support this video's audio format.</div>
+            <div style={{ color: '#AAAAAA', fontSize: 13 }}>Your browser doesn't support this video's high-res audio format.</div>
           </div>
           <button
             onClick={(e) => {
@@ -809,7 +828,7 @@ export default function PrimePlayer({
               borderRadius: 4, fontWeight: 700, cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap'
             }}
           >
-            Try Next Source
+            Skip to 1080p Source
           </button>
         </div>
       )}
