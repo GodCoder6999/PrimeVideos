@@ -993,10 +993,9 @@ export default function PrimePlayer({
         position: 'absolute', inset: 0,
         opacity: showControls ? 1 : 0,
         transition: 'opacity 0.3s ease',
-        pointerEvents: showControls ? 'auto' : 'none',
+        pointerEvents: mode === 'iframe' ? 'none' : (showControls ? 'auto' : 'none'), // 👈 Updated
         zIndex: 5,
       }}>
-
         {/* Top gradient */}
         <div style={{
           position: 'absolute', top: 0, left: 0, right: 0, height: 80,
@@ -1016,7 +1015,9 @@ export default function PrimePlayer({
           position: 'absolute', top: 0, left: 0, right: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '12px 16px', zIndex: 10,
+          pointerEvents: 'auto', // 👈 Added so top bar remains clickable
         }}>
+          
           {/* X-Ray */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <button
@@ -1156,17 +1157,15 @@ export default function PrimePlayer({
             </div>
 
             {/* Volume */}
-            <div 
-              style={{ position: 'relative' }}
-              onMouseEnter={() => setActivePanel('volume')}
-              onMouseLeave={() => { if (!isDraggingVolume) setActivePanel(null); }}
-            >
+            <div style={{ position: 'relative' }}>
               <button
                 className={`prime-btn ${activePanel === 'volume' ? 'active' : ''}`}
                 onClick={(e) => { 
                   e.stopPropagation(); 
-                  toggleMute(); 
+                  toggleMute(); // 👈 Actually mute/unmute instead of just opening the panel
                 }}
+                onMouseEnter={() => setActivePanel('volume')} // 👈 Open panel on hover
+                onMouseLeave={() => { if (!isDraggingVolume) setActivePanel(null); }}
                 title="Volume"
               >
                 <VolumeIcon />
@@ -1336,10 +1335,11 @@ export default function PrimePlayer({
         )}
 
         {/* ── BOTTOM BAR ── */}
-        <div style={{
-          position: 'absolute', bottom: 0, left: 0, right: 0,
-          padding: '0 0 28px', zIndex: 10,
-        }}>
+        {isVideoMode && ( // 👈 Wrap the bottom bar in isVideoMode
+          <div style={{
+            position: 'absolute', bottom: 0, left: 0, right: 0,
+            padding: '0 0 28px', zIndex: 10,
+          }}>
           {/* Progress bar */}
           <div
             ref={progressBarRef}
