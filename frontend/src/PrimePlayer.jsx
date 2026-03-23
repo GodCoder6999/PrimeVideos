@@ -174,17 +174,22 @@ export default function PrimePlayer({
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
   const [prevVolume, setPrevVolume] = useState(1);
-  const [audioWarning, setAudioWarning] = useState(false); // detects broken AC3 streams
+  const [audioWarning, setAudioWarning] = useState(false);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [seeking, setSeeking] = useState(false);
   const [isDraggingVolume, setIsDraggingVolume] = useState(false);
 
-  // ── Stream state ────────────────────────────────────────────────────────
+  // ── Stream & Quality State ────────────────────────────────────────────────
   const [mode, setMode] = useState('loading');
   const [hlsUrl, setHlsUrl] = useState(null);
   const [provider, setProvider] = useState('');
+  
+  // Dynamic Quality Array populated from source streams/HLS levels
+  const [availableQualities, setAvailableQualities] = useState([]); 
+  const [selectedQuality, setSelectedQuality] = useState(-1); // -1 = Auto
+
   const [directFiles, setDirectFiles] = useState([]);   
   const [directIdx, setDirectIdx] = useState(0);
   const [directError, setDirectError] = useState(null);
@@ -197,9 +202,8 @@ export default function PrimePlayer({
 
   // ── UI panel state ──────────────────────────────────────────────────────
   const [activePanel, setActivePanel] = useState(null); 
-  const [quality, setQuality] = useState('Best');
   const [subtitleTrack, setSubtitleTrack] = useState('Off');
-  const [audioTrack, setAudioTrack] = useState('हिन्दी');
+  const [audioTrack, setAudioTrack] = useState('English');
 
   // ── X-Ray state ─────────────────────────────────────────────────────────
   const [xrayOpen, setXrayOpen] = useState(false);         
@@ -217,7 +221,6 @@ export default function PrimePlayer({
   const isVideoMode = mode === 'hls' || mode === 'direct';
 
   // ─── AUDIO SYNC & CODEC AUTO-DETECT ──────────────────────────────────────
-  // 1. Sync React UI with DOM Mute/Volume (handles Browser Autoplay Muting)
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -229,34 +232,25 @@ export default function PrimePlayer({
     return () => v.removeEventListener('volumechange', onVolumeChange);
   }, []);
 
-  // 2. Detect AC-3 / E-AC3 Codec Silence (Chrome/Edge drop audio silently)
   useEffect(() => {
     if (!playing || !isVideoMode || muted || volume === 0) {
       setAudioWarning(false);
       return;
     }
-
     const v = videoRef.current;
     const interval = setInterval(() => {
       if (!v || v.paused) return;
-      // If video has been playing for 3 seconds, check if audio is actually decoding
       if (v.currentTime > 3) {
-        // Chrome/Edge/Brave indicator
         const chromeSilent = typeof v.webkitAudioDecodedByteCount === 'number' && v.webkitAudioDecodedByteCount === 0;
-        // Firefox indicator
         const firefoxSilent = typeof v.mozHasAudio === 'boolean' && v.mozHasAudio === false;
-        // Safari indicator
         const safariSilent = v.audioTracks && v.audioTracks.length === 0;
-
         if (chromeSilent || firefoxSilent || safariSilent) {
-          console.warn('[PrimePlayer] Audio codec unsupported (AC3/E-AC3) or missing track.');
           setAudioWarning(true);
         } else {
           setAudioWarning(false);
         }
       }
     }, 2500);
-
     return () => clearInterval(interval);
   }, [playing, isVideoMode, muted, volume]);
 
@@ -285,6 +279,8 @@ export default function PrimePlayer({
     setProvider('');
     setDirectFiles([]);
     setDirectIdx(0);
+    setAvailableQualities([]);
+    setSelectedQuality(-1);
     setDirectError(null);
     setBuffering(false);
     setEmbeds([]);
@@ -330,20 +326,17 @@ export default function PrimePlayer({
         if (r.ok) {
           const data = await r.json();
           if (data?.success && Array.isArray(data.streams)) {
-            // Filter invalid URLs
             let fetchedStreams = data.streams.filter(s => s?.url && s.url.startsWith('http'));
             
-            // PRIORITIZATION LOGIC: 
-            // 1. We prioritize 1080p specifically, as these usually use standard AAC audio formats.
-            // 2. We de-prioritize 4K/2160p as they frequently use Dolby AC3/E-AC3 which browsers drop.
+            // Push 4K down the priority list
             fetchedStreams.sort((a, b) => {
               const getScore = (q) => {
                 const qStr = (q || '').toLowerCase();
-                if (qStr.includes('1080')) return 4; // Top priority: 1080p WebDLs (safe audio)
-                if (qStr.includes('720')) return 3;  // Safe fallback
-                if (qStr.includes('auto')) return 2; // HLS auto formats
-                if (qStr.includes('4k') || qStr.includes('2160')) return 1; // High risk of unsupported AC3
-                return 0; // Unknown
+                if (qStr.includes('1080')) return 4;
+                if (qStr.includes('720')) return 3;
+                if (qStr.includes('auto')) return 2;
+                if (qStr.includes('4k') || qStr.includes('2160')) return 1;
+                return 0;
               };
               return getScore(b.quality) - getScore(a.quality);
             });
@@ -359,6 +352,7 @@ export default function PrimePlayer({
         const firstStream = streams[0];
         const rawUrl      = firstStream.url;
 
+        // --- M3U8 / HLS MODE ---
         if (rawUrl.includes('.m3u8') || rawUrl.includes('mpegurl') || rawUrl.includes('playlist')) {
           const proxiedUrl = `/api/proxy?url=${encodeURIComponent(rawUrl)}`;
           if (!_cancelled) {
@@ -370,6 +364,7 @@ export default function PrimePlayer({
           return;
         }
 
+        // --- DIRECT MP4 MODE ---
         const files = [];
         streams.forEach(s => {
           if (!s.url) return;
@@ -383,6 +378,15 @@ export default function PrimePlayer({
         if (!_cancelled) {
           setDirectFiles(files);
           setDirectIdx(0);
+          
+          // Populate the Video Quality UI for Direct mode
+          const dQualities = files.map((f, i) => ({
+            label: f.quality || `Source ${i+1}`,
+            value: i
+          }));
+          setAvailableQualities(dQualities);
+          setSelectedQuality(0);
+
           setBuffering(true);
           setMode('direct');
         }
@@ -398,6 +402,30 @@ export default function PrimePlayer({
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
     };
   }, [tmdbId, mediaType, season, episode]);
+
+  // ─── QUALITY SELECTOR HANDLER ───────────────────────────────────────────
+  const handleQualityChange = (val) => {
+    setSelectedQuality(val);
+    
+    if (mode === 'hls' && hlsRef.current) {
+      if (val === -1) {
+        // Reset to Auto
+        hlsRef.current.currentLevel = -1;
+        
+        // Re-apply the 1080p Cap so it doesn't wander back to 4K
+        const max1080Index = hlsRef.current.levels.findIndex(l => l.height && l.height <= 1080 && l.height >= 720) || -1;
+        if (max1080Index !== -1) hlsRef.current.autoLevelCapping = max1080Index;
+        
+      } else {
+        // Force specific level (e.g., 720p or 480p)
+        hlsRef.current.currentLevel = val;
+      }
+    } else if (mode === 'direct') {
+      setDirectIdx(val);
+    }
+    
+    setActivePanel(null); // Close panel
+  };
 
   // ─── HLS SETUP ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -418,6 +446,39 @@ export default function PrimePlayer({
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         setBuffering(false);
+
+        // --- POPULATE QUALITY MENU & ENFORCE 1080P MAX ---
+        const levels = hls.levels;
+        let max1080Index = -1;
+        const qualities = [];
+
+        // HLS levels are sorted lowest to highest. We map them highest to lowest for UI.
+        for (let i = levels.length - 1; i >= 0; i--) {
+            const h = levels[i].height;
+            if (h) {
+                // Find highest resolution that is 1080p or less to use as the Auto Cap
+                if (h <= 1080 && max1080Index === -1) {
+                    max1080Index = i;
+                }
+                
+                // Add to our Video Quality settings menu
+                qualities.push({ 
+                  label: h === 1080 ? '1080p Full HD' : h === 720 ? '720p HD' : `${h}p`, 
+                  value: i, 
+                  height: h 
+                });
+            }
+        }
+        
+        qualities.unshift({ label: 'Auto (Max 1080p)', value: -1 });
+        setAvailableQualities(qualities);
+        setSelectedQuality(-1); // Default to Auto
+
+        // CRITICAL: Block 4K in Auto mode to fix AC3 audio dropping
+        if (max1080Index !== -1) {
+            hls.autoLevelCapping = max1080Index; 
+        }
+
         vid.volume = volume;
         vid.muted = muted;
         vid.play().then(() => setPlaying(true)).catch(() => {
@@ -429,7 +490,6 @@ export default function PrimePlayer({
       let _netRetries = 0;
       let _mediaRetries = 0;
       hls.on(Hls.Events.ERROR, (_, d) => {
-        // HLS AUDIO ERROR CATCH: Proxy breaking relative audio paths
         if (d.details === Hls.ErrorDetails.AUDIO_TRACK_LOAD_ERROR || d.details === Hls.ErrorDetails.AUDIO_TRACK_LOAD_TIMEOUT) {
           console.warn('[HLS] Audio track missing/failed. Forcing fallback to next source.');
           hls.destroy();
@@ -642,7 +702,6 @@ export default function PrimePlayer({
     if (playing) {
       v.pause();
     } else {
-      // Force sound settings on user interaction
       v.muted = muted;
       v.volume = volume;
       v.play().then(() => setPlaying(true)).catch(console.error);
@@ -757,7 +816,6 @@ export default function PrimePlayer({
   const VolumeIcon = muted ? VolumeMuteIcon : volume === 0 ? VolumeMuteIcon : volume < 0.5 ? VolumeMidIcon : VolumeHighIcon;
 
   const curEmbed = embeds[embedIdx];
-  const curDirect = directFiles[directIdx];
 
   // ─── RENDER ──────────────────────────────────────────────────────────────
   return (
@@ -799,9 +857,11 @@ export default function PrimePlayer({
         @keyframes skipFlash { 0% { opacity: 0.8; } 100% { opacity: 0; } }
         .spin { width: 48px; height: 48px; border-radius: 50%; border: 2px solid rgba(170,170,170,0.2); border-top-color: #AAAAAA; animation: spin 0.85s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
+        
+        .quality-item:hover { background: rgba(255,255,255,0.08); }
       `}</style>
 
-      {/* ── AUDIO WARNING BANNER (For AC3/Silent codecs) ── */}
+      {/* ── AUDIO WARNING BANNER ── */}
       {audioWarning && isVideoMode && (
         <div style={{
           position: 'absolute', top: 70, left: '50%', transform: 'translateX(-50%)',
@@ -817,7 +877,12 @@ export default function PrimePlayer({
             onClick={(e) => {
               e.stopPropagation();
               setAudioWarning(false);
-              if (mode === 'direct' && directIdx < directFiles.length - 1) {
+              // Force quality drop
+              const qualities = availableQualities.filter(q => q.value !== -1);
+              const safeQuality = qualities.find(q => q.height && q.height <= 1080);
+              if (safeQuality) {
+                 handleQualityChange(safeQuality.value);
+              } else if (mode === 'direct' && directIdx < directFiles.length - 1) {
                 setDirectIdx(i => i + 1);
               } else {
                 setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading');
@@ -828,7 +893,7 @@ export default function PrimePlayer({
               borderRadius: 4, fontWeight: 700, cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap'
             }}
           >
-            Skip to 1080p Source
+            Force 1080p Stream
           </button>
         </div>
       )}
@@ -973,6 +1038,7 @@ export default function PrimePlayer({
               )}
             </div>
 
+            {/* ── QUALITY SETTINGS ── */}
             <div style={{ position: 'relative' }}>
               <button className={`prime-btn ${activePanel === 'quality' ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); setActivePanel(activePanel === 'quality' ? null : 'quality'); }} title="Video Quality">
                 <SettingsIcon />
@@ -981,15 +1047,25 @@ export default function PrimePlayer({
                 <div className="panel" style={{ right: 0, width: 320 }} onClick={e => e.stopPropagation()}>
                   <div style={{ padding: '20px 20px 8px' }}>
                     <div style={{ color: '#fff', fontSize: 18, fontWeight: 700, marginBottom: 16 }}>Video Quality</div>
-                    {[{ label: 'Good', sub: 'Uses about 0.38 GB per hour' }, { label: 'Better', sub: 'Uses about 1.40 GB per hour' }, { label: 'Best', sub: 'Uses about 6.84 GB per hour' }].map(q => (
-                      <div key={q.label} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 4px', cursor: 'pointer', borderRadius: 4 }} onClick={() => { setQuality(q.label); setActivePanel(null); }}>
-                        <div style={{ width: 24, flexShrink: 0 }}>{quality === q.label && <CheckIcon />}</div>
+                    
+                    {availableQualities.length > 0 ? availableQualities.map((q) => (
+                      <div 
+                        key={q.value} 
+                        className="quality-item"
+                        style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 4px', cursor: 'pointer', borderRadius: 4, transition: 'background 0.1s' }} 
+                        onClick={() => handleQualityChange(q.value)}
+                      >
+                        <div style={{ width: 24, flexShrink: 0 }}>{selectedQuality === q.value && <CheckIcon />}</div>
                         <div>
-                          <div style={{ color: quality === q.label ? '#fff' : 'rgba(255,255,255,0.85)', fontSize: 16, fontWeight: quality === q.label ? 700 : 400 }}>{q.label}</div>
-                          <div style={{ color: 'rgba(170,170,170,0.6)', fontSize: 13, marginTop: 2 }}>{q.sub}</div>
+                          <div style={{ color: selectedQuality === q.value ? '#fff' : 'rgba(255,255,255,0.85)', fontSize: 16, fontWeight: selectedQuality === q.value ? 700 : 400 }}>
+                            {q.label}
+                          </div>
                         </div>
                       </div>
-                    ))}
+                    )) : (
+                      <div style={{ color: '#AAAAAA', fontSize: 14, fontStyle: 'italic', paddingBottom: 10 }}>Loading qualities...</div>
+                    )}
+
                   </div>
                 </div>
               )}
@@ -1014,35 +1090,15 @@ export default function PrimePlayer({
               {isFullscreen ? <ExitFullscreenIcon /> : <FullscreenIcon />}
             </button>
 
+            {/* Provider indicator */}
             {(mode === 'hls' || mode === 'direct') && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginRight: 4 }}>
                 <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: 0.8, padding: '2px 7px', borderRadius: 4, border: '1px solid', color: '#AAAAAA', borderColor: 'rgba(170,170,170,0.4)', textTransform: 'uppercase' }}>
-                  {mode === 'direct' ? (curDirect?.provider ? (curDirect.provider + ' ' + (curDirect.quality || '')).trim() : (curDirect?.quality || 'Direct')) : (provider || 'HLS')}
+                  {provider || 'Stream'}
                 </div>
-                {mode === 'direct' && directFiles.length > 1 && (
-                  <div style={{ position: 'relative' }}>
-                    <button className="prime-btn" onClick={(e) => { e.stopPropagation(); setActivePanel(activePanel === 'directQuality' ? null : 'directQuality'); }} style={{ fontSize: 10, fontWeight: 400, padding: '2px 6px', color: '#AAAAAA' }}>
-                      Quality ▾
-                    </button>
-                    {activePanel === 'directQuality' && (
-                      <div className="panel" style={{ right: 0, width: 200 }} onClick={e => e.stopPropagation()}>
-                        <div style={{ padding: '14px 16px 8px' }}>
-                          <div style={{ color: '#fff', fontSize: 15, fontWeight: 700, marginBottom: 12 }}>Quality</div>
-                          {directFiles.map((f, i) => (
-                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 4px', cursor: 'pointer' }} onClick={() => { setDirectIdx(i); setActivePanel(null); }}>
-                              <div style={{ width: 20 }}>{directIdx === i && <CheckIcon />}</div>
-                              <div style={{ color: directIdx === i ? '#fff' : 'rgba(255,255,255,0.8)', fontSize: 14, fontWeight: directIdx === i ? 700 : 400 }}>
-                                {f.quality || 'SD'}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             )}
+            
             <div style={{ width: 1, height: 22, background: '#AAAAAA', margin: '0 6px', opacity: 0.4 }} />
             <button className="prime-btn" onClick={(e) => { e.stopPropagation(); onClose?.(); }} title="Close"><CloseIcon /></button>
           </div>
