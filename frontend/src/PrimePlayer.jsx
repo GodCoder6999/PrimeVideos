@@ -402,6 +402,8 @@ export default function PrimePlayer({
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         setBuffering(false);
+        vid.volume = volume; // 👈 Add this
+        vid.muted = muted;   // 👈 Add this
         vid.play().then(() => setPlaying(true)).catch(() => {
           // Autoplay blocked — show play button, user will click it
           setPlaying(false);
@@ -494,6 +496,8 @@ export default function PrimePlayer({
     const onCanPlay = () => {
       if (cancelled) return;
       setBuffering(false);
+      vid.volume = volume; // 👈 Add this
+      vid.muted = muted;   // 👈 Add this
       vid.play()
         .then(() => { if (!cancelled) setPlaying(true); })
         .catch(err => {
@@ -743,14 +747,17 @@ export default function PrimePlayer({
   useEffect(() => {
     if (!isDraggingVolume) return;
     const onMove = (e) => changeVolume(getVolumeFromMouseY(e));
-    const onUp = () => setIsDraggingVolume(false);
+    const onUp = () => {
+        setIsDraggingVolume(false);
+        setActivePanel(null); // Optional: close panel when done dragging
+    };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
     return () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [isDraggingVolume, volume]);
+  }, [isDraggingVolume]); // 👈 Removed 'volume' from dependencies
 
   // ─── DERIVED ─────────────────────────────────────────────────────────────
   const progressPct = duration > 0 ? (currentTime / duration) * 100 : 0;
@@ -1149,10 +1156,17 @@ export default function PrimePlayer({
             </div>
 
             {/* Volume */}
-            <div style={{ position: 'relative' }}>
+            <div 
+              style={{ position: 'relative' }}
+              onMouseEnter={() => setActivePanel('volume')}
+              onMouseLeave={() => { if (!isDraggingVolume) setActivePanel(null); }}
+            >
               <button
                 className={`prime-btn ${activePanel === 'volume' ? 'active' : ''}`}
-                onClick={(e) => { e.stopPropagation(); setActivePanel(activePanel === 'volume' ? null : 'volume'); }}
+                onClick={(e) => { 
+                  e.stopPropagation(); 
+                  toggleMute(); 
+                }}
                 title="Volume"
               >
                 <VolumeIcon />
