@@ -402,8 +402,9 @@ export default function PrimePlayer({
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         setBuffering(false);
-        vid.volume = volume; // 👈 Add this
-        vid.muted = muted;   // 👈 Add this
+        // Explicitly set sound preferences derived from React state
+        vid.volume = volume;
+        vid.muted = muted;
         vid.play().then(() => setPlaying(true)).catch(() => {
           // Autoplay blocked — show play button, user will click it
           setPlaying(false);
@@ -440,6 +441,8 @@ export default function PrimePlayer({
       vid.src = hlsUrl;
       vid.addEventListener('loadedmetadata', () => {
         setBuffering(false);
+        vid.volume = volume;
+        vid.muted = muted;
         vid.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
       }, { once: true });
     } else {
@@ -496,8 +499,9 @@ export default function PrimePlayer({
     const onCanPlay = () => {
       if (cancelled) return;
       setBuffering(false);
-      vid.volume = volume; // 👈 Add this
-      vid.muted = muted;   // 👈 Add this
+      // Explicitly set sound preferences derived from React state
+      vid.volume = volume;
+      vid.muted = muted;
       vid.play()
         .then(() => { if (!cancelled) setPlaying(true); })
         .catch(err => {
@@ -748,8 +752,8 @@ export default function PrimePlayer({
     if (!isDraggingVolume) return;
     const onMove = (e) => changeVolume(getVolumeFromMouseY(e));
     const onUp = () => {
-        setIsDraggingVolume(false);
-        setActivePanel(null); // Optional: close panel when done dragging
+      setIsDraggingVolume(false);
+      setActivePanel(null); // Close panel when finished dragging
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -757,7 +761,7 @@ export default function PrimePlayer({
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [isDraggingVolume]); // 👈 Removed 'volume' from dependencies
+  }, [isDraggingVolume]); // 👈 Removed 'volume' to fix stuttering glitch
 
   // ─── DERIVED ─────────────────────────────────────────────────────────────
   const progressPct = duration > 0 ? (currentTime / duration) * 100 : 0;
@@ -993,9 +997,11 @@ export default function PrimePlayer({
         position: 'absolute', inset: 0,
         opacity: showControls ? 1 : 0,
         transition: 'opacity 0.3s ease',
-        pointerEvents: mode === 'iframe' ? 'none' : (showControls ? 'auto' : 'none'), // 👈 Updated
+        // 👈 Allow clicks to pass through to the underlying iframe if it's playing
+        pointerEvents: mode === 'iframe' ? 'none' : (showControls ? 'auto' : 'none'),
         zIndex: 5,
       }}>
+
         {/* Top gradient */}
         <div style={{
           position: 'absolute', top: 0, left: 0, right: 0, height: 80,
@@ -1015,9 +1021,8 @@ export default function PrimePlayer({
           position: 'absolute', top: 0, left: 0, right: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '12px 16px', zIndex: 10,
-          pointerEvents: 'auto', // 👈 Added so top bar remains clickable
+          pointerEvents: 'auto', // 👈 Top bar must explicitly catch clicks
         }}>
-          
           {/* X-Ray */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <button
@@ -1157,15 +1162,17 @@ export default function PrimePlayer({
             </div>
 
             {/* Volume */}
-            <div style={{ position: 'relative' }}>
+            <div 
+              style={{ position: 'relative' }}
+              onMouseEnter={() => setActivePanel('volume')}
+              onMouseLeave={() => { if (!isDraggingVolume) setActivePanel(null); }}
+            >
               <button
                 className={`prime-btn ${activePanel === 'volume' ? 'active' : ''}`}
                 onClick={(e) => { 
                   e.stopPropagation(); 
-                  toggleMute(); // 👈 Actually mute/unmute instead of just opening the panel
+                  toggleMute(); 
                 }}
-                onMouseEnter={() => setActivePanel('volume')} // 👈 Open panel on hover
-                onMouseLeave={() => { if (!isDraggingVolume) setActivePanel(null); }}
                 title="Volume"
               >
                 <VolumeIcon />
@@ -1335,57 +1342,58 @@ export default function PrimePlayer({
         )}
 
         {/* ── BOTTOM BAR ── */}
-        {isVideoMode && ( // 👈 Wrap the bottom bar in isVideoMode
+        {isVideoMode && (
           <div style={{
             position: 'absolute', bottom: 0, left: 0, right: 0,
             padding: '0 0 28px', zIndex: 10,
           }}>
-          {/* Progress bar */}
-          <div
-            ref={progressBarRef}
-            className="progress-track"
-            style={{ marginBottom: 12, cursor: isVideoMode ? 'pointer' : 'default', borderRadius: 0 }}
-            onMouseDown={isVideoMode ? onProgressMouseDown : undefined}
-            onMouseMove={isVideoMode ? onProgressMouseMove : undefined}
-            onMouseUp={isVideoMode ? onProgressMouseUp : undefined}
-            onMouseLeave={isVideoMode ? onProgressMouseLeave : undefined}
-            onClick={e => e.stopPropagation()}
-          >
-            {/* Buffered */}
-            <div className="progress-buffered" style={{ width: `${bufferedPct}%` }} />
-            {/* Played */}
-            <div className="progress-played" style={{ width: `${progressPct}%` }} />
-            {/* Chapter markers */}
-            {chapterMarkers.map((t, i) => (
-              <div key={i} className="chapter-dot" style={{ left: `${(t / duration) * 100}%` }} />
-            ))}
-            {/* Thumb */}
-            <div className="progress-thumb" style={{ left: `${progressPct}%` }} />
-            {/* Hover time tooltip */}
-            {hoverTime !== null && (
-              <div style={{
-                position: 'absolute', bottom: 16,
-                left: Math.max(24, Math.min(hoverX, (progressBarRef.current?.offsetWidth || 0) - 24)),
-                transform: 'translateX(-50%)',
-                background: 'rgba(0,0,0,0.85)', color: '#AAAAAA',
-                fontSize: 11, fontWeight: 400, padding: '3px 8px',
-                borderRadius: 4, whiteSpace: 'nowrap', pointerEvents: 'none',
-              }}>
-                {fmtTime(hoverTime)}
-              </div>
-            )}
-          </div>
+            {/* Progress bar */}
+            <div
+              ref={progressBarRef}
+              className="progress-track"
+              style={{ marginBottom: 12, cursor: isVideoMode ? 'pointer' : 'default', borderRadius: 0 }}
+              onMouseDown={isVideoMode ? onProgressMouseDown : undefined}
+              onMouseMove={isVideoMode ? onProgressMouseMove : undefined}
+              onMouseUp={isVideoMode ? onProgressMouseUp : undefined}
+              onMouseLeave={isVideoMode ? onProgressMouseLeave : undefined}
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Buffered */}
+              <div className="progress-buffered" style={{ width: `${bufferedPct}%` }} />
+              {/* Played */}
+              <div className="progress-played" style={{ width: `${progressPct}%` }} />
+              {/* Chapter markers */}
+              {chapterMarkers.map((t, i) => (
+                <div key={i} className="chapter-dot" style={{ left: `${(t / duration) * 100}%` }} />
+              ))}
+              {/* Thumb */}
+              <div className="progress-thumb" style={{ left: `${progressPct}%` }} />
+              {/* Hover time tooltip */}
+              {hoverTime !== null && (
+                <div style={{
+                  position: 'absolute', bottom: 16,
+                  left: Math.max(24, Math.min(hoverX, (progressBarRef.current?.offsetWidth || 0) - 24)),
+                  transform: 'translateX(-50%)',
+                  background: 'rgba(0,0,0,0.85)', color: '#AAAAAA',
+                  fontSize: 11, fontWeight: 400, padding: '3px 8px',
+                  borderRadius: 4, whiteSpace: 'nowrap', pointerEvents: 'none',
+                }}>
+                  {fmtTime(hoverTime)}
+                </div>
+              )}
+            </div>
 
-          {/* Time */}
-          <div style={{ color: '#AAAAAA', fontSize: 13, fontWeight: 400, letterSpacing: 0.2, paddingLeft: 20 }}>
-            {fmtTime(currentTime)}
-            {duration > 0 && (
-              <span style={{ color: '#AAAAAA', fontWeight: 400 }}>
-                {' / '}{fmtTime(duration)}
-              </span>
-            )}
+            {/* Time */}
+            <div style={{ color: '#AAAAAA', fontSize: 13, fontWeight: 400, letterSpacing: 0.2, paddingLeft: 20 }}>
+              {fmtTime(currentTime)}
+              {duration > 0 && (
+                <span style={{ color: '#AAAAAA', fontWeight: 400 }}>
+                  {' / '}{fmtTime(duration)}
+                </span>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════════
