@@ -18,7 +18,6 @@ const ChevronUpIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fil
 const ChevronDownIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><polyline points="6 9 12 15 18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const XRayExpandIcon = () => (<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 
-// Exact clones of the central playback controls 
 const Rewind10Icon = () => (<svg width="88" height="88" viewBox="0 0 64 64" fill="none"><path d="M 16 24 A 20 20 0 1 1 16 46" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/><path d="M 25 15 L 15 24 L 25 33" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/><text x="32" y="32" dy="0.35em" textAnchor="middle" fill="currentColor" fontSize="16" fontWeight="700" fontFamily="system-ui, sans-serif">10</text></svg>);
 const Forward10Icon = () => (<svg width="88" height="88" viewBox="0 0 64 64" fill="none"><path d="M 48 24 A 20 20 0 1 0 48 46" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/><path d="M 39 15 L 49 24 L 39 33" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/><text x="32" y="32" dy="0.35em" textAnchor="middle" fill="currentColor" fontSize="16" fontWeight="700" fontFamily="system-ui, sans-serif">10</text></svg>);
 const PlayIcon = () => (<svg width="88" height="88" viewBox="0 0 64 64" fill="none"><path d="M 24 16 L 48 32 L 24 48 Z" fill="currentColor" stroke="currentColor" strokeWidth="4" strokeLinejoin="round" /></svg>);
@@ -32,17 +31,6 @@ const fmtTime = (s) => {
 };
 
 const TMDB_KEY = 'cb1dc311039e6ae85db0aa200345cbc5';
-
-const labelQuality = (raw) => {
-  if (!raw) return 'Auto';
-  const s = String(raw).toLowerCase();
-  if (s.includes('2160') || s.includes('4k') || s.includes('uhd')) return '2160p';
-  if (s.includes('1080')) return '1080p';
-  if (s.includes('720'))  return '720p';
-  if (s.includes('480'))  return '480p';
-  if (s.includes('360'))  return '360p';
-  return 'Auto';
-};
 
 // ─── MAIN PLAYER ───────────────────────────────────────────────────────────
 export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', season = 1, episode = 1, onClose }) {
@@ -205,35 +193,33 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       if (streams.length > 0) {
         const files = [];
         streams.forEach(s => {
-          if (!s.url) return;
-          const q = labelQuality(s.quality);
-          files.push({ url: s.url, quality: q });
-          files.push({ url: `/api/proxy?url=${encodeURIComponent(s.url)}`, quality: q });
+          files.push({ url: s.url, quality: s.quality });
+          files.push({ url: `/api/proxy?url=${encodeURIComponent(s.url)}`, quality: s.quality });
         });
 
-        // Group by quality and assign generic Server numbers to hide source names
+        // Group qualities and remove provider names -> e.g., "1080p (Server 1)"
         const qMap = {};
         files.forEach(f => {
            if(!qMap[f.quality]) qMap[f.quality] = [];
            qMap[f.quality].push(f);
         });
 
-        const order = { '1080p':5,'720p':4,'480p':3,'360p':2,'Auto':1,'2160p':0 };
+        const order = { '2160p':6, '1080p':5, '720p':4, '480p':3, '360p':2, 'Auto':1 };
         const menu = [];
         const seen = new Set();
         
-        files.forEach((f, i) => {
-          const group = qMap[f.quality];
-          const idxInGroup = group.indexOf(f);
-          const label = group.length > 1 ? `${f.quality} (Server ${idxInGroup + 1})` : f.quality;
-          
-          if (!seen.has(label)) { 
-            seen.add(label); 
-            menu.push({ label, value: i, sortQ: f.quality, url: f.url }); 
-          }
+        Object.keys(qMap).forEach(q => {
+          qMap[q].forEach((f, idx) => {
+            const label = qMap[q].length > 1 ? `${q} (Server ${idx + 1})` : q;
+            if (!seen.has(label)) { 
+              seen.add(label); 
+              menu.push({ label, value: menu.length, sortQ: q, url: f.url }); 
+            }
+          });
         });
         
         menu.sort((a,b) => (order[b.sortQ]||0) - (order[a.sortQ]||0));
+        menu.forEach((m, i) => m.value = i); // reindex after sort
 
         allSourcesRef.current = menu;
         setQualities(menu);
@@ -266,7 +252,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       const hls = new Hls({
         enableWorker: true, backBufferLength: 60, maxBufferLength: 30, lowLatencyMode: false,
         fragLoadingTimeOut: 30000, manifestLoadingTimeOut: 20000, levelLoadingTimeOut: 20000,
-        fragLoadingMaxRetry: 6, manifestLoadingMaxRetry: 4, levelLoadingMaxRetry: 4,
+        fragLoadingMaxRetry: 4, manifestLoadingMaxRetry: 3, levelLoadingMaxRetry: 3,
         fragLoadingRetryDelay: 500, xhrSetup: xhr => { xhr.withCredentials = false; },
       });
       hlsRef.current = hls;
@@ -339,6 +325,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
           .then(() => setPlaying(true))
           .catch(() => { vid.muted = true; vid.play().then(() => { setPlaying(true); setAutoMuted(true); }).catch(() => setPlaying(false)); });
       }, { once: true });
+      vid.addEventListener('error', tryNextSource, { once: true });
     } else {
       tryNextSource();
     }
@@ -550,7 +537,8 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         .cdot{position:absolute;top:0;width:2px;height:100%;background:#000;pointer-events:none;z-index:2;}
         .ppanel{position:absolute;top:48px;right:0;background:#111;border-radius:3px 0 0 3px;min-width:260px;overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,.9);animation:pi .1s ease-out;}
         @keyframes pi{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
-        .volpop{position:absolute;top:calc(100% + 14px);left:50%;transform:translateX(-50%);background:#111;border-radius:4px;padding:14px 11px;width:40px;display:flex;flex-direction:column;align-items:center;gap:10px;box-shadow:0 6px 20px rgba(0,0,0,.9);animation:pi .1s ease-out;}
+        /* Fixed volume popup direction */
+        .volpop{position:absolute;top:100%;margin-top:10px;left:50%;transform:translateX(-50%);background:#111;border-radius:4px;padding:14px 11px;width:40px;display:flex;flex-direction:column;align-items:center;gap:10px;box-shadow:0 6px 20px rgba(0,0,0,.9);animation:pi .1s ease-out; z-index: 50;}
         .voltr{width:3px;height:120px;background:var(--ct);border-radius:2px;position:relative;cursor:pointer;}
         .volfil{position:absolute;bottom:0;left:0;width:100%;background:var(--c);border-radius:2px;pointer-events:none;}
         .volknob{position:absolute;left:50%;width:11px;height:11px;background:var(--c);border-radius:50%;transform:translate(-50%,50%);pointer-events:none;}
@@ -573,13 +561,14 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         </div>
       )}
 
+      {/* Critical fix: "display: none" ensures video tag doesn't block iframe clicks when it fails over */}
       <video ref={videoRef} playsInline preload="metadata"
-        style={{ width:'100%',height:'100%',objectFit:'contain',display:'block',visibility:isVideo?'visible':'hidden' }}
+        style={{ width:'100%',height:'100%',objectFit:'contain',display:isVideo?'block':'none' }}
         onClick={e => { e.stopPropagation(); if (autoMuted) { unmuteBanner(); return; } if (isVideo) togglePlay(); }}
       />
 
       {mode === 'iframe' && (
-        <>
+        <div style={{ position:'absolute',inset:0,zIndex:1,background:'#000' }}>
           {embedPhase === 'loading' && (
             <div style={{ position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',background:'#000',zIndex:6,pointerEvents:'none' }}>
               <div className="spin" />
@@ -609,7 +598,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
               </button>
             </div>
           )}
-        </>
+        </div>
       )}
 
       {(mode === 'loading' || (isVideo && buffering)) && (
