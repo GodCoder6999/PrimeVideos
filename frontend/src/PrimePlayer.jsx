@@ -74,7 +74,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   // stream
   const [mode,         setMode]        = useState('loading');
   const [hlsUrl,       setHlsUrl]      = useState(null);
-  const [provider,     setProvider]    = useState('');
   const [directFiles,  setDirectFiles] = useState([]);
   const [directIdx,    setDirectIdx]   = useState(0);
   const [qualities,    setQualities]   = useState([]);
@@ -131,15 +130,12 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
 
   const loadSource = useCallback((src) => {
     setBuffering(true); setPlaying(false); setCurrentTime(0); setBuffered(0);
-    const cleanProvider = src.label.split(' • ')[1] || 'Stream';
     if (src.url.includes('.m3u8') || src.url.includes('m3u') || src.url.includes('playlist')) {
       setHlsUrl(src.url);
-      setProvider(cleanProvider);
       setMode('hls');
     } else {
       setDirectFiles([src]);
       setDirectIdx(0);
-      setProvider(cleanProvider);
       setMode('direct');
     }
   }, []);
@@ -168,7 +164,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
 
   useEffect(() => {
     if (!tmdbId) return;
-    setMode('loading'); setHlsUrl(null); setProvider('');
+    setMode('loading'); setHlsUrl(null);
     setDirectFiles([]); setDirectIdx(0); setQualities([]); setSelQuality(-1);
     setEmbeds([]); setEmbedIdx(0); setEmbedPhase('loading');
     setPlaying(false); setBuffering(false); setAutoMuted(false);
@@ -211,20 +207,32 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         streams.forEach(s => {
           if (!s.url) return;
           const q = labelQuality(s.quality);
-          files.push({ url: s.url, quality: q, provider: s.provider || 'Stream' });
-          files.push({ url: `/api/proxy?url=${encodeURIComponent(s.url)}`, quality: q, provider: (s.provider || 'Stream') + ' (Proxy)' });
+          files.push({ url: s.url, quality: q });
+          files.push({ url: `/api/proxy?url=${encodeURIComponent(s.url)}`, quality: q });
+        });
+
+        // Group by quality and assign generic Server numbers to hide source names
+        const qMap = {};
+        files.forEach(f => {
+           if(!qMap[f.quality]) qMap[f.quality] = [];
+           qMap[f.quality].push(f);
         });
 
         const order = { '1080p':5,'720p':4,'480p':3,'360p':2,'Auto':1,'2160p':0 };
         const menu = [];
         const seen = new Set();
+        
         files.forEach((f, i) => {
-          const label = `${f.quality} • ${f.provider}`;
+          const group = qMap[f.quality];
+          const idxInGroup = group.indexOf(f);
+          const label = group.length > 1 ? `${f.quality} (Server ${idxInGroup + 1})` : f.quality;
+          
           if (!seen.has(label)) { 
             seen.add(label); 
             menu.push({ label, value: i, sortQ: f.quality, url: f.url }); 
           }
         });
+        
         menu.sort((a,b) => (order[b.sortQ]||0) - (order[a.sortQ]||0));
 
         allSourcesRef.current = menu;
@@ -542,7 +550,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         .cdot{position:absolute;top:0;width:2px;height:100%;background:#000;pointer-events:none;z-index:2;}
         .ppanel{position:absolute;top:48px;right:0;background:#111;border-radius:3px 0 0 3px;min-width:260px;overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,.9);animation:pi .1s ease-out;}
         @keyframes pi{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
-        .volpop{position:absolute;bottom:46px;left:50%;transform:translateX(-50%);background:#111;border-radius:4px;padding:14px 11px;width:40px;display:flex;flex-direction:column;align-items:center;gap:10px;box-shadow:0 6px 20px rgba(0,0,0,.9);animation:pi .1s ease-out;}
+        .volpop{position:absolute;top:calc(100% + 14px);left:50%;transform:translateX(-50%);background:#111;border-radius:4px;padding:14px 11px;width:40px;display:flex;flex-direction:column;align-items:center;gap:10px;box-shadow:0 6px 20px rgba(0,0,0,.9);animation:pi .1s ease-out;}
         .voltr{width:3px;height:120px;background:var(--ct);border-radius:2px;position:relative;cursor:pointer;}
         .volfil{position:absolute;bottom:0;left:0;width:100%;background:var(--c);border-radius:2px;pointer-events:none;}
         .volknob{position:absolute;left:50%;width:11px;height:11px;background:var(--c);border-radius:50%;transform:translate(-50%,50%);pointer-events:none;}
@@ -670,9 +678,9 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
             <div style={{ position:'relative' }}>
               <button className="pbtn" onClick={e=>{e.stopPropagation();setPanel(panel==='quality'?null:'quality');}} title="Video Quality"><SettingsIcon/></button>
               {panel==='quality' && (
-                <div className="ppanel" style={{ width:340, maxHeight:'60vh', overflowY:'auto' }} onClick={e=>e.stopPropagation()}>
+                <div className="ppanel" style={{ width:260, maxHeight:'60vh', overflowY:'auto' }} onClick={e=>e.stopPropagation()}>
                   <div style={{ padding:'20px 20px 12px' }}>
-                    <div style={{ color:'#fff',fontSize:17,fontWeight:700,marginBottom:14 }}>Video Source & Quality</div>
+                    <div style={{ color:'#fff',fontSize:17,fontWeight:700,marginBottom:14 }}>Video Quality</div>
                     {qualities.length > 0 ? qualities.map(q=>(
                       <div key={q.value} className="qi" style={{ display:'flex',alignItems:'center',gap:14,padding:'11px 4px',cursor:'pointer',borderRadius:4 }} onClick={()=>handleQuality(q.value)}>
                         <div style={{ width:24,flexShrink:0 }}>{selQuality===q.value&&<CheckIcon/>}</div>
@@ -753,9 +761,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
             <div style={{ fontSize:15,fontWeight:500,marginTop:12 }}>
               <span style={{ color:'#FFF' }}>{fmtTime(currentTime)}</span>
               <span style={{ color:'#B3B3B3' }}> / {fmtTime(duration)}</span>
-              {provider && (
-                <span style={{ marginLeft: 16, fontSize:10,fontWeight:800,padding:'2px 7px',borderRadius:4,border:'1px solid rgba(179,179,179,.4)',color:'#B3B3B3',textTransform:'uppercase' }}>{provider}</span>
-              )}
             </div>
           </div>
         )}
