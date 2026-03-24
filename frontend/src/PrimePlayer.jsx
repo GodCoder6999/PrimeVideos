@@ -12,15 +12,17 @@ const PiPIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="non
 const FullscreenIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const ExitFullscreenIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M10 14l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const CloseIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>);
-const Rewind10Icon = () => (<svg width="56" height="56" viewBox="0 0 52 52" fill="none"><path d="M26 8C16.06 8 8 16.06 8 26s8.06 18 18 18 18-8.06 18-18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/><path d="M26 8 L20 14 L26 8 L20 2" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/><text x="26" y="31.5" textAnchor="middle" fill="currentColor" fontSize="13" fontWeight="bold" fontFamily="system-ui">10</text></svg>);
-const Forward10Icon = () => (<svg width="56" height="56" viewBox="0 0 52 52" fill="none"><path d="M26 8C35.94 8 44 16.06 44 26s-8.06 18-18 18S8 35.94 8 26" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/><path d="M26 8 L32 14 L26 8 L32 2" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/><text x="26" y="31.5" textAnchor="middle" fill="currentColor" fontSize="13" fontWeight="bold" fontFamily="system-ui">10</text></svg>);
-const PlayIcon = () => (<svg width="48" height="48" viewBox="0 0 52 52" fill="none"><polygon points="18,12 40,26 18,40" fill="currentColor"/></svg>);
-const PauseIcon = () => (<svg width="48" height="48" viewBox="0 0 52 52" fill="none"><rect x="14" y="12" width="8" height="28" rx="1.5" fill="currentColor"/><rect x="30" y="12" width="8" height="28" rx="1.5" fill="currentColor"/></svg>);
 const CheckIcon = () => (<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><polyline points="2,8 6,12 14,4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const ChevronRightIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><polyline points="9 18 15 12 9 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const ChevronUpIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><polyline points="18 15 12 9 6 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const ChevronDownIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><polyline points="6 9 12 15 18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const XRayExpandIcon = () => (<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>);
+
+// Exact clones of the central playback controls 
+const Rewind10Icon = () => (<svg width="88" height="88" viewBox="0 0 64 64" fill="none"><path d="M 16 24 A 20 20 0 1 1 16 46" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/><path d="M 25 15 L 15 24 L 25 33" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/><text x="32" y="32" dy="0.35em" textAnchor="middle" fill="currentColor" fontSize="16" fontWeight="700" fontFamily="system-ui, sans-serif">10</text></svg>);
+const Forward10Icon = () => (<svg width="88" height="88" viewBox="0 0 64 64" fill="none"><path d="M 48 24 A 20 20 0 1 0 48 46" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/><path d="M 39 15 L 49 24 L 39 33" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/><text x="32" y="32" dy="0.35em" textAnchor="middle" fill="currentColor" fontSize="16" fontWeight="700" fontFamily="system-ui, sans-serif">10</text></svg>);
+const PlayIcon = () => (<svg width="88" height="88" viewBox="0 0 64 64" fill="none"><path d="M 24 16 L 48 32 L 24 48 Z" fill="currentColor" stroke="currentColor" strokeWidth="4" strokeLinejoin="round" /></svg>);
+const PauseIcon = () => (<svg width="88" height="88" viewBox="0 0 64 64" fill="none"><rect x="20" y="16" width="7" height="32" rx="3.5" fill="currentColor" /><rect x="37" y="16" width="7" height="32" rx="3.5" fill="currentColor" /></svg>);
 
 // ─── HELPERS ───────────────────────────────────────────────────────────────
 const fmtTime = (s) => {
@@ -720,13 +722,15 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
 
         {/* ── CENTER CONTROLS ── */}
         {isVideo && (
-          <div style={{ position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',display:'flex',alignItems:'center',gap:80,zIndex:8 }} onClick={e=>e.stopPropagation()}>
+          <div style={{ position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',display:'flex',alignItems:'center',gap:120,zIndex:8 }} onClick={e=>e.stopPropagation()}>
             <button className="pbtn" style={{ position:'relative' }} onClick={()=>skip(-10)}>
-              <Rewind10Icon/>{skipFX==='back'&&<div className="skfx" style={{ left:'50%',transform:'translate(-50%,-50%)',color:'#FFF',fontSize:24 }}>-10</div>}
+              <Rewind10Icon/>
+              {skipFX==='back'&&<div className="skfx" style={{ left:'50%',transform:'translate(-50%,-50%)',color:'#FFF',fontSize:24 }}>-10</div>}
             </button>
             <button className="pbtn" onClick={togglePlay}>{playing?<PauseIcon/>:<PlayIcon/>}</button>
             <button className="pbtn" style={{ position:'relative' }} onClick={()=>skip(10)}>
-              <Forward10Icon/>{skipFX==='fwd'&&<div className="skfx" style={{ left:'50%',transform:'translate(-50%,-50%)',color:'#FFF',fontSize:24 }}>+10</div>}
+              <Forward10Icon/>
+              {skipFX==='fwd'&&<div className="skfx" style={{ left:'50%',transform:'translate(-50%,-50%)',color:'#FFF',fontSize:24 }}>+10</div>}
             </button>
           </div>
         )}
