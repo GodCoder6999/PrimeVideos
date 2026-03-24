@@ -1,3 +1,4 @@
+// frontend/src/PrimePlayer.jsx
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Hls from 'hls.js';
 
@@ -31,7 +32,6 @@ const fmtTime = (s) => {
 
 const TMDB_KEY = 'cb1dc311039e6ae85db0aa200345cbc5';
 
-// ─── QUALITY LABEL (same logic as server, keeps UI consistent) ──────────────
 const labelQuality = (raw) => {
   if (!raw) return 'Auto';
   const s = String(raw).toLowerCase();
@@ -64,10 +64,10 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const [volume,      setVolume]      = useState(1);
   const [muted,       setMuted]       = useState(false);
   const [prevVol,     setPrevVol]     = useState(1);
-  const [autoMuted,   setAutoMuted]   = useState(false); // browser forced muted autoplay
+  const [autoMuted,   setAutoMuted]   = useState(false);
 
   // stream
-  const [mode,         setMode]        = useState('loading'); // loading | hls | direct | iframe
+  const [mode,         setMode]        = useState('loading');
   const [hlsUrl,       setHlsUrl]      = useState(null);
   const [provider,     setProvider]    = useState('');
   const [directFiles,  setDirectFiles] = useState([]);
@@ -76,19 +76,24 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const [selQuality,   setSelQuality]  = useState(-1);
   const [embeds,       setEmbeds]      = useState([]);
   const [embedIdx,     setEmbedIdx]    = useState(0);
-  const [embedPhase,   setEmbedPhase]  = useState('loading'); // loading | playing | failed
+  const [embedPhase,   setEmbedPhase]  = useState('loading');
 
   // ui
   const [showCtrl,      setShowCtrl]      = useState(true);
   const [isFullscreen,  setIsFullscreen]  = useState(false);
   const [seeking,       setSeeking]       = useState(false);
   const [draggingVol,   setDraggingVol]   = useState(false);
-  const [panel,         setPanel]         = useState(null); // null | 'subtitles' | 'quality' | 'volume'
-  const [skipFX,        setSkipFX]        = useState(null); // null | 'back' | 'fwd'
+  const [panel,         setPanel]         = useState(null);
+  const [skipFX,        setSkipFX]        = useState(null);
   const [hoverT,        setHoverT]        = useState(null);
   const [hoverX,        setHoverX]        = useState(0);
-  const [subTrack,      setSubTrack]      = useState('Off');
-  const [audTrack,      setAudTrack]      = useState('English');
+  
+  // DYNAMIC AUDIO/SUBTITLE TRACKS
+  const [subTrack,       setSubTrack]       = useState(-1);
+  const [audTrack,       setAudTrack]       = useState(0);
+  const [audioTracks,    setAudioTracks]    = useState([]);
+  const [subtitleTracks, setSubtitleTracks] = useState([]);
+
   const [xrayOpen,      setXrayOpen]      = useState(false);
   const [xrayExpanded,  setXrayExpanded]  = useState(false);
   const [xrayCast,      setXrayCast]      = useState([]);
@@ -99,7 +104,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const isVideo  = mode === 'hls' || mode === 'direct';
   const chapters = duration > 0 ? [0.16,0.33,0.5,0.66,0.83].map(p => p * duration) : [];
 
-  // ── sync volume/muted from DOM → React ──────────────────────────────────
   useEffect(() => {
     const v = videoRef.current; if (!v) return;
     const fn = () => { setMuted(v.muted); setVolume(v.volume); if (!v.muted && v.volume > 0) setAutoMuted(false); };
@@ -107,7 +111,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     return () => v.removeEventListener('volumechange', fn);
   }, []);
 
-  // ── embed list builder ───────────────────────────────────────────────────
   const buildEmbeds = (tid, iid, mt, s, e) => {
     const tv = mt === 'tv'; const list = [];
     if (iid) {
@@ -121,10 +124,8 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     return list;
   };
 
-  // ── MAIN INIT ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!tmdbId) return;
-    // reset all state
     setMode('loading'); setHlsUrl(null); setProvider('');
     setDirectFiles([]); setDirectIdx(0); setQualities([]); setSelQuality(-1);
     setEmbeds([]); setEmbedIdx(0); setEmbedPhase('loading');
@@ -134,7 +135,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
 
     let cancelled = false;
 
-    // fetch TMDB metadata for title + X-Ray
     const ac = new AbortController();
     const t0 = setTimeout(() => ac.abort(), 8000);
     fetch(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_KEY}&append_to_response=external_ids,credits`, { signal: ac.signal })
@@ -151,10 +151,8 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         if (!cancelled) setEmbeds(buildEmbeds(tmdbId, iid, mediaType, season, episode));
       }).catch(() => {});
 
-    // pre-populate embeds without imdb while above resolves
     setEmbeds(buildEmbeds(tmdbId, null, mediaType, season, episode));
 
-    // fetch streams
     (async () => {
       let streams = [];
       try {
@@ -173,7 +171,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       if (streams.length > 0) {
         const first = streams[0];
 
-        // ── HLS / m3u8 ──
         if (first.url.includes('.m3u8') || first.url.includes('mpegurl') || first.url.includes('playlist')) {
           setHlsUrl(`/api/proxy?url=${encodeURIComponent(first.url)}`);
           setProvider(first.provider || 'Stream');
@@ -182,9 +179,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
           return;
         }
 
-        // ── Direct MP4 — build file list with proxied fallbacks ──
-        // Include ALL streams regardless of quality label.
-        // The HLS ABR cap in the player handles the 4K → 1080p ceiling.
         const files = [];
         streams.forEach(s => {
           if (!s.url) return;
@@ -193,7 +187,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
           files.push({ url: `/api/proxy?url=${encodeURIComponent(s.url)}`, quality: q, provider: (s.provider || 'Stream') + ' ↑' });
         });
 
-        // Quality menu: one entry per distinct label, highest first
         const order = { '1080p':5,'720p':4,'480p':3,'360p':2,'Auto':1,'2160p':0 };
         const seen = new Set(); const menu = [];
         files.forEach((f, i) => {
@@ -219,13 +212,11 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     };
   }, [tmdbId, mediaType, season, episode]);
 
-  // ── quality change handler ───────────────────────────────────────────────
   const handleQuality = (val) => {
     setSelQuality(val);
     if (mode === 'hls' && hlsRef.current) {
       if (val === -1) {
         hlsRef.current.currentLevel = -1;
-        // re-apply 1080p cap on "Auto"
         const cap = hlsRef.current.levels.map((l,i) => ({h:l.height||0,i})).filter(x=>x.h>0&&x.h<=1080).sort((a,b)=>b.h-a.h)[0];
         if (cap) hlsRef.current.autoLevelCapping = cap.i;
       } else {
@@ -237,7 +228,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     setPanel(null);
   };
 
-  // ── HLS SETUP ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (mode !== 'hls' || !hlsUrl || !videoRef.current) return;
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
@@ -254,17 +244,25 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       hls.loadSource(hlsUrl);
       hls.attachMedia(vid);
 
+      // Listen for dynamic track updates
+      hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (_, data) => {
+        if (data.audioTracks && data.audioTracks.length > 0) {
+           setAudioTracks(data.audioTracks.map((t, i) => ({ id: i, name: t.name || t.lang || `Audio ${i+1}` })));
+        }
+      });
+      hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, (_, data) => {
+        if (data.subtitleTracks && data.subtitleTracks.length > 0) {
+           setSubtitleTracks(data.subtitleTracks.map((t, i) => ({ id: i, name: t.name || t.lang || `Subtitle ${i+1}` })));
+        }
+      });
+
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         setBuffering(false);
 
-        // ── Build quality menu from actual HLS levels ──
-        // Show ALL levels (including 2160p if present) so user can manually pick,
-        // but default ABR cap is ≤1080p to avoid AC3 audio issues automatically.
         const levels = hls.levels;
         const hlsQualities = [];
-        let cap1080 = -1; // highest level index that is ≤1080p
+        let cap1080 = -1; 
 
-        // iterate highest→lowest resolution
         for (let i = levels.length - 1; i >= 0; i--) {
           const h = levels[i].height;
           if (!h) continue;
@@ -276,13 +274,25 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         setQualities(hlsQualities);
         setSelQuality(-1);
 
-        // Cap ABR at 1080p by default — user can manually select 4K if desired
         if (cap1080 !== -1) hls.autoLevelCapping = cap1080;
 
-        // Select audio track 0 explicitly
-        if (hls.audioTracks && hls.audioTracks.length > 0) hls.audioTrack = 0;
+        // Init Tracks
+        if (hls.audioTracks && hls.audioTracks.length > 0) {
+          hls.audioTrack = 0;
+          setAudioTracks(hls.audioTracks.map((t, i) => ({ id: i, name: t.name || t.lang || `Audio ${i+1}` })));
+          setAudTrack(0);
+        } else {
+          setAudioTracks([]);
+        }
 
-        // Play with audio — if browser blocks unmuted autoplay, fallback to muted + banner
+        if (hls.subtitleTracks && hls.subtitleTracks.length > 0) {
+          setSubtitleTracks(hls.subtitleTracks.map((t, i) => ({ id: i, name: t.name || t.lang || `Subtitle ${i+1}` })));
+          hls.subtitleTrack = -1;
+          setSubTrack(-1);
+        } else {
+          setSubtitleTracks([]);
+        }
+
         vid.volume = 1; vid.muted = false;
         vid.play()
           .then(() => setPlaying(true))
@@ -328,7 +338,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     return () => { if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; } };
   }, [hlsUrl, mode]);
 
-  // ── DIRECT MODE ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (mode !== 'direct' || !videoRef.current || !directFiles.length) return;
     const file = directFiles[directIdx]; if (!file?.url) return;
@@ -387,7 +396,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     };
   }, [mode, directIdx, directFiles]);
 
-  // ── IFRAME TIMEOUT ───────────────────────────────────────────────────────
   useEffect(() => {
     if (mode !== 'iframe' || embedPhase !== 'loading') return;
     clearTimeout(iframeTimer.current);
@@ -398,7 +406,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     return () => clearTimeout(iframeTimer.current);
   }, [mode, embedPhase, embedIdx, embeds.length]);
 
-  // ── VIDEO DOM EVENTS ─────────────────────────────────────────────────────
   useEffect(() => {
     const v = videoRef.current; if (!v) return;
     const on  = (ev, fn) => v.addEventListener(ev, fn);
@@ -423,7 +430,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     };
   }, []);
 
-  // ── CONTROLS AUTO-HIDE ───────────────────────────────────────────────────
   const resetCtrlTimer = useCallback(() => {
     setShowCtrl(true); clearTimeout(ctrlTimer.current);
     ctrlTimer.current = setTimeout(() => { if (!panel && !xrayOpen) setShowCtrl(false); }, 3500);
@@ -434,7 +440,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     else resetCtrlTimer();
   }, [panel, xrayOpen, resetCtrlTimer]);
 
-  // ── KEYBOARD ─────────────────────────────────────────────────────────────
   useEffect(() => {
     const fn = e => {
       if (e.target.tagName === 'INPUT') return;
@@ -449,14 +454,12 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     return () => window.removeEventListener('keydown', fn);
   }, [playing, muted, volume]);
 
-  // ── FULLSCREEN ───────────────────────────────────────────────────────────
   useEffect(() => {
     const fn = () => setIsFullscreen(!!document.fullscreenElement);
     document.addEventListener('fullscreenchange', fn);
     return () => document.removeEventListener('fullscreenchange', fn);
   }, []);
 
-  // ── ACTIONS ──────────────────────────────────────────────────────────────
   const togglePlay = () => {
     const v = videoRef.current; if (!v) return;
     if (playing) { v.pause(); }
@@ -495,7 +498,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     try { if (document.pictureInPictureElement) await document.exitPictureInPicture(); else await v.requestPictureInPicture(); } catch(_){}
   };
 
-  // ── PROGRESS BAR ─────────────────────────────────────────────────────────
   const seekTime = e => {
     const b = progressBarRef.current; if (!b || !duration) return 0;
     return Math.max(0, Math.min(1, (e.clientX - b.getBoundingClientRect().left) / b.offsetWidth)) * duration;
@@ -526,7 +528,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const VolIco = (muted || volume === 0) ? VolumeMuteIcon : volume < 0.5 ? VolumeMidIcon : VolumeHighIcon;
   const curEmbed = embeds[embedIdx];
 
-  // ── RENDER ───────────────────────────────────────────────────────────────
   return (
     <div ref={containerRef} onMouseMove={resetCtrlTimer} onClick={() => setPanel(null)}
       style={{ position:'fixed',inset:0,background:'#000',fontFamily:"'Amazon Ember','Segoe UI',system-ui,sans-serif",
@@ -562,20 +563,17 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         .unmute:hover{background:rgba(20,20,20,.95);}
       `}</style>
 
-      {/* ── TAP TO UNMUTE ── */}
       {autoMuted && isVideo && (
         <div className="unmute" onClick={e => { e.stopPropagation(); unmuteBanner(); }}>
           <VolumeMuteIcon /><span>Tap to unmute</span>
         </div>
       )}
 
-      {/* ── VIDEO ELEMENT ── */}
       <video ref={videoRef} playsInline preload="metadata"
         style={{ width:'100%',height:'100%',objectFit:'contain',display:'block',visibility:isVideo?'visible':'hidden' }}
         onClick={e => { e.stopPropagation(); if (autoMuted) { unmuteBanner(); return; } if (isVideo) togglePlay(); }}
       />
 
-      {/* ── IFRAME MODE ── */}
       {mode === 'iframe' && (
         <>
           {embedPhase === 'loading' && (
@@ -610,22 +608,18 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         </>
       )}
 
-      {/* ── SPINNER ── */}
       {(mode === 'loading' || (isVideo && buffering)) && (
         <div style={{ position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',background:mode==='loading'?'#000':'transparent',zIndex:8,pointerEvents:'none' }}>
           <div className="spin" />
         </div>
       )}
 
-      {/* ══════════════════ CONTROLS ══════════════════ */}
       <div className="pb" style={{ position:'absolute',inset:0,opacity:showCtrl?1:0,transition:'opacity .3s',
                                     pointerEvents:mode==='iframe'?'none':(showCtrl?'auto':'none'),zIndex:5 }}>
         <div style={{ position:'absolute',top:0,left:0,right:0,height:80,background:'linear-gradient(to bottom,rgba(0,0,0,.65),transparent)',pointerEvents:'none' }} />
         <div style={{ position:'absolute',bottom:0,left:0,right:0,height:120,background:'linear-gradient(to top,rgba(0,0,0,.75),transparent)',pointerEvents:'none' }} />
 
-        {/* ── TOP BAR ── */}
         <div style={{ position:'absolute',top:0,left:0,right:0,display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',zIndex:10,pointerEvents:'auto' }}>
-          {/* X-Ray */}
           <div style={{ display:'flex',alignItems:'center',gap:10 }}>
             <button className="pbtn" onClick={e=>{e.stopPropagation();setXrayOpen(v=>!v);setXrayExpanded(false);setPanel(null);}} style={{ display:'flex',alignItems:'center',gap:6,padding:'4px 8px' }}>
               <span style={{ fontSize:14,fontWeight:400 }}>X-Ray</span>{xrayOpen?<ChevronUpIcon/>:null}
@@ -633,39 +627,49 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
             <div style={{ background:'#f5c518',color:'#000',fontSize:11,fontWeight:800,padding:'2px 5px',borderRadius:3 }}>IMDb</div>
             <button className="pbtn" style={{ fontSize:14,display:'flex',alignItems:'center',gap:3 }} onClick={e=>{e.stopPropagation();setXrayExpanded(true);setXrayOpen(false);setPanel(null);}}>All <ChevronRightIcon/></button>
           </div>
-          {/* Title */}
           <div style={{ position:'absolute',left:'50%',transform:'translateX(-50%)',color:'#fff',fontSize:17,fontWeight:400,whiteSpace:'nowrap' }}>{movieTitle}</div>
-          {/* Right controls */}
           <div style={{ display:'flex',alignItems:'center',gap:2 }}>
-            {/* Subtitles */}
             <div style={{ position:'relative' }}>
               <button className="pbtn" onClick={e=>{e.stopPropagation();setPanel(panel==='subtitles'?null:'subtitles');}} title="Subtitles & Audio"><SubtitlesIcon/></button>
               {panel==='subtitles' && (
-                <div className="ppanel" style={{ width:420 }} onClick={e=>e.stopPropagation()}>
-                  <div style={{ display:'flex' }}>
+                <div className="ppanel" style={{ width:420, maxHeight:'400px', display:'flex', flexDirection:'column' }} onClick={e=>e.stopPropagation()}>
+                  <div style={{ display:'flex', overflowY:'auto' }}>
+                    
+                    {/* Dynamic Subtitles Rendering */}
                     <div style={{ flex:1,borderRight:'1px solid rgba(255,255,255,.15)',padding:'20px 16px' }}>
                       <div style={{ color:'#fff',fontSize:16,fontWeight:700,marginBottom:16 }}>Subtitles</div>
-                      {['Off','English','English CC','العربية'].map(s=>(
-                        <div key={s} style={{ display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer' }} onClick={()=>setSubTrack(s)}>
-                          <div style={{ width:20 }}>{subTrack===s&&<CheckIcon/>}</div>
-                          <span style={{ color:subTrack===s?'#fff':'rgba(255,255,255,.7)',fontSize:15 }}>{s}</span>
+                      <div style={{ display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer' }} onClick={()=>{ setSubTrack(-1); if (hlsRef.current) hlsRef.current.subtitleTrack = -1; }}>
+                        <div style={{ width:20 }}>{subTrack === -1 && <CheckIcon/>}</div>
+                        <span style={{ color:subTrack === -1 ? '#fff' : 'rgba(255,255,255,.7)',fontSize:15 }}>Off</span>
+                      </div>
+                      {subtitleTracks.map(s => (
+                        <div key={s.id} style={{ display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer' }} onClick={()=>{ setSubTrack(s.id); if (hlsRef.current) hlsRef.current.subtitleTrack = s.id; }}>
+                          <div style={{ width:20 }}>{subTrack === s.id && <CheckIcon/>}</div>
+                          <span style={{ color:subTrack === s.id ? '#fff' : 'rgba(255,255,255,.7)',fontSize:15 }}>{s.name}</span>
                         </div>
                       ))}
                     </div>
+
+                    {/* Dynamic Audio Rendering */}
                     <div style={{ flex:1,padding:'20px 16px' }}>
                       <div style={{ color:'#fff',fontSize:16,fontWeight:700,marginBottom:16 }}>Audio</div>
-                      {['English','हिन्दी','Tamil','Telugu'].map(a=>(
-                        <div key={a} style={{ display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer' }} onClick={()=>setAudTrack(a)}>
-                          <div style={{ width:20 }}>{audTrack===a&&<CheckIcon/>}</div>
-                          <span style={{ color:audTrack===a?'#fff':'rgba(255,255,255,.7)',fontSize:15 }}>{a}</span>
+                      {audioTracks.length > 0 ? audioTracks.map(a => (
+                        <div key={a.id} style={{ display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer' }} onClick={()=>{ setAudTrack(a.id); if (hlsRef.current) hlsRef.current.audioTrack = a.id; }}>
+                          <div style={{ width:20 }}>{audTrack === a.id && <CheckIcon/>}</div>
+                          <span style={{ color:audTrack === a.id ? '#fff' : 'rgba(255,255,255,.7)',fontSize:15 }}>{a.name}</span>
                         </div>
-                      ))}
+                      )) : (
+                        <div style={{ display:'flex',alignItems:'center',gap:10,padding:'8px 4px' }}>
+                          <div style={{ width:20 }}><CheckIcon/></div>
+                          <span style={{ color:'#fff',fontSize:15 }}>Default Audio</span>
+                        </div>
+                      )}
                     </div>
+
                   </div>
                 </div>
               )}
             </div>
-            {/* Quality */}
             <div style={{ position:'relative' }}>
               <button className="pbtn" onClick={e=>{e.stopPropagation();setPanel(panel==='quality'?null:'quality');}} title="Video Quality"><SettingsIcon/></button>
               {panel==='quality' && (
@@ -682,7 +686,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
                 </div>
               )}
             </div>
-            {/* Volume */}
             <div style={{ position:'relative' }} onMouseEnter={()=>setPanel('volume')} onMouseLeave={()=>{ if(!draggingVol) setPanel(null); }}>
               <button className="pbtn" onClick={e=>{e.stopPropagation();toggleMute();}} title="Volume"><VolIco/></button>
               {panel==='volume' && (
@@ -704,7 +707,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
           </div>
         </div>
 
-        {/* X-Ray mini overlay */}
         {xrayOpen && xrayCast.length > 0 && (
           <div className="xray-ov" onClick={e=>e.stopPropagation()}>
             <div style={{ padding:'0 16px 10px',borderBottom:'1px solid rgba(255,255,255,.1)',marginBottom:8,display:'flex',alignItems:'center',gap:8 }}>
@@ -722,7 +724,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
           </div>
         )}
 
-        {/* Center play/skip — video only */}
         {isVideo && (
           <div style={{ position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',display:'flex',alignItems:'center',gap:48,zIndex:8 }} onClick={e=>e.stopPropagation()}>
             <button className="pbtn" style={{ color:'#AAA',padding:0,position:'relative' }} onClick={()=>skip(-10)}>
@@ -735,7 +736,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
           </div>
         )}
 
-        {/* Progress bar — video only */}
         {isVideo && (
           <div style={{ position:'absolute',bottom:0,left:0,right:0,padding:'0 0 28px',zIndex:10 }}>
             <div ref={progressBarRef} className="pbar" style={{ marginBottom:12 }}
@@ -756,7 +756,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         )}
       </div>
 
-      {/* ══════════════════ X-RAY PANEL ══════════════════ */}
       {xrayExpanded && (
         <div className="xray-panel" onClick={e=>e.stopPropagation()}>
           <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'18px 20px',borderBottom:'1px solid rgba(255,255,255,.08)',flexShrink:0 }}>
