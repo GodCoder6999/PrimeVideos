@@ -85,7 +85,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const [audioTracks,         setAudioTracks]       = useState([]); 
   const [subtitleTracks,      setSubtitleTracks]    = useState([]);
   const [sourceLanguages,     setSourceLanguages]   = useState([]); 
-  const [selectedSourceLang,  setSelectedSourceLang] = useState('English / Original');
+  const [selectedSourceLang,  setSelectedSourceLang] = useState('English');
 
   const [xrayOpen,      setXrayOpen]      = useState(false);
   const [xrayExpanded,  setXrayExpanded]  = useState(false);
@@ -100,6 +100,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const isVideo  = mode === 'hls' || mode === 'direct';
   const chapters = duration > 0 ? [0.16,0.33,0.5,0.66,0.83].map(p => p * duration) : [];
 
+  // ── FETCH TV SHOW SEASONS & EPISODES ──
   useEffect(() => {
     if (mediaType === 'tv') {
       fetch(`https://api.themoviedb.org/3/tv/${tmdbId}/season/${season}?api_key=${TMDB_KEY}`)
@@ -217,8 +218,24 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   }, []);
 
   const buildQualityMenu = useCallback((files, targetLang) => {
-    let filtered = files.filter(f => f.lang === targetLang);
+    // 1. Filter files containing the chosen language (or Dual/Multi if they picked Hindi)
+    let filtered = files.filter(f => f.lang && f.lang.includes(targetLang));
     if (filtered.length === 0) filtered = files; // fallback
+
+    // 2. Deep Sort: Prioritize pure streams for English so we don't accidentally load a Dual Audio MKV playing Hindi
+    if (targetLang === 'English') {
+       filtered.sort((a, b) => {
+          const aPure = (a.lang === 'English') ? 1 : 0;
+          const bPure = (b.lang === 'English') ? 1 : 0;
+          return bPure - aPure;
+       });
+    } else if (targetLang === 'Hindi') {
+       filtered.sort((a, b) => {
+          const aPure = (a.lang.includes('Hindi') || a.lang.includes('Dual') || a.lang.includes('Multi')) ? 1 : 0;
+          const bPure = (b.lang.includes('Hindi') || b.lang.includes('Dual') || b.lang.includes('Multi')) ? 1 : 0;
+          return bPure - aPure;
+       });
+    }
 
     const qMap = {};
     filtered.forEach(f => {
@@ -325,22 +342,24 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       if (streams.length > 0) {
         const files = [];
         streams.forEach(s => {
-          files.push({ url: s.url, quality: s.quality, lang: s.lang });
-          files.push({ url: `/api/proxy?url=${encodeURIComponent(s.url)}`, quality: s.quality, lang: s.lang });
+          const l = s.lang || 'Unknown';
+          files.push({ url: s.url, quality: s.quality, lang: l });
+          files.push({ url: `/api/proxy?url=${encodeURIComponent(s.url)}`, quality: s.quality, lang: l });
         });
 
         rawFilesRef.current = files;
 
         const availableLangs = new Set();
         files.forEach(f => {
-           availableLangs.add(f.lang);
+           if (f.lang === 'Unknown') return;
+           f.lang.split(', ').forEach(l => availableLangs.add(l));
         });
 
         let langArray = Array.from(availableLangs);
-        if (langArray.length === 0) langArray = ['English / Original'];
+        if (langArray.length === 0) langArray = ['English'];
         setSourceLanguages(langArray);
 
-        // Prioritize English Original by default, else first available
+        // Prioritize English by default to prevent Hindi over-rides, else first available
         let defaultLang = langArray.find(l => l.includes('English')) || langArray[0];
         
         setSelectedSourceLang(defaultLang);
@@ -786,8 +805,8 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
                       <div style={{ color:'#fff',fontSize:15,fontWeight:700,marginBottom:16 }}>Audio</div>
                       
                       {audioTracks.length > 1 && (
-                        <div className="mb-6">
-                          <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">Native Tracks</div>
+                        <div style={{ marginBottom: 16 }}>
+                          <div style={{ fontSize:10, fontWeight:700, color:'rgba(255,255,255,0.5)', textTransform:'uppercase', letterSpacing:1, marginBottom:8 }}>Native Tracks</div>
                           {audioTracks.map(a => (
                             <div key={a.id} style={{ display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer' }} onClick={()=>{ 
                                setAudTrack(a.id); 
@@ -801,7 +820,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
                       )}
 
                       <div>
-                        {audioTracks.length > 1 && <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">Video Sources</div>}
+                        {audioTracks.length > 1 && <div style={{ fontSize:10, fontWeight:700, color:'rgba(255,255,255,0.5)', textTransform:'uppercase', letterSpacing:1, marginBottom:8 }}>Video Sources</div>}
                         {sourceLanguages.map(lang => (
                           <div key={lang} style={{ display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer' }} onClick={() => handleSourceLangChange(lang)}>
                             <div style={{ width:20 }}>{selectedSourceLang === lang && <CheckIcon/>}</div>
