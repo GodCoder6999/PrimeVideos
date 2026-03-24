@@ -57,23 +57,25 @@ function qualityLabel(raw) {
 }
 
 function getLanguage(raw) {
-  if (!raw) return '';
+  if (!raw) return 'Unknown';
   const s = String(raw).toLowerCase();
   const langs = [];
-  if (s.includes('hindi') || s.match(/\bhin\b/)) langs.push('Hin');
-  if (s.includes('english') || s.match(/\beng\b/)) langs.push('Eng');
-  if (s.includes('tamil') || s.match(/\btam\b/)) langs.push('Tam');
-  if (s.includes('telugu') || s.match(/\btel\b/)) langs.push('Tel');
-  if (s.includes('malayalam') || s.match(/\bmal\b/)) langs.push('Mal');
-  if (s.includes('kannada') || s.match(/\bkan\b/)) langs.push('Kan');
-  if (s.includes('bengali') || s.match(/\bben\b/)) langs.push('Ben');
+  if (s.includes('hindi') || s.match(/\bhin\b/)) langs.push('Hindi');
+  if (s.includes('english') || s.match(/\beng\b/)) langs.push('English');
+  if (s.includes('tamil') || s.match(/\btam\b/)) langs.push('Tamil');
+  if (s.includes('telugu') || s.match(/\btel\b/)) langs.push('Telugu');
+  if (s.includes('malayalam') || s.match(/\bmal\b/)) langs.push('Malayalam');
+  if (s.includes('kannada') || s.match(/\bkan\b/)) langs.push('Kannada');
+  if (s.includes('bengali') || s.match(/\bben\b/)) langs.push('Bengali');
+  if (s.includes('marathi') || s.match(/\bmar\b/)) langs.push('Marathi');
   
   if (langs.length === 0) {
-    if (s.includes('multi') || s.includes('multi-audio')) langs.push('Multi');
-    else if (s.includes('dual') || s.includes('dual-audio')) langs.push('Dual');
+    if (s.includes('multi') || s.includes('multi-audio')) return 'Multi';
+    if (s.includes('dual') || s.includes('dual-audio')) return 'Dual';
+    return 'Unknown';
   }
   
-  return langs.length > 0 ? langs.join(', ') : '';
+  return langs.join(', ');
 }
 
 function parseStreams(data) {
@@ -125,7 +127,7 @@ const fetchers = [
        const found = []; let match;
        while ((match = m3u8Re.exec(html)) !== null) {
          if (!match[1].includes('audio') && !match[1].includes('subtitle')) {
-           found.push({ url: match[1], quality: 'Auto', lang: '' });
+           found.push({ url: match[1], quality: 'Auto', lang: 'Unknown' });
          }
        }
        return found;
