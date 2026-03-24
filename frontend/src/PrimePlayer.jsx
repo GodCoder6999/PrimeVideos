@@ -19,7 +19,6 @@ const ChevronUpIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fil
 const ChevronDownIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><polyline points="6 9 12 15 18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const XRayExpandIcon = () => (<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 
-// Exact clones of the central playback controls 
 const Rewind10Icon = () => (<svg width="88" height="88" viewBox="0 0 64 64" fill="none"><path d="M 16 24 A 20 20 0 1 1 16 46" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/><path d="M 25 15 L 15 24 L 25 33" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/><text x="32" y="32" dy="0.35em" textAnchor="middle" fill="currentColor" fontSize="16" fontWeight="700" fontFamily="system-ui, sans-serif">10</text></svg>);
 const Forward10Icon = () => (<svg width="88" height="88" viewBox="0 0 64 64" fill="none"><path d="M 48 24 A 20 20 0 1 0 48 46" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/><path d="M 39 15 L 49 24 L 39 33" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/><text x="32" y="32" dy="0.35em" textAnchor="middle" fill="currentColor" fontSize="16" fontWeight="700" fontFamily="system-ui, sans-serif">10</text></svg>);
 const PlayIcon = () => (<svg width="88" height="88" viewBox="0 0 64 64" fill="none"><path d="M 24 16 L 48 32 L 24 48 Z" fill="currentColor" stroke="currentColor" strokeWidth="4" strokeLinejoin="round" /></svg>);
@@ -33,17 +32,6 @@ const fmtTime = (s) => {
 };
 
 const TMDB_KEY = 'cb1dc311039e6ae85db0aa200345cbc5';
-
-const labelQuality = (raw) => {
-  if (!raw) return 'Auto';
-  const s = String(raw).toLowerCase();
-  if (s.includes('2160') || s.includes('4k') || s.includes('uhd')) return '2160p';
-  if (s.includes('1080')) return '1080p';
-  if (s.includes('720'))  return '720p';
-  if (s.includes('480'))  return '480p';
-  if (s.includes('360'))  return '360p';
-  return 'Auto';
-};
 
 // ─── MAIN PLAYER ───────────────────────────────────────────────────────────
 export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', season = 1, episode = 1, onClose }) {
@@ -299,10 +287,11 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       if (streams.length > 0) {
         const files = [];
         streams.forEach(s => {
-          files.push({ url: s.url, quality: s.quality });
-          files.push({ url: `/api/proxy?url=${encodeURIComponent(s.url)}`, quality: s.quality });
+          files.push({ url: s.url, quality: s.quality, lang: s.lang });
+          files.push({ url: `/api/proxy?url=${encodeURIComponent(s.url)}`, quality: s.quality, lang: s.lang });
         });
 
+        // Group qualities and inject Language labels gracefully
         const qMap = {};
         files.forEach(f => {
            if(!qMap[f.quality]) qMap[f.quality] = [];
@@ -315,7 +304,8 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         
         Object.keys(qMap).forEach(q => {
           qMap[q].forEach((f, idx) => {
-            const label = qMap[q].length > 1 ? `${q} (Server ${idx + 1})` : q;
+            const langStr = f.lang ? ` [${f.lang}]` : '';
+            const label = qMap[q].length > 1 ? `${q}${langStr} (Server ${idx + 1})` : `${q}${langStr}`;
             if (!seen.has(label)) { 
               seen.add(label); 
               menu.push({ label, value: menu.length, sortQ: q, url: f.url }); 
@@ -407,8 +397,10 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       let netRetries = 0, mediaRetries = 0;
       hls.on(Hls.Events.ERROR, (_, d) => {
         if (d.details === Hls.ErrorDetails.AUDIO_TRACK_LOAD_ERROR || d.details === Hls.ErrorDetails.AUDIO_TRACK_LOAD_TIMEOUT) {
-          if (hls.audioTracks && hls.audioTracks.length > 1) hls.audioTrack = (hls.audioTrack + 1) % hls.audioTracks.length;
-          else if (d.fatal) { hls.destroy(); tryNextSource(); }
+          if (hls.audioTracks && hls.audioTracks.length > 1) {
+            hls.audioTrack = (hls.audioTrack + 1) % hls.audioTracks.length;
+            setAudTrack(hls.audioTrack);
+          } else if (d.fatal) { hls.destroy(); tryNextSource(); }
           return;
         }
         if (!d.fatal) return;
@@ -759,7 +751,10 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
                     <div style={{ flex:1,padding:'20px 16px' }}>
                       <div style={{ color:'#fff',fontSize:16,fontWeight:700,marginBottom:16 }}>Audio</div>
                       {audioTracks.length > 0 ? audioTracks.map(a => (
-                        <div key={a.id} style={{ display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer' }} onClick={()=>{ setAudTrack(a.id); if (hlsRef.current) hlsRef.current.audioTrack = a.id; }}>
+                        <div key={a.id} style={{ display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer' }} onClick={()=>{ 
+                           setAudTrack(a.id); 
+                           if (hlsRef.current) hlsRef.current.audioTrack = a.id; 
+                        }}>
                           <div style={{ width:20 }}>{audTrack === a.id && <CheckIcon/>}</div>
                           <span style={{ color:audTrack === a.id ? '#fff' : 'rgba(255,255,255,.7)',fontSize:15 }}>{a.name}</span>
                         </div>
@@ -778,7 +773,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
             <div style={{ position:'relative' }}>
               <button className="pbtn" onClick={e=>{e.stopPropagation();setPanel(panel==='quality'?null:'quality');}} title="Video Quality"><SettingsIcon/></button>
               {panel==='quality' && (
-                <div className="ppanel" style={{ width:260, maxHeight:'60vh', overflowY:'auto' }} onClick={e=>e.stopPropagation()}>
+                <div className="ppanel" style={{ width:280, maxHeight:'60vh', overflowY:'auto' }} onClick={e=>e.stopPropagation()}>
                   <div style={{ padding:'20px 20px 12px' }}>
                     <div style={{ color:'#fff',fontSize:17,fontWeight:700,marginBottom:14 }}>Video Quality</div>
                     {qualities.length > 0 ? qualities.map(q=>(
