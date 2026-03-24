@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Hls from 'hls.js';
 
-// ─── ICONS (Cloned from Image) ─────────────────────────────────────────────
+// ─── ICONS ─────────────────────────────────────────────
 const SubtitlesIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><rect x="2" y="6" width="20" height="13" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/><line x1="6" y1="11" x2="18" y2="11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="6" y1="15" x2="14" y2="15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>);
 const SettingsIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.5"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" stroke="currentColor" strokeWidth="1.5"/></svg>);
 const VolumeHighIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" stroke="currentColor" strokeWidth="1.5" fill="none"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>);
@@ -89,7 +89,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const [hoverT,        setHoverT]        = useState(null);
   const [hoverX,        setHoverX]        = useState(0);
   
-  // DYNAMIC AUDIO/SUBTITLE TRACKS
+  // tracks
   const [subTrack,       setSubTrack]       = useState(-1);
   const [audTrack,       setAudTrack]       = useState(0);
   const [audioTracks,    setAudioTracks]    = useState([]);
@@ -190,10 +190,17 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
 
         const order = { '1080p':5,'720p':4,'480p':3,'360p':2,'Auto':1,'2160p':0 };
         const seen = new Set(); const menu = [];
+        
+        // Ensure provider is shown in label so user can switch between ShowBox, UHDMovies, etc.
         files.forEach((f, i) => {
-          if (!seen.has(f.quality)) { seen.add(f.quality); menu.push({ label: f.quality, value: i }); }
+          const cleanProv = f.provider.replace(' ↑', '');
+          const label = `${f.quality} • ${cleanProv}`;
+          if (!seen.has(label)) { 
+            seen.add(label); 
+            menu.push({ label: label, value: i, sortQ: f.quality }); 
+          }
         });
-        menu.sort((a,b) => (order[b.label]||0) - (order[a.label]||0));
+        menu.sort((a,b) => (order[b.sortQ]||0) - (order[a.sortQ]||0));
 
         setDirectFiles(files);
         setDirectIdx(0);
@@ -669,22 +676,24 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
                 </div>
               )}
             </div>
+            
             <div style={{ position:'relative' }}>
               <button className="pbtn" onClick={e=>{e.stopPropagation();setPanel(panel==='quality'?null:'quality');}} title="Video Quality"><SettingsIcon/></button>
               {panel==='quality' && (
-                <div className="ppanel" style={{ width:280 }} onClick={e=>e.stopPropagation()}>
+                <div className="ppanel" style={{ width:340, maxHeight:'60vh', overflowY:'auto' }} onClick={e=>e.stopPropagation()}>
                   <div style={{ padding:'20px 20px 12px' }}>
-                    <div style={{ color:'#fff',fontSize:17,fontWeight:700,marginBottom:14 }}>Video Quality</div>
+                    <div style={{ color:'#fff',fontSize:17,fontWeight:700,marginBottom:14 }}>Video Source & Quality</div>
                     {qualities.length > 0 ? qualities.map(q=>(
                       <div key={q.value} className="qi" style={{ display:'flex',alignItems:'center',gap:14,padding:'11px 4px',cursor:'pointer',borderRadius:4 }} onClick={()=>handleQuality(q.value)}>
                         <div style={{ width:24,flexShrink:0 }}>{selQuality===q.value&&<CheckIcon/>}</div>
-                        <span style={{ color:selQuality===q.value?'#fff':'rgba(255,255,255,.85)',fontSize:15,fontWeight:selQuality===q.value?700:400 }}>{q.label}</span>
+                        <span style={{ color:selQuality===q.value?'#fff':'rgba(255,255,255,.85)',fontSize:14,fontWeight:selQuality===q.value?700:400 }}>{q.label}</span>
                       </div>
                     )) : <div style={{ color:'#AAA',fontSize:13,fontStyle:'italic' }}>Loading…</div>}
                   </div>
                 </div>
               )}
             </div>
+
             <div style={{ position:'relative' }} onMouseEnter={()=>setPanel('volume')} onMouseLeave={()=>{ if(!draggingVol) setPanel(null); }}>
               <button className="pbtn" onClick={e=>{e.stopPropagation();toggleMute();}} title="Volume"><VolIco/></button>
               {panel==='volume' && (
@@ -754,7 +763,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
             <div style={{ fontSize:15,fontWeight:500,marginTop:12 }}>
               <span style={{ color:'#FFF' }}>{fmtTime(currentTime)}</span>
               <span style={{ color:'#B3B3B3' }}> / {fmtTime(duration)}</span>
-              {(mode==='hls'||mode==='direct') && provider && (
+              {mode === 'hls' && provider && (
                 <span style={{ marginLeft: 16, fontSize:10,fontWeight:800,padding:'2px 7px',borderRadius:4,border:'1px solid rgba(179,179,179,.4)',color:'#B3B3B3',textTransform:'uppercase' }}>{provider}</span>
               )}
             </div>
