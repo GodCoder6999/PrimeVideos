@@ -24,7 +24,6 @@ const Forward10Icon = () => (<svg width="88" height="88" viewBox="0 0 64 64" fil
 const PlayIcon = () => (<svg width="88" height="88" viewBox="0 0 64 64" fill="none"><path d="M 24 16 L 48 32 L 24 48 Z" fill="currentColor" stroke="currentColor" strokeWidth="4" strokeLinejoin="round" /></svg>);
 const PauseIcon = () => (<svg width="88" height="88" viewBox="0 0 64 64" fill="none"><rect x="20" y="16" width="7" height="32" rx="3.5" fill="currentColor" /><rect x="37" y="16" width="7" height="32" rx="3.5" fill="currentColor" /></svg>);
 
-// ─── HELPERS ───────────────────────────────────────────────────────────────
 const fmtTime = (s) => {
   if (!s || isNaN(s)) return '0:00:00';
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60);
@@ -37,7 +36,6 @@ const TMDB_KEY = 'cb1dc311039e6ae85db0aa200345cbc5';
 export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', season = 1, episode = 1, onClose }) {
   const navigate = useNavigate();
   
-  // refs
   const containerRef   = useRef(null);
   const videoRef       = useRef(null);
   const hlsRef         = useRef(null);
@@ -47,13 +45,11 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const volSliderRef   = useRef(null);
   const iframeTimer    = useRef(null);
 
-  // robust source tracking
   const rawFilesRef    = useRef([]);
   const allSourcesRef  = useRef([]);
   const selQualityRef  = useRef(-1);
   const hasResumed     = useRef(false);
 
-  // playback
   const [playing,     setPlaying]     = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration,    setDuration]    = useState(0);
@@ -64,7 +60,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const [prevVol,     setPrevVol]     = useState(1);
   const [autoMuted,   setAutoMuted]   = useState(false);
 
-  // stream
   const [mode,         setMode]        = useState('loading');
   const [hlsUrl,       setHlsUrl]      = useState(null);
   const [directFiles,  setDirectFiles] = useState([]);
@@ -75,7 +70,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const [embedIdx,     setEmbedIdx]    = useState(0);
   const [embedPhase,   setEmbedPhase]  = useState('loading');
 
-  // ui
   const [showCtrl,      setShowCtrl]      = useState(true);
   const [isFullscreen,  setIsFullscreen]  = useState(false);
   const [seeking,       setSeeking]       = useState(false);
@@ -85,13 +79,13 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const [hoverT,        setHoverT]        = useState(null);
   const [hoverX,        setHoverX]        = useState(0);
   
-  // dynamic tracks & audio routing
+  // Audio Router
   const [subTrack,            setSubTrack]          = useState(-1);
-  const [audTrack,            setAudTrack]          = useState(0); // for native HLS
-  const [audioTracks,         setAudioTracks]       = useState([]); // native HLS tracks
+  const [audTrack,            setAudTrack]          = useState(0); 
+  const [audioTracks,         setAudioTracks]       = useState([]); 
   const [subtitleTracks,      setSubtitleTracks]    = useState([]);
-  const [sourceLanguages,     setSourceLanguages]   = useState([]); // extracted source languages
-  const [selectedSourceLang,  setSelectedSourceLang] = useState('Default');
+  const [sourceLanguages,     setSourceLanguages]   = useState([]); 
+  const [selectedSourceLang,  setSelectedSourceLang] = useState('English / Original');
 
   const [xrayOpen,      setXrayOpen]      = useState(false);
   const [xrayExpanded,  setXrayExpanded]  = useState(false);
@@ -100,14 +94,12 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const [expandCast,    setExpandCast]    = useState(null);
   const [movieTitle,    setMovieTitle]    = useState(title);
   
-  // TV Shows Specific
   const [episodeTitle,   setEpisodeTitle] = useState('');
   const [nextEpData,     setNextEpData]   = useState(null);
 
   const isVideo  = mode === 'hls' || mode === 'direct';
   const chapters = duration > 0 ? [0.16,0.33,0.5,0.66,0.83].map(p => p * duration) : [];
 
-  // ── FETCH TV SHOW SEASONS & EPISODES ──
   useEffect(() => {
     if (mediaType === 'tv') {
       fetch(`https://api.themoviedb.org/3/tv/${tmdbId}/season/${season}?api_key=${TMDB_KEY}`)
@@ -144,7 +136,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     }
   };
 
-  // ── RESUME PROGRESS LOGIC ──
   useEffect(() => {
     hasResumed.current = false;
   }, [tmdbId, season, episode]);
@@ -226,10 +217,8 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   }, []);
 
   const buildQualityMenu = useCallback((files, targetLang) => {
-    let filtered = files.filter(f => f.lang.includes(targetLang) || f.lang === 'Multi' || f.lang === 'Dual' || f.lang === 'Unknown');
-    if (filtered.length === 0) {
-        filtered = files; // fallback
-    }
+    let filtered = files.filter(f => f.lang === targetLang);
+    if (filtered.length === 0) filtered = files; // fallback
 
     const qMap = {};
     filtered.forEach(f => {
@@ -243,7 +232,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     
     Object.keys(qMap).forEach(q => {
       qMap[q].forEach((f, idx) => {
-        // Source names hidden: just shows '1080p (Server 1)'
         const label = qMap[q].length > 1 ? `${q} (Server ${idx + 1})` : q;
         if (!seen.has(label)) { 
           seen.add(label); 
@@ -337,26 +325,23 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       if (streams.length > 0) {
         const files = [];
         streams.forEach(s => {
-          const l = s.lang || 'Unknown';
-          files.push({ url: s.url, quality: s.quality, lang: l });
-          files.push({ url: `/api/proxy?url=${encodeURIComponent(s.url)}`, quality: s.quality, lang: l });
+          files.push({ url: s.url, quality: s.quality, lang: s.lang });
+          files.push({ url: `/api/proxy?url=${encodeURIComponent(s.url)}`, quality: s.quality, lang: s.lang });
         });
 
         rawFilesRef.current = files;
 
         const availableLangs = new Set();
         files.forEach(f => {
-           if (f.lang === 'Unknown') return;
-           f.lang.split(', ').forEach(l => availableLangs.add(l));
+           availableLangs.add(f.lang);
         });
 
         let langArray = Array.from(availableLangs);
-        if (langArray.length === 0) langArray = ['Default'];
+        if (langArray.length === 0) langArray = ['English / Original'];
         setSourceLanguages(langArray);
 
-        // Force English if available, else first detected
-        let defaultLang = langArray.includes('English') ? 'English' : langArray[0];
-        if (langArray.includes('Multi') && !langArray.includes('English')) defaultLang = 'Multi';
+        // Prioritize English Original by default, else first available
+        let defaultLang = langArray.find(l => l.includes('English')) || langArray[0];
         
         setSelectedSourceLang(defaultLang);
         buildQualityMenu(files, defaultLang);
@@ -390,7 +375,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
 
       hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (_, data) => {
         if (data.audioTracks && data.audioTracks.length > 0) {
-           setAudioTracks(data.audioTracks.map((t, i) => ({ id: i, name: t.name || t.lang || `Audio ${i+1}` })));
+           setAudioTracks(data.audioTracks.map((t, i) => ({ id: i, name: t.name || t.lang || `Audio Track ${i+1}` })));
         }
       });
       hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, (_, data) => {
@@ -406,7 +391,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
 
         if (hls.audioTracks && hls.audioTracks.length > 0) {
           hls.audioTrack = 0;
-          setAudioTracks(hls.audioTracks.map((t, i) => ({ id: i, name: t.name || t.lang || `Audio ${i+1}` })));
+          setAudioTracks(hls.audioTracks.map((t, i) => ({ id: i, name: t.name || t.lang || `Audio Track ${i+1}` })));
           setAudTrack(0);
         } else { setAudioTracks([]); }
 
@@ -669,12 +654,15 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         .pthumb{position:absolute;top:50%;width:14px;height:14px;background:#FFF;border-radius:50%;transform:translate(-50%,-50%) scale(0);pointer-events:none;transition:transform .1s;}
         .pbar:hover .pthumb{transform:translate(-50%,-50%) scale(1);}
         .cdot{position:absolute;top:0;width:2px;height:100%;background:#000;pointer-events:none;z-index:2;}
-        .ppanel{position:absolute;top:48px;right:0;background:#111;border-radius:3px 0 0 3px;min-width:260px;overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,.9);animation:pi .1s ease-out;}
+        
+        .ppanel{position:absolute;top:calc(100% + 14px);right:0;background:#111;border-radius:6px;min-width:260px;overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,.9);animation:pi .1s ease-out; z-index: 50; border: 1px solid rgba(255,255,255,0.08);}
         @keyframes pi{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
-        .volpop{position:absolute;top:100%;margin-top:10px;left:50%;transform:translateX(-50%);background:#111;border-radius:4px;padding:14px 11px;width:40px;display:flex;flex-direction:column;align-items:center;gap:10px;box-shadow:0 6px 20px rgba(0,0,0,.9);animation:pi .1s ease-out; z-index: 50;}
+        
+        .volpop{position:absolute;top:calc(100% + 14px);left:50%;transform:translateX(-50%);background:#111;border-radius:4px;padding:14px 11px;width:40px;display:flex;flex-direction:column;align-items:center;gap:10px;box-shadow:0 6px 20px rgba(0,0,0,.9);animation:pi .1s ease-out; z-index: 50; border: 1px solid rgba(255,255,255,0.08);}
         .voltr{width:3px;height:120px;background:var(--ct);border-radius:2px;position:relative;cursor:pointer;}
         .volfil{position:absolute;bottom:0;left:0;width:100%;background:var(--c);border-radius:2px;pointer-events:none;}
         .volknob{position:absolute;left:50%;width:11px;height:11px;background:var(--c);border-radius:50%;transform:translate(-50%,50%);pointer-events:none;}
+        
         .xray-ov{position:absolute;top:52px;left:14px;background:rgba(0,0,0,.9);border-radius:3px;padding:8px 0;min-width:250px;max-height:55vh;overflow-y:auto;scrollbar-width:none;animation:pi .12s ease-out;}
         .xray-ov::-webkit-scrollbar{display:none;}
         .xray-panel{position:absolute;top:0;right:0;bottom:0;width:340px;background:#080808;border-left:1px solid rgba(170,170,170,.08);display:flex;flex-direction:column;animation:si .18s ease-out;z-index:10;}
@@ -747,20 +735,30 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         {/* ── TOP BAR ── */}
         <div style={{ position:'absolute',top:0,left:0,right:0,display:'flex',alignItems:'center',justifyContent:'space-between',padding:'32px 40px',zIndex:10,pointerEvents:'auto' }}>
           
-          <div style={{ display:'flex',alignItems:'center',gap:16 }}>
-            <span style={{ fontSize:18,fontWeight:600,color:'#FFF',cursor:'pointer' }} onClick={e=>{e.stopPropagation();setXrayOpen(v=>!v);setXrayExpanded(false);setPanel(null);}}>X-Ray</span>
-            <div style={{ border:'1px solid #B3B3B3',color:'#B3B3B3',fontSize:11,fontWeight:700,padding:'2px 5px',borderRadius:3,cursor:'pointer' }} onClick={e=>{e.stopPropagation();setXrayExpanded(true);setXrayOpen(false);setPanel(null);}}>IMDb</div>
-            <button className="pbtn" style={{ fontSize:15,display:'flex',alignItems:'center',gap:4 }} onClick={e=>{e.stopPropagation();setXrayExpanded(true);setXrayOpen(false);setPanel(null);}}>All <ChevronRightIcon/></button>
-          </div>
+          {mediaType === 'tv' ? (
+             <div style={{ display:'flex',alignItems:'center',gap:16 }}>
+               <span style={{ fontSize:18,fontWeight:600,color:'#FFF',cursor:'pointer' }} onClick={e=>{e.stopPropagation();setXrayOpen(v=>!v);setXrayExpanded(false);setPanel(null);}}>X-Ray</span>
+               <div style={{ border:'1px solid #B3B3B3',color:'#B3B3B3',fontSize:11,fontWeight:700,padding:'2px 5px',borderRadius:3,cursor:'pointer' }} onClick={e=>{e.stopPropagation();setXrayExpanded(true);setXrayOpen(false);setPanel(null);}}>IMDb</div>
+               <button className="pbtn" style={{ fontSize:15,display:'flex',alignItems:'center',gap:4 }} onClick={e=>{e.stopPropagation();setXrayExpanded(true);setXrayOpen(false);setPanel(null);}}>All <ChevronRightIcon/></button>
+             </div>
+          ) : (
+             <span style={{ color:'#FFF',fontSize:22,fontWeight:600 }}>{movieTitle}</span>
+          )}
 
-          <div style={{ position:'absolute',left:'50%',transform:'translateX(-50%)', display:'flex', flexDirection:'column', alignItems:'center', whiteSpace:'nowrap', textShadow:'0 1px 3px rgba(0,0,0,0.8)' }}>
-            <span style={{ color:'#FFF',fontSize:22,fontWeight:600 }}>{movieTitle}</span>
-            {mediaType === 'tv' && (
-              <span style={{ color:'#E0E0E0',fontSize:16,fontWeight:400, marginTop:2 }}>
-                Season {season}, Ep. {episode} {episodeTitle ? `${episodeTitle}` : ''}
-              </span>
-            )}
-          </div>
+          {mediaType === 'tv' ? (
+             <div style={{ position:'absolute',left:'50%',transform:'translateX(-50%)', display:'flex', flexDirection:'column', alignItems:'center', whiteSpace:'nowrap', textShadow:'0 1px 3px rgba(0,0,0,0.8)' }}>
+                <span style={{ color:'#FFF',fontSize:22,fontWeight:600 }}>{movieTitle}</span>
+                <span style={{ color:'#E0E0E0',fontSize:16,fontWeight:400, marginTop:2 }}>
+                  Season {season}, Ep. {episode} {episodeTitle ? `${episodeTitle}` : ''}
+                </span>
+             </div>
+          ) : (
+             <div style={{ position:'absolute',left:'50%',transform:'translateX(-50%)', display:'flex', alignItems:'center', gap:16 }}>
+               <span style={{ fontSize:18,fontWeight:600,color:'#FFF',cursor:'pointer' }} onClick={e=>{e.stopPropagation();setXrayOpen(v=>!v);setXrayExpanded(false);setPanel(null);}}>X-Ray</span>
+               <div style={{ border:'1px solid #B3B3B3',color:'#B3B3B3',fontSize:11,fontWeight:700,padding:'2px 5px',borderRadius:3,cursor:'pointer' }} onClick={e=>{e.stopPropagation();setXrayExpanded(true);setXrayOpen(false);setPanel(null);}}>IMDb</div>
+               <button className="pbtn" style={{ fontSize:15,display:'flex',alignItems:'center',gap:4 }} onClick={e=>{e.stopPropagation();setXrayExpanded(true);setXrayOpen(false);setPanel(null);}}>All <ChevronRightIcon/></button>
+             </div>
+          )}
 
           <div style={{ display:'flex',alignItems:'center',gap:24 }}>
             
@@ -768,43 +766,49 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
             <div style={{ position:'relative' }}>
               <button className="pbtn" onClick={e=>{e.stopPropagation();setPanel(panel==='subtitles'?null:'subtitles');}} title="Subtitles & Audio"><SubtitlesIcon/></button>
               {panel==='subtitles' && (
-                <div className="ppanel" style={{ width:420, maxHeight:'400px', display:'flex', flexDirection:'column' }} onClick={e=>e.stopPropagation()}>
-                  <div style={{ display:'flex', overflowY:'auto' }}>
-                    <div style={{ flex:1,borderRight:'1px solid rgba(255,255,255,.15)',padding:'20px 16px' }}>
-                      <div style={{ color:'#fff',fontSize:16,fontWeight:700,marginBottom:16 }}>Subtitles</div>
+                <div className="ppanel" style={{ width:420, maxHeight:'60vh', display:'flex', flexDirection:'column' }} onClick={e=>e.stopPropagation()}>
+                  <div style={{ display:'flex', overflowY:'auto', scrollbarWidth:'none' }}>
+                    <div style={{ flex:1,borderRight:'1px solid rgba(255,255,255,.08)',padding:'20px 16px' }}>
+                      <div style={{ color:'#fff',fontSize:15,fontWeight:700,marginBottom:16 }}>Subtitles</div>
                       <div style={{ display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer' }} onClick={()=>{ setSubTrack(-1); if (hlsRef.current) hlsRef.current.subtitleTrack = -1; }}>
                         <div style={{ width:20 }}>{subTrack === -1 && <CheckIcon/>}</div>
-                        <span style={{ color:subTrack === -1 ? '#fff' : 'rgba(255,255,255,.7)',fontSize:15 }}>Off</span>
+                        <span style={{ color:subTrack === -1 ? '#fff' : 'rgba(255,255,255,.7)',fontSize:14 }}>Off</span>
                       </div>
                       {subtitleTracks.map(s => (
                         <div key={s.id} style={{ display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer' }} onClick={()=>{ setSubTrack(s.id); if (hlsRef.current) hlsRef.current.subtitleTrack = s.id; }}>
                           <div style={{ width:20 }}>{subTrack === s.id && <CheckIcon/>}</div>
-                          <span style={{ color:subTrack === s.id ? '#fff' : 'rgba(255,255,255,.7)',fontSize:15 }}>{s.name}</span>
+                          <span style={{ color:subTrack === s.id ? '#fff' : 'rgba(255,255,255,.7)',fontSize:14 }}>{s.name}</span>
                         </div>
                       ))}
                     </div>
 
                     <div style={{ flex:1,padding:'20px 16px' }}>
-                      <div style={{ color:'#fff',fontSize:16,fontWeight:700,marginBottom:16 }}>Audio</div>
-                      {audioTracks.length > 0 ? audioTracks.map(a => (
-                        <div key={a.id} style={{ display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer' }} onClick={()=>{ 
-                           setAudTrack(a.id); 
-                           if (hlsRef.current) hlsRef.current.audioTrack = a.id; 
-                        }}>
-                          <div style={{ width:20 }}>{audTrack === a.id && <CheckIcon/>}</div>
-                          <span style={{ color:audTrack === a.id ? '#fff' : 'rgba(255,255,255,.7)',fontSize:15 }}>{a.name}</span>
-                        </div>
-                      )) : sourceLanguages.length > 0 ? sourceLanguages.map(lang => (
-                        <div key={lang} style={{ display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer' }} onClick={() => handleSourceLangChange(lang)}>
-                          <div style={{ width:20 }}>{selectedSourceLang === lang && <CheckIcon/>}</div>
-                          <span style={{ color:selectedSourceLang === lang ? '#fff' : 'rgba(255,255,255,.7)',fontSize:15 }}>{lang}</span>
-                        </div>
-                      )) : (
-                        <div style={{ display:'flex',alignItems:'center',gap:10,padding:'8px 4px' }}>
-                          <div style={{ width:20 }}><CheckIcon/></div>
-                          <span style={{ color:'#fff',fontSize:15 }}>Default Audio</span>
+                      <div style={{ color:'#fff',fontSize:15,fontWeight:700,marginBottom:16 }}>Audio</div>
+                      
+                      {audioTracks.length > 1 && (
+                        <div className="mb-6">
+                          <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">Native Tracks</div>
+                          {audioTracks.map(a => (
+                            <div key={a.id} style={{ display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer' }} onClick={()=>{ 
+                               setAudTrack(a.id); 
+                               if (hlsRef.current) hlsRef.current.audioTrack = a.id; 
+                            }}>
+                              <div style={{ width:20 }}>{audTrack === a.id && <CheckIcon/>}</div>
+                              <span style={{ color:audTrack === a.id ? '#fff' : 'rgba(255,255,255,.7)',fontSize:14 }}>{a.name}</span>
+                            </div>
+                          ))}
                         </div>
                       )}
+
+                      <div>
+                        {audioTracks.length > 1 && <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">Video Sources</div>}
+                        {sourceLanguages.map(lang => (
+                          <div key={lang} style={{ display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer' }} onClick={() => handleSourceLangChange(lang)}>
+                            <div style={{ width:20 }}>{selectedSourceLang === lang && <CheckIcon/>}</div>
+                            <span style={{ color:selectedSourceLang === lang ? '#fff' : 'rgba(255,255,255,.7)',fontSize:14 }}>{lang}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -814,9 +818,9 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
             <div style={{ position:'relative' }}>
               <button className="pbtn" onClick={e=>{e.stopPropagation();setPanel(panel==='quality'?null:'quality');}} title="Video Quality"><SettingsIcon/></button>
               {panel==='quality' && (
-                <div className="ppanel" style={{ width:260, maxHeight:'60vh', overflowY:'auto' }} onClick={e=>e.stopPropagation()}>
+                <div className="ppanel" style={{ width:260, maxHeight:'60vh', overflowY:'auto', scrollbarWidth:'none' }} onClick={e=>e.stopPropagation()}>
                   <div style={{ padding:'20px 20px 12px' }}>
-                    <div style={{ color:'#fff',fontSize:17,fontWeight:700,marginBottom:14 }}>Video Quality</div>
+                    <div style={{ color:'#fff',fontSize:15,fontWeight:700,marginBottom:14 }}>Video Quality</div>
                     {qualities.length > 0 ? qualities.map(q=>(
                       <div key={q.value} className="qi" style={{ display:'flex',alignItems:'center',gap:14,padding:'11px 4px',cursor:'pointer',borderRadius:4 }} onClick={()=>handleQuality(q.value)}>
                         <div style={{ width:24,flexShrink:0 }}>{selQuality===q.value&&<CheckIcon/>}</div>
