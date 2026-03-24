@@ -1,6 +1,7 @@
 // frontend/src/PrimePlayer.jsx
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Hls from 'hls.js';
+import { useNavigate } from 'react-router-dom';
 
 // ─── ICONS ─────────────────────────────────────────────
 const SubtitlesIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><rect x="2" y="6" width="20" height="13" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/><line x1="6" y1="11" x2="18" y2="11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="6" y1="15" x2="14" y2="15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>);
@@ -13,11 +14,12 @@ const FullscreenIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fi
 const ExitFullscreenIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M10 14l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const CloseIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>);
 const CheckIcon = () => (<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><polyline points="2,8 6,12 14,4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>);
-const ChevronRightIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><polyline points="9 18 15 12 9 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>);
+const ChevronRightIcon = () => (<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><polyline points="9 18 15 12 9 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const ChevronUpIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><polyline points="18 15 12 9 6 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const ChevronDownIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><polyline points="6 9 12 15 18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const XRayExpandIcon = () => (<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 
+// Exact clones of the central playback controls 
 const Rewind10Icon = () => (<svg width="88" height="88" viewBox="0 0 64 64" fill="none"><path d="M 16 24 A 20 20 0 1 1 16 46" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/><path d="M 25 15 L 15 24 L 25 33" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/><text x="32" y="32" dy="0.35em" textAnchor="middle" fill="currentColor" fontSize="16" fontWeight="700" fontFamily="system-ui, sans-serif">10</text></svg>);
 const Forward10Icon = () => (<svg width="88" height="88" viewBox="0 0 64 64" fill="none"><path d="M 48 24 A 20 20 0 1 0 48 46" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/><path d="M 39 15 L 49 24 L 39 33" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/><text x="32" y="32" dy="0.35em" textAnchor="middle" fill="currentColor" fontSize="16" fontWeight="700" fontFamily="system-ui, sans-serif">10</text></svg>);
 const PlayIcon = () => (<svg width="88" height="88" viewBox="0 0 64 64" fill="none"><path d="M 24 16 L 48 32 L 24 48 Z" fill="currentColor" stroke="currentColor" strokeWidth="4" strokeLinejoin="round" /></svg>);
@@ -32,8 +34,21 @@ const fmtTime = (s) => {
 
 const TMDB_KEY = 'cb1dc311039e6ae85db0aa200345cbc5';
 
+const labelQuality = (raw) => {
+  if (!raw) return 'Auto';
+  const s = String(raw).toLowerCase();
+  if (s.includes('2160') || s.includes('4k') || s.includes('uhd')) return '2160p';
+  if (s.includes('1080')) return '1080p';
+  if (s.includes('720'))  return '720p';
+  if (s.includes('480'))  return '480p';
+  if (s.includes('360'))  return '360p';
+  return 'Auto';
+};
+
 // ─── MAIN PLAYER ───────────────────────────────────────────────────────────
 export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', season = 1, episode = 1, onClose }) {
+  const navigate = useNavigate();
+  
   // refs
   const containerRef   = useRef(null);
   const videoRef       = useRef(null);
@@ -44,9 +59,10 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const volSliderRef   = useRef(null);
   const iframeTimer    = useRef(null);
 
-  // robust source tracking
+  // robust source tracking & resume tracking
   const allSourcesRef  = useRef([]);
   const selQualityRef  = useRef(-1);
+  const hasResumed     = useRef(false);
 
   // playback
   const [playing,     setPlaying]     = useState(false);
@@ -80,7 +96,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const [hoverT,        setHoverT]        = useState(null);
   const [hoverX,        setHoverX]        = useState(0);
   
-  // tracks
+  // tracks & metadata
   const [subTrack,       setSubTrack]       = useState(-1);
   const [audTrack,       setAudTrack]       = useState(0);
   const [audioTracks,    setAudioTracks]    = useState([]);
@@ -92,9 +108,99 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const [xrayTab,       setXrayTab]       = useState('scene');
   const [expandCast,    setExpandCast]    = useState(null);
   const [movieTitle,    setMovieTitle]    = useState(title);
+  
+  // TV Shows Specific
+  const [episodeTitle,   setEpisodeTitle] = useState('');
+  const [nextEpData,     setNextEpData]   = useState(null);
 
   const isVideo  = mode === 'hls' || mode === 'direct';
   const chapters = duration > 0 ? [0.16,0.33,0.5,0.66,0.83].map(p => p * duration) : [];
+
+  // ── FETCH TV SHOW SEASONS & EPISODES ──
+  useEffect(() => {
+    if (mediaType === 'tv') {
+      fetch(`https://api.themoviedb.org/3/tv/${tmdbId}/season/${season}?api_key=${TMDB_KEY}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.episodes) {
+            const ep = data.episodes.find(e => e.episode_number == episode);
+            if (ep) setEpisodeTitle(ep.name);
+
+            const nextEp = data.episodes.find(e => e.episode_number == Number(episode) + 1);
+            if (nextEp) {
+              setNextEpData({ season, episode: Number(episode) + 1 });
+            } else {
+              fetch(`https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${TMDB_KEY}`)
+                .then(r => r.json())
+                .then(tvData => {
+                   const nextS = tvData.seasons?.find(s => s.season_number == Number(season) + 1);
+                   if (nextS && nextS.episode_count > 0) {
+                     setNextEpData({ season: Number(season) + 1, episode: 1 });
+                   } else {
+                     setNextEpData(null);
+                   }
+                });
+            }
+          }
+        });
+    }
+  }, [tmdbId, mediaType, season, episode]);
+
+  const handleNextEpisode = (e) => {
+    e.stopPropagation();
+    if (nextEpData) {
+      navigate(`/watch/tv/${tmdbId}?season=${nextEpData.season}&episode=${nextEpData.episode}`, { replace: true });
+    }
+  };
+
+  // ── RESUME PROGRESS LOGIC ──
+  useEffect(() => {
+    hasResumed.current = false;
+  }, [tmdbId, season, episode]);
+
+  const saveProgress = useCallback((time, dur) => {
+    if (!tmdbId || !dur || time < 5) return;
+    const key = `${mediaType === 'tv' ? 't' : 'm'}${tmdbId}`;
+    const allProgress = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
+    const existing = allProgress[key] || {};
+    
+    allProgress[key] = {
+      ...existing,
+      id: tmdbId,
+      type: mediaType,
+      progress: { watched: time, duration: dur },
+      last_season_watched: season,
+      last_episode_watched: episode,
+      last_updated: Date.now()
+    };
+    if (movieTitle) allProgress[key].title = movieTitle;
+    
+    localStorage.setItem('vidFastProgress', JSON.stringify(allProgress));
+  }, [tmdbId, mediaType, season, episode, movieTitle]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (playing && videoRef.current && duration > 0) {
+        saveProgress(videoRef.current.currentTime, duration);
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [playing, duration, saveProgress]);
+
+  const attemptResume = useCallback((vid) => {
+    if (hasResumed.current) return;
+    const key = `${mediaType === 'tv' ? 't' : 'm'}${tmdbId}`;
+    const allProgress = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
+    const prog = allProgress[key];
+    const isSameEpisode = mediaType === 'tv' ? (prog?.last_season_watched == season && prog?.last_episode_watched == episode) : true;
+    
+    if (prog && prog.progress && prog.progress.watched > 0 && isSameEpisode) {
+      if (prog.progress.watched < prog.progress.duration * 0.95) {
+        vid.currentTime = prog.progress.watched;
+      }
+    }
+    hasResumed.current = true;
+  }, [tmdbId, mediaType, season, episode]);
 
   useEffect(() => {
     const v = videoRef.current; if (!v) return;
@@ -197,7 +303,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
           files.push({ url: `/api/proxy?url=${encodeURIComponent(s.url)}`, quality: s.quality });
         });
 
-        // Group qualities and remove provider names -> e.g., "1080p (Server 1)"
         const qMap = {};
         files.forEach(f => {
            if(!qMap[f.quality]) qMap[f.quality] = [];
@@ -219,7 +324,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         });
         
         menu.sort((a,b) => (order[b.sortQ]||0) - (order[a.sortQ]||0));
-        menu.forEach((m, i) => m.value = i); // reindex after sort
+        menu.forEach((m, i) => m.value = i);
 
         allSourcesRef.current = menu;
         setQualities(menu);
@@ -288,6 +393,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         } else { setSubtitleTracks([]); }
 
         vid.volume = 1; vid.muted = false;
+        attemptResume(vid);
         vid.play()
           .then(() => setPlaying(true))
           .catch(() => {
@@ -321,6 +427,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       vid.src = hlsUrl; vid.volume = 1; vid.muted = false;
       vid.addEventListener('loadedmetadata', () => {
         setBuffering(false);
+        attemptResume(vid);
         vid.play()
           .then(() => setPlaying(true))
           .catch(() => { vid.muted = true; vid.play().then(() => { setPlaying(true); setAutoMuted(true); }).catch(() => setPlaying(false)); });
@@ -331,7 +438,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     }
 
     return () => { if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; } };
-  }, [hlsUrl, mode, tryNextSource]);
+  }, [hlsUrl, mode, tryNextSource, attemptResume]);
 
   useEffect(() => {
     if (mode !== 'direct' || !videoRef.current || !directFiles.length) return;
@@ -357,6 +464,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       if (done) return;
       setBuffering(false); clearTimeout(stallTimer);
       vid.volume = 1; vid.muted = false;
+      attemptResume(vid);
       vid.play()
         .then(() => { if (!done) setPlaying(true); })
         .catch(() => {
@@ -385,7 +493,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       vid.removeEventListener('error',    onError);
       vid.removeEventListener('progress', onProgress);
     };
-  }, [mode, directIdx, directFiles, tryNextSource]);
+  }, [mode, directIdx, directFiles, tryNextSource, attemptResume]);
 
   useEffect(() => {
     if (mode !== 'iframe' || embedPhase !== 'loading') return;
@@ -537,7 +645,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         .cdot{position:absolute;top:0;width:2px;height:100%;background:#000;pointer-events:none;z-index:2;}
         .ppanel{position:absolute;top:48px;right:0;background:#111;border-radius:3px 0 0 3px;min-width:260px;overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,.9);animation:pi .1s ease-out;}
         @keyframes pi{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
-        /* Fixed volume popup direction */
         .volpop{position:absolute;top:100%;margin-top:10px;left:50%;transform:translateX(-50%);background:#111;border-radius:4px;padding:14px 11px;width:40px;display:flex;flex-direction:column;align-items:center;gap:10px;box-shadow:0 6px 20px rgba(0,0,0,.9);animation:pi .1s ease-out; z-index: 50;}
         .voltr{width:3px;height:120px;background:var(--ct);border-radius:2px;position:relative;cursor:pointer;}
         .volfil{position:absolute;bottom:0;left:0;width:100%;background:var(--c);border-radius:2px;pointer-events:none;}
@@ -561,7 +668,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         </div>
       )}
 
-      {/* Critical fix: "display: none" ensures video tag doesn't block iframe clicks when it fails over */}
       <video ref={videoRef} playsInline preload="metadata"
         style={{ width:'100%',height:'100%',objectFit:'contain',display:isVideo?'block':'none' }}
         onClick={e => { e.stopPropagation(); if (autoMuted) { unmuteBanner(); return; } if (isVideo) togglePlay(); }}
@@ -621,8 +727,13 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
             <button className="pbtn" style={{ fontSize:15,display:'flex',alignItems:'center',gap:4 }} onClick={e=>{e.stopPropagation();setXrayExpanded(true);setXrayOpen(false);setPanel(null);}}>All <ChevronRightIcon/></button>
           </div>
 
-          <div style={{ position:'absolute',left:'50%',transform:'translateX(-50%)',color:'#FFF',fontSize:22,fontWeight:500,whiteSpace:'nowrap',textShadow:'0 1px 3px rgba(0,0,0,0.8)' }}>
-            {movieTitle}
+          <div style={{ position:'absolute',left:'50%',transform:'translateX(-50%)', display:'flex', flexDirection:'column', alignItems:'center', whiteSpace:'nowrap', textShadow:'0 1px 3px rgba(0,0,0,0.8)' }}>
+            <span style={{ color:'#FFF',fontSize:22,fontWeight:600 }}>{movieTitle}</span>
+            {mediaType === 'tv' && (
+              <span style={{ color:'#E0E0E0',fontSize:16,fontWeight:400, marginTop:2 }}>
+                Season {season}, Ep. {episode} {episodeTitle ? `${episodeTitle}` : ''}
+              </span>
+            )}
           </div>
 
           <div style={{ display:'flex',alignItems:'center',gap:24 }}>
@@ -747,9 +858,27 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
                 </div>
               )}
             </div>
-            <div style={{ fontSize:15,fontWeight:500,marginTop:12 }}>
-              <span style={{ color:'#FFF' }}>{fmtTime(currentTime)}</span>
-              <span style={{ color:'#B3B3B3' }}> / {fmtTime(duration)}</span>
+            
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
+              <div style={{ fontSize:15,fontWeight:500 }}>
+                <span style={{ color:'#FFF' }}>{fmtTime(currentTime)}</span>
+                <span style={{ color:'#B3B3B3' }}> / {fmtTime(duration)}</span>
+              </div>
+              
+              {mediaType === 'tv' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                  {nextEpData && (
+                    <button 
+                      onClick={handleNextEpisode}
+                      style={{ color:'#FFF', fontSize:15, fontWeight:600, background:'none', border:'none', cursor:'pointer', display:'flex', alignItems:'center', padding:0, transition: 'color 0.2s' }}
+                      onMouseEnter={(e) => e.currentTarget.style.color = '#00A8E1'}
+                      onMouseLeave={(e) => e.currentTarget.style.color = '#FFF'}
+                    >
+                      Next Episode <ChevronRightIcon />
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
