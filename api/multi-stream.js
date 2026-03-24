@@ -7,10 +7,10 @@ const TMDB_KEY = 'cb1dc311039e6ae85db0aa200345cbc5';
 
 function nodeGet(rawUrl, extraHeaders, timeoutMs) {
   extraHeaders = extraHeaders || {};
-  timeoutMs    = timeoutMs    || 9000;
+  timeoutMs    = timeoutMs    || 6000; // Fast timeout so one bad source doesn't block playback
   return new Promise(function(resolve, reject) {
     var url;
-    try { url = new URL(rawUrl); } catch (e) { return reject(new Error('Bad URL: ' + rawUrl)); }
+    try { url = new URL(rawUrl); } catch (e) { return reject(new Error('Bad URL')); }
     var lib = url.protocol === 'https:' ? https : http;
     var req = lib.request({
       hostname: url.hostname,
@@ -68,13 +68,12 @@ function sortStreams(streams) {
 
 // ── NEW PROVIDERS ─────────────────────────────────────────────────────────────
 
-// 1. NuvioStreams
 function getNuvioStreams(imdbId, mediaType, season, episode) {
   if (!imdbId) return Promise.resolve([]);
   var url = mediaType === 'tv'
     ? 'https://nuviostreams.hayd.uk/stream/series/' + imdbId + ':' + season + ':' + episode + '.json'
     : 'https://nuviostreams.hayd.uk/stream/movie/' + imdbId + '.json';
-  return nodeGet(url, { 'Referer': 'https://nuviostreams.hayd.uk/' }, 10000).then(function(raw) {
+  return nodeGet(url, { 'Referer': 'https://nuviostreams.hayd.uk/' }).then(function(raw) {
     var data = JSON.parse(raw);
     return (data.streams || []).filter(s => s && s.url && s.url.startsWith('http')).map(s => {
       return { url: s.url, quality: qualityLabel(s.name || s.title), provider: 'NuvioStreams' };
@@ -82,13 +81,12 @@ function getNuvioStreams(imdbId, mediaType, season, episode) {
   }).catch(()=>[]);
 }
 
-// 2. MediaFusion (Provides HDHub4u, MoviesMod, UHDMovies, MoviesDrive, TopMovies, etc)
 function getMediaFusion(imdbId, mediaType, season, episode) {
   if (!imdbId) return Promise.resolve([]);
   var url = mediaType === 'tv'
     ? 'https://mediafusion.elfhosted.com/stream/series/' + imdbId + ':' + season + ':' + episode + '.json'
     : 'https://mediafusion.elfhosted.com/stream/movie/' + imdbId + '.json';
-  return nodeGet(url, {}, 10000).then(function(raw) {
+  return nodeGet(url, {}).then(function(raw) {
     var data = JSON.parse(raw);
     return (data.streams || []).filter(s => s && s.url && s.url.startsWith('http')).map(s => {
       var n = (s.name || '').toLowerCase();
@@ -105,12 +103,11 @@ function getMediaFusion(imdbId, mediaType, season, episode) {
   }).catch(()=>[]);
 }
 
-// 3. VidZee
 function getVidZee(tmdbId, mediaType, season, episode) {
   var url = mediaType === 'tv'
     ? 'https://vidzee.wtf/api/tv?imdb=' + tmdbId + '&season=' + season + '&episode=' + episode
     : 'https://vidzee.wtf/api/movie?imdb=' + tmdbId;
-  return nodeGet(url, { 'Referer': 'https://vidzee.wtf/' }, 8000).then(function(raw) {
+  return nodeGet(url, { 'Referer': 'https://vidzee.wtf/' }).then(function(raw) {
     var data = JSON.parse(raw);
     var streams = data.streams || data.sources || [];
     return streams.filter(s => s && (s.url||s.file||'').startsWith('http')).map(s => {
@@ -119,12 +116,11 @@ function getVidZee(tmdbId, mediaType, season, episode) {
   }).catch(()=>[]);
 }
 
-// 4. VixSrc
 function getVixSrc(tmdbId, mediaType, season, episode) {
   var url = mediaType === 'tv'
     ? 'https://vixsrc.to/api/tv?tmdb=' + tmdbId + '&season=' + season + '&episode=' + episode
     : 'https://vixsrc.to/api/movie?tmdb=' + tmdbId;
-  return nodeGet(url, { 'Referer': 'https://vixsrc.to/' }, 8000).then(function(raw) {
+  return nodeGet(url, { 'Referer': 'https://vixsrc.to/' }).then(function(raw) {
     var data = JSON.parse(raw);
     var streams = data.sources || data.streams || [];
     return streams.filter(s => s && (s.url||s.file||'').startsWith('http')).map(s => {
@@ -133,13 +129,12 @@ function getVixSrc(tmdbId, mediaType, season, episode) {
   }).catch(()=>[]);
 }
 
-// 5. MP4Hydra
 function getMP4Hydra(imdbId, mediaType, season, episode) {
   if(!imdbId) return Promise.resolve([]);
   var url = mediaType === 'tv'
     ? 'https://mp4hydra.org/tv/' + imdbId + '/' + season + '/' + episode
     : 'https://mp4hydra.org/movie/' + imdbId;
-  return nodeGet(url, { 'Referer': 'https://mp4hydra.org/' }, 8000).then(function(raw) {
+  return nodeGet(url, { 'Referer': 'https://mp4hydra.org/' }).then(function(raw) {
     var data = JSON.parse(raw);
     var list = data.sources || data.streams || [];
     return list.filter(s => s && (s.url||s.src||'').startsWith('http')).map(s => {
@@ -148,12 +143,11 @@ function getMP4Hydra(imdbId, mediaType, season, episode) {
   }).catch(()=>[]);
 }
 
-// 6. VidSrc
 function getVidSrc(tmdbId, imdbId, mediaType, season, episode) {
   var url = mediaType === 'tv'
     ? 'https://vidsrc.xyz/embed/tv?tmdb=' + tmdbId + '&season=' + season + '&episode=' + episode
     : 'https://vidsrc.xyz/embed/movie?tmdb=' + tmdbId;
-  return nodeGet(url, { 'Referer': 'https://vidsrc.xyz/' }, 8000).then(function(html) {
+  return nodeGet(url, { 'Referer': 'https://vidsrc.xyz/' }).then(function(html) {
     var m3u8Re = /["'`](https?:\/\/[^"'`\s]+\.m3u8[^"'`\s]*)/g;
     var found = [];
     var match;
@@ -189,18 +183,16 @@ module.exports = async function handler(req, res) {
   var allStreams = await new Promise(function(resolve) {
     var collected = [];
     var pending   = 4;
-    var timer     = setTimeout(function() { resolve(collected); }, 12000);
+    var timer     = setTimeout(function() { resolve(collected); }, 9000);
     function onDone(streams) {
       if (streams && streams.length) collected = collected.concat(streams);
       pending--;
       if (pending <= 0) { clearTimeout(timer); resolve(collected); }
     }
     
-    // Non-IMDB dependent fetchers
     safe(getVidZee(tmdbId, mediaType, season, episode)).then(onDone);
     safe(getVixSrc(tmdbId, mediaType, season, episode)).then(onDone);
     
-    // IMDB dependent fetchers
     imdbPromise.then(function(imdbId) {
       var p1 = safe(getMP4Hydra(imdbId, mediaType, season, episode));
       var p2 = safe(getVidSrc(tmdbId, imdbId, mediaType, season, episode));
@@ -214,7 +206,6 @@ module.exports = async function handler(req, res) {
     }).catch(function() { onDone([]); onDone([]); });
   });
 
-  // Deduplicate by exact URL
   var seen   = new Set();
   var unique = allStreams.filter(function(s) {
     if (!s || !s.url || seen.has(s.url)) return false;
@@ -225,7 +216,7 @@ module.exports = async function handler(req, res) {
 
   if (sorted.length === 0) {
     res.statusCode = 200;
-    return res.end(JSON.stringify({ success: false, error: 'No streams found from any provider' }));
+    return res.end(JSON.stringify({ success: false, error: 'No streams found' }));
   }
 
   var imdbId = await imdbPromise;
@@ -233,9 +224,8 @@ module.exports = async function handler(req, res) {
   return res.end(JSON.stringify({
     success: true,
     imdbId:  imdbId || null,
-    // Return up to 15 streams so the frontend has many choices across different providers
-    streams: sorted.slice(0, 15).map(function(s) {
-      return { url: s.url, quality: s.quality, provider: s.provider, name: s.provider + ' ' + s.quality };
+    streams: sorted.slice(0, 25).map(function(s) {
+      return { url: s.url, quality: s.quality, provider: s.provider };
     }),
   }));
 };
