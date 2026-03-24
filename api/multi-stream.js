@@ -61,130 +61,127 @@ function qualityLabel(raw) {
   return 'Auto';
 }
 
-// Map the language based on the scraped tags OR the provider's typical language
-function getLanguage(rawMeta, provider) {
+// Advanced Multi-Language Extractor
+function getLanguages(rawMeta, provider) {
   const s = String(rawMeta).toLowerCase();
-  if (s.includes('hindi') || s.match(/\bhin\b/)) return 'Hindi';
-  if (s.includes('english') || s.match(/\beng\b/)) return 'English';
-  if (s.includes('tamil') || s.match(/\btam\b/)) return 'Tamil';
-  if (s.includes('telugu') || s.match(/\btel\b/)) return 'Telugu';
-  if (s.includes('multi')) return 'Multi-Audio';
+  let langs = [];
   
-  const p = String(provider).toLowerCase();
-  if (p.includes('vidsrc') || p.includes('vixsrc') || p.includes('autoembed') || p.includes('embed.su')) {
-    return 'English / Original';
+  if (s.includes('hindi') || s.match(/\bhin\b/)) langs.push('Hindi');
+  if (s.includes('english') || s.match(/\beng\b/)) langs.push('English');
+  if (s.includes('tamil') || s.match(/\btam\b/)) langs.push('Tamil');
+  if (s.includes('telugu') || s.match(/\btel\b/)) langs.push('Telugu');
+  if (s.includes('malayalam') || s.match(/\bmal\b/)) langs.push('Malayalam');
+  if (s.includes('kannada') || s.match(/\bkan\b/)) langs.push('Kannada');
+  if (s.includes('bengali') || s.match(/\bben\b/)) langs.push('Bengali');
+  if (s.includes('marathi') || s.match(/\bmar\b/)) langs.push('Marathi');
+  
+  if (s.includes('multi') || s.includes('multi-audio') || s.includes('multi audio')) {
+      if(!langs.includes('Multi Audio')) langs.push('Multi Audio');
   }
-  return 'Hindi / Dual Audio';
+  if (s.includes('dual') || s.includes('dual-audio') || s.includes('dual audio')) {
+      if(!langs.includes('Dual Audio')) langs.push('Dual Audio');
+  }
+
+  // Fallbacks if no explicit language tags are found
+  if (langs.length === 0) {
+     const p = String(provider).toLowerCase();
+     if (['vidsrc', 'embed.su', 'autoembed'].some(x => p.includes(x))) {
+        return 'English';
+     }
+     return 'Unknown';
+  }
+  
+  return langs.join(', ');
 }
+
+function parseStreams(data, providerName) {
+  const arr = data.streams || data.sources || data.data || [];
+  if (!Array.isArray(arr)) return [];
+  return arr.filter(s => {
+      if (s.infoHash || s.ytId) return false;
+      const link = s.url || s.file || s.link;
+      return link && typeof link === 'string' && link.startsWith('http');
+  }).map(s => {
+      const link = s.url || s.file || s.link;
+      const rawMeta = s.quality || s.name || s.title || s.description || s.behaviorHints?.videoSize || '';
+      return { 
+        url: link, 
+        quality: qualityLabel(rawMeta),
+        lang: getLanguages(rawMeta, providerName),
+        provider: providerName
+      };
+  });
+}
+
+const fetchers = [
+  (tmdb, imdb, type, s, e) => {
+    if(!imdb) return Promise.resolve([]);
+    const url = type === 'tv' ? `https://mediafusion.elfhosted.com/stream/series/${imdb}:${s}:${e}.json` : `https://mediafusion.elfhosted.com/stream/movie/${imdb}.json`;
+    return fetchText(url).then(raw => parseStreams(JSON.parse(raw), 'MediaFusion')).catch(()=>[]);
+  },
+  (tmdb, imdb, type, s, e) => {
+    if(!imdb) return Promise.resolve([]);
+    const url = type === 'tv' ? `https://nuviostreams.hayd.uk/stream/series/${imdb}:${s}:${e}.json` : `https://nuviostreams.hayd.uk/stream/movie/${imdb}.json`;
+    return fetchText(url).then(raw => parseStreams(JSON.parse(raw), 'Nuvio')).catch(()=>[]);
+  },
+  (tmdb, imdb, type, s, e) => {
+    const url = type === 'tv' ? `https://vidzee.wtf/api/tv?imdb=${tmdb}&season=${s}&episode=${e}` : `https://vidzee.wtf/api/movie?imdb=${tmdb}`;
+    return fetchText(url, { 'Referer': 'https://vidzee.wtf/' }).then(raw => parseStreams(JSON.parse(raw), 'VidZee')).catch(()=>[]);
+  },
+  (tmdb, imdb, type, s, e) => {
+    const url = type === 'tv' ? `https://vixsrc.to/api/tv?tmdb=${tmdb}&season=${s}&episode=${e}` : `https://vixsrc.to/api/movie?tmdb=${tmdb}`;
+    return fetchText(url, { 'Referer': 'https://vixsrc.to/' }).then(raw => parseStreams(JSON.parse(raw), 'VixSrc')).catch(()=>[]);
+  },
+  (tmdb, imdb, type, s, e) => {
+    if(!imdb) return Promise.resolve([]);
+    const url = type === 'tv' ? `https://mp4hydra.org/tv/${imdb}/${s}/${e}` : `https://mp4hydra.org/movie/${imdb}`;
+    return fetchText(url, { 'Referer': 'https://mp4hydra.org/' }).then(raw => parseStreams(JSON.parse(raw), 'MP4Hydra')).catch(()=>[]);
+  },
+  (tmdb, imdb, type, s, e) => {
+    const url = type === 'tv' ? `https://vidsrc.xyz/embed/tv?tmdb=${tmdb}&season=${s}&episode=${e}` : `https://vidsrc.xyz/embed/movie?tmdb=${tmdb}`;
+    return fetchText(url, { 'Referer': 'https://vidsrc.xyz/' }).then(html => {
+       const m3u8 = extractM3u8(html);
+       return m3u8 ? [{ url: m3u8, quality: 'Auto', lang: 'English', provider: 'VidSrc' }] : [];
+    }).catch(()=>[]);
+  }
+];
 
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Content-Type', 'application/json');
   if (req.method === 'OPTIONS') { res.statusCode = 200; return res.end('{}'); }
 
   const { tmdbId, type = 'movie', season = '1', episode = '1' } = req.query;
-  if (!tmdbId) { res.statusCode = 400; return res.end(JSON.stringify({ success: false, error: 'Missing tmdbId' })); }
-
   const mediaType = type === 'tv' ? 'tv' : 'movie';
-  const s = season;
-  const e = episode;
 
-  let imdbId = null;
-  try {
-    const data = await fetchText(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}/external_ids?api_key=${TMDB_KEY}`);
-    imdbId = JSON.parse(data).imdb_id;
-  } catch (_) {}
+  if (!tmdbId) { res.statusCode = 400; return res.end(JSON.stringify({ success: false, error: 'tmdbId required' })); }
 
-  const allStreams = [];
-
-  const addStream = (url, q, prov) => {
-    if (url && typeof url === 'string' && url.startsWith('http')) {
-      allStreams.push({ url, quality: qualityLabel(q), provider: prov, lang: getLanguage(q, prov) });
-    }
-  };
-
-  const tasks = [
-    // 1. VidSrc (English)
-    (async () => {
-      try {
-        const url = imdbId 
-          ? (mediaType === 'tv' ? `https://vidsrc.xyz/embed/tv?imdb=${imdbId}&season=${s}&episode=${e}` : `https://vidsrc.xyz/embed/movie?imdb=${imdbId}`)
-          : (mediaType === 'tv' ? `https://vidsrc.xyz/embed/tv?tmdb=${tmdbId}&season=${s}&episode=${e}` : `https://vidsrc.xyz/embed/movie?tmdb=${tmdbId}`);
-        const html = await fetchText(url, { Referer: 'https://vidsrc.xyz/' });
-        const m3u8 = extractM3u8(html);
-        if (m3u8) addStream(m3u8, 'Auto', 'VidSrc');
-      } catch(_) {}
-    })(),
-    // 2. Embed.su (English)
-    (async () => {
-      try {
-        const url = mediaType === 'tv' ? `https://embed.su/embed/tv/${tmdbId}/${s}/${e}` : `https://embed.su/embed/movie/${tmdbId}`;
-        const html = await fetchText(url, { Referer: 'https://embed.su/' });
-        const direct = extractM3u8(html);
-        if (direct) addStream(direct, 'Auto', 'Embed.su');
-      } catch(_) {}
-    })(),
-    // 3. MoviesAPI (Hindi)
-    (async () => {
-      try {
-        const url = mediaType === 'tv' ? `https://moviesapi.club/tv/${tmdbId}-${s}-${e}` : `https://moviesapi.club/movie/${tmdbId}`;
-        const html = await fetchText(url, { Referer: 'https://moviesapi.club/' });
-        const m3u8 = extractM3u8(html);
-        if (m3u8) addStream(m3u8, 'Auto', 'MoviesAPI');
-      } catch(_) {}
-    })(),
-    // 4. VidZee (Hindi)
-    (async () => {
-      try {
-        const url = mediaType === 'tv' ? `https://vidzee.wtf/api/tv?imdb=${tmdbId}&season=${s}&episode=${e}` : `https://vidzee.wtf/api/movie?imdb=${tmdbId}`;
-        const raw = await fetchText(url, { Referer: 'https://vidzee.wtf/' });
-        const parsed = JSON.parse(raw);
-        const arr = parsed.streams || parsed.sources || [];
-        arr.forEach(x => addStream(x.url || x.file, x.quality || x.label, 'VidZee'));
-      } catch(_) {}
-    })(),
-    // 5. NuvioStreams (Hindi/Multi)
-    (async () => {
-      if(!imdbId) return;
-      try {
-        const url = mediaType === 'tv' ? `https://nuviostreams.hayd.uk/stream/series/${imdbId}:${s}:${e}.json` : `https://nuviostreams.hayd.uk/stream/movie/${imdbId}.json`;
-        const raw = await fetchText(url, { Referer: 'https://nuviostreams.hayd.uk/' });
-        const parsed = JSON.parse(raw);
-        (parsed.streams || []).forEach(x => addStream(x.url, x.name || x.title, 'NuvioStreams'));
-      } catch(_) {}
-    })(),
-    // 6. MediaFusion (Multi)
-    (async () => {
-      if(!imdbId) return;
-      try {
-        const url = mediaType === 'tv' ? `https://mediafusion.elfhosted.com/stream/series/${imdbId}:${s}:${e}.json` : `https://mediafusion.elfhosted.com/stream/movie/${imdbId}.json`;
-        const raw = await fetchText(url);
-        const parsed = JSON.parse(raw);
-        (parsed.streams || []).forEach(x => {
-          if (!x.infoHash && !x.ytId) {
-             addStream(x.url || x.file, x.description || x.name || x.title, 'MediaFusion');
-          }
-        });
-      } catch(_) {}
-    })()
-  ];
-
-  await Promise.allSettled(tasks);
+  const imdbId = await safe(getImdbId(tmdbId, mediaType));
+  
+  const allResults = await Promise.allSettled(fetchers.map(f => f(tmdbId, imdbId, mediaType, season, episode)));
+  
+  let allStreams = [];
+  allResults.forEach(r => {
+      if (r.status === 'fulfilled' && r.value) {
+          allStreams = allStreams.concat(r.value);
+      }
+  });
 
   const seen = new Set();
-  const unique = allStreams.filter(x => {
-    if (seen.has(x.url)) return false;
-    seen.add(x.url); return true;
+  const unique = allStreams.filter(s => {
+    if (!s || !s.url || seen.has(s.url)) return false;
+    seen.add(s.url); return true;
   });
 
   const rank = { '2160p': 6, '1080p': 5, '720p': 4, '480p': 3, '360p': 2, 'Auto': 1 };
   unique.sort((a, b) => (rank[b.quality] || 0) - (rank[a.quality] || 0));
 
   res.statusCode = 200;
-  res.end(JSON.stringify({
+  return res.end(JSON.stringify({
     success: true,
-    imdbId,
-    streams: unique.slice(0, 30)
+    imdbId: imdbId || null,
+    // Expanded limits to ensure all MoviesMod audios are fetched
+    streams: unique.slice(0, 100).map(s => ({ url: s.url, quality: s.quality, lang: s.lang }))
   }));
 };
