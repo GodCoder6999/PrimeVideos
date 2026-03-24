@@ -5,7 +5,7 @@ const { URL } = require('url');
 
 const TMDB_KEY = 'cb1dc311039e6ae85db0aa200345cbc5';
 
-function fetchText(url, extraHeaders = {}, timeoutMs = 8000) {
+function fetchText(url, extraHeaders = {}, timeoutMs = 4500) {
   return new Promise((resolve, reject) => {
     let parsed;
     try { parsed = new URL(url); } catch(e) { return reject(e); }
@@ -61,7 +61,6 @@ function qualityLabel(raw) {
   return 'Auto';
 }
 
-// Advanced Multi-Language Extractor
 function getLanguages(rawMeta, provider) {
   const s = String(rawMeta).toLowerCase();
   let langs = [];
@@ -82,7 +81,6 @@ function getLanguages(rawMeta, provider) {
       if(!langs.includes('Dual Audio')) langs.push('Dual Audio');
   }
 
-  // Fallbacks if no explicit language tags are found
   if (langs.length === 0) {
      const p = String(provider).toLowerCase();
      if (['vidsrc', 'embed.su', 'autoembed'].some(x => p.includes(x))) {
@@ -181,7 +179,6 @@ module.exports = async function handler(req, res) {
   return res.end(JSON.stringify({
     success: true,
     imdbId: imdbId || null,
-    // Expanded limits to ensure all MoviesMod audios are fetched
     streams: unique.slice(0, 100).map(s => ({ url: s.url, quality: s.quality, lang: s.lang }))
   }));
 };
