@@ -56,6 +56,10 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const volSliderRef   = useRef(null);
   const iframeTimer    = useRef(null);
 
+  // robust source tracking
+  const allSourcesRef  = useRef([]);
+  const selQualityRef  = useRef(-1);
+
   // playback
   const [playing,     setPlaying]     = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -125,6 +129,43 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     return list;
   };
 
+  const loadSource = useCallback((src) => {
+    setBuffering(true); setPlaying(false); setCurrentTime(0); setBuffered(0);
+    const cleanProvider = src.label.split(' • ')[1] || 'Stream';
+    if (src.url.includes('.m3u8') || src.url.includes('m3u') || src.url.includes('playlist')) {
+      setHlsUrl(src.url);
+      setProvider(cleanProvider);
+      setMode('hls');
+    } else {
+      setDirectFiles([src]);
+      setDirectIdx(0);
+      setProvider(cleanProvider);
+      setMode('direct');
+    }
+  }, []);
+
+  const handleQuality = useCallback((val) => {
+    setSelQuality(val);
+    selQualityRef.current = val;
+    const selected = allSourcesRef.current.find(s => s.value === val);
+    if (selected) {
+      setMode('loading');
+      if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+      if (videoRef.current) { videoRef.current.pause(); videoRef.current.removeAttribute('src'); videoRef.current.load(); }
+      setTimeout(() => loadSource(selected), 50);
+    }
+    setPanel(null);
+  }, [loadSource]);
+
+  const tryNextSource = useCallback(() => {
+    const idx = allSourcesRef.current.findIndex(s => s.value === selQualityRef.current);
+    if (idx !== -1 && idx < allSourcesRef.current.length - 1) {
+      handleQuality(allSourcesRef.current[idx + 1].value);
+    } else {
+      setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading');
+    }
+  }, [handleQuality]);
+
   useEffect(() => {
     if (!tmdbId) return;
     setMode('loading'); setHlsUrl(null); setProvider('');
@@ -135,11 +176,9 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
 
     let cancelled = false;
-
     const ac = new AbortController();
-    const t0 = setTimeout(() => ac.abort(), 8000);
+
     fetch(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_KEY}&append_to_response=external_ids,credits`, { signal: ac.signal })
-      .finally(() => clearTimeout(t0))
       .then(r => r.json())
       .then(d => {
         if (cancelled) return;
@@ -157,9 +196,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     (async () => {
       let streams = [];
       try {
-        const ac2 = new AbortController();
-        const t2  = setTimeout(() => ac2.abort(), 13000);
-        const r   = await fetch(`/api/multi-stream?${new URLSearchParams({ tmdbId, type: mediaType, season, episode })}`, { signal: ac2.signal }).finally(() => clearTimeout(t2));
+        const r = await fetch(`/api/multi-stream?${new URLSearchParams({ tmdbId, type: mediaType, season, episode })}`);
         if (r.ok) {
           const data = await r.json();
           if (data?.success && Array.isArray(data.streams))
@@ -170,44 +207,36 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       if (cancelled) return;
 
       if (streams.length > 0) {
-        const first = streams[0];
-
-        if (first.url.includes('.m3u8') || first.url.includes('mpegurl') || first.url.includes('playlist')) {
-          setHlsUrl(`/api/proxy?url=${encodeURIComponent(first.url)}`);
-          setProvider(first.provider || 'Stream');
-          setBuffering(true);
-          setMode('hls');
-          return;
-        }
-
         const files = [];
         streams.forEach(s => {
           if (!s.url) return;
           const q = labelQuality(s.quality);
-          files.push({ url: s.url,                                          quality: q, provider: s.provider || 'Stream' });
-          files.push({ url: `/api/proxy?url=${encodeURIComponent(s.url)}`, quality: q, provider: (s.provider || 'Stream') + ' ↑' });
+          files.push({ url: s.url, quality: q, provider: s.provider || 'Stream' });
+          files.push({ url: `/api/proxy?url=${encodeURIComponent(s.url)}`, quality: q, provider: (s.provider || 'Stream') + ' (Proxy)' });
         });
 
         const order = { '1080p':5,'720p':4,'480p':3,'360p':2,'Auto':1,'2160p':0 };
-        const seen = new Set(); const menu = [];
-        
-        // Ensure provider is shown in label so user can switch between ShowBox, UHDMovies, etc.
+        const menu = [];
+        const seen = new Set();
         files.forEach((f, i) => {
-          const cleanProv = f.provider.replace(' ↑', '');
-          const label = `${f.quality} • ${cleanProv}`;
+          const label = `${f.quality} • ${f.provider}`;
           if (!seen.has(label)) { 
             seen.add(label); 
-            menu.push({ label: label, value: i, sortQ: f.quality }); 
+            menu.push({ label, value: i, sortQ: f.quality, url: f.url }); 
           }
         });
         menu.sort((a,b) => (order[b.sortQ]||0) - (order[a.sortQ]||0));
 
-        setDirectFiles(files);
-        setDirectIdx(0);
+        allSourcesRef.current = menu;
         setQualities(menu);
-        setSelQuality(files[0] ? 0 : -1);
-        setBuffering(true);
-        setMode('direct');
+        
+        if (menu.length > 0) {
+          setSelQuality(menu[0].value);
+          selQualityRef.current = menu[0].value;
+          loadSource(menu[0]);
+        } else {
+          setMode('iframe');
+        }
         return;
       }
 
@@ -218,23 +247,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       cancelled = true; ac.abort();
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
     };
-  }, [tmdbId, mediaType, season, episode]);
-
-  const handleQuality = (val) => {
-    setSelQuality(val);
-    if (mode === 'hls' && hlsRef.current) {
-      if (val === -1) {
-        hlsRef.current.currentLevel = -1;
-        const cap = hlsRef.current.levels.map((l,i) => ({h:l.height||0,i})).filter(x=>x.h>0&&x.h<=1080).sort((a,b)=>b.h-a.h)[0];
-        if (cap) hlsRef.current.autoLevelCapping = cap.i;
-      } else {
-        hlsRef.current.currentLevel = val;
-      }
-    } else if (mode === 'direct') {
-      setDirectIdx(val);
-    }
-    setPanel(null);
-  };
+  }, [tmdbId, mediaType, season, episode, loadSource]);
 
   useEffect(() => {
     if (mode !== 'hls' || !hlsUrl || !videoRef.current) return;
@@ -265,39 +278,20 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         setBuffering(false);
-
-        const levels = hls.levels;
-        const hlsQualities = [];
-        let cap1080 = -1; 
-
-        for (let i = levels.length - 1; i >= 0; i--) {
-          const h = levels[i].height;
-          if (!h) continue;
-          if (h <= 1080 && cap1080 === -1) cap1080 = i;
-          const lbl = h >= 2160 ? '2160p (4K)' : h >= 1080 ? '1080p' : h >= 720 ? '720p' : h >= 480 ? '480p' : h >= 360 ? '360p' : `${h}p`;
-          hlsQualities.push({ label: lbl, value: i, height: h });
-        }
-        hlsQualities.unshift({ label: 'Auto', value: -1 });
-        setQualities(hlsQualities);
-        setSelQuality(-1);
-
-        if (cap1080 !== -1) hls.autoLevelCapping = cap1080;
+        const cap = hls.levels.map((l,i) => ({h:l.height||0,i})).filter(x=>x.h>0&&x.h<=1080).sort((a,b)=>b.h-a.h)[0];
+        if (cap) hls.autoLevelCapping = cap.i;
 
         if (hls.audioTracks && hls.audioTracks.length > 0) {
           hls.audioTrack = 0;
           setAudioTracks(hls.audioTracks.map((t, i) => ({ id: i, name: t.name || t.lang || `Audio ${i+1}` })));
           setAudTrack(0);
-        } else {
-          setAudioTracks([]);
-        }
+        } else { setAudioTracks([]); }
 
         if (hls.subtitleTracks && hls.subtitleTracks.length > 0) {
           setSubtitleTracks(hls.subtitleTracks.map((t, i) => ({ id: i, name: t.name || t.lang || `Subtitle ${i+1}` })));
           hls.subtitleTrack = -1;
           setSubTrack(-1);
-        } else {
-          setSubtitleTracks([]);
-        }
+        } else { setSubtitleTracks([]); }
 
         vid.volume = 1; vid.muted = false;
         vid.play()
@@ -314,18 +308,18 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       hls.on(Hls.Events.ERROR, (_, d) => {
         if (d.details === Hls.ErrorDetails.AUDIO_TRACK_LOAD_ERROR || d.details === Hls.ErrorDetails.AUDIO_TRACK_LOAD_TIMEOUT) {
           if (hls.audioTracks && hls.audioTracks.length > 1) hls.audioTrack = (hls.audioTrack + 1) % hls.audioTracks.length;
-          else if (d.fatal) { hls.destroy(); setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading'); }
+          else if (d.fatal) { hls.destroy(); tryNextSource(); }
           return;
         }
         if (!d.fatal) return;
         if (d.type === Hls.ErrorTypes.NETWORK_ERROR) {
-          if (netRetries < 4) { netRetries++; setTimeout(() => hls.startLoad(), 1000 * netRetries); }
-          else { setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading'); }
+          if (netRetries < 2) { netRetries++; setTimeout(() => hls.startLoad(), 1000 * netRetries); }
+          else { hls.destroy(); tryNextSource(); }
         } else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) {
           if (mediaRetries < 2) { mediaRetries++; hls.recoverMediaError(); }
-          else { setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading'); }
+          else { hls.destroy(); tryNextSource(); }
         } else {
-          setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading');
+          hls.destroy(); tryNextSource();
         }
       });
 
@@ -338,19 +332,16 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
           .catch(() => { vid.muted = true; vid.play().then(() => { setPlaying(true); setAutoMuted(true); }).catch(() => setPlaying(false)); });
       }, { once: true });
     } else {
-      setMode('iframe');
+      tryNextSource();
     }
 
     return () => { if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; } };
-  }, [hlsUrl, mode]);
+  }, [hlsUrl, mode, tryNextSource]);
 
   useEffect(() => {
     if (mode !== 'direct' || !videoRef.current || !directFiles.length) return;
     const file = directFiles[directIdx]; if (!file?.url) return;
     const vid = videoRef.current;
-
-    setCurrentTime(0); setDuration(0); setBuffered(0);
-    setPlaying(false); setBuffering(true); setAutoMuted(false);
 
     vid.pause(); vid.removeAttribute('src'); vid.load();
 
@@ -364,8 +355,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
 
     const tryNext = () => {
       if (done) return; done = true; clearTimeout(stallTimer);
-      if (directIdx < directFiles.length - 1) setDirectIdx(i => i + 1);
-      else { setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading'); }
+      tryNextSource();
     };
 
     const onCanPlay = () => {
@@ -400,7 +390,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       vid.removeEventListener('error',    onError);
       vid.removeEventListener('progress', onProgress);
     };
-  }, [mode, directIdx, directFiles]);
+  }, [mode, directIdx, directFiles, tryNextSource]);
 
   useEffect(() => {
     if (mode !== 'iframe' || embedPhase !== 'loading') return;
@@ -763,7 +753,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
             <div style={{ fontSize:15,fontWeight:500,marginTop:12 }}>
               <span style={{ color:'#FFF' }}>{fmtTime(currentTime)}</span>
               <span style={{ color:'#B3B3B3' }}> / {fmtTime(duration)}</span>
-              {mode === 'hls' && provider && (
+              {provider && (
                 <span style={{ marginLeft: 16, fontSize:10,fontWeight:800,padding:'2px 7px',borderRadius:4,border:'1px solid rgba(179,179,179,.4)',color:'#B3B3B3',textTransform:'uppercase' }}>{provider}</span>
               )}
             </div>
