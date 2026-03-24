@@ -43,6 +43,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const progressBarRef = useRef(null);
   const ctrlTimer      = useRef(null);
   const volSliderRef   = useRef(null);
+  const iframeTimer    = useRef(null);
 
   const rawFilesRef    = useRef([]);
   const allSourcesRef  = useRef([]);
@@ -54,7 +55,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const [duration,    setDuration]    = useState(0);
   const [buffered,    setBuffered]    = useState(0);
   const [buffering,   setBuffering]   = useState(false);
-  const [playError,   setPlayError]   = useState(false); // New Error State
   const [volume,      setVolume]      = useState(1);
   const [muted,       setMuted]       = useState(false);
   const [prevVol,     setPrevVol]     = useState(1);
@@ -66,8 +66,9 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const [directIdx,    setDirectIdx]   = useState(0);
   const [qualities,    setQualities]   = useState([]);
   const [selQuality,   setSelQuality]  = useState(-1);
-  
-  const [curEmbed,     setCurEmbed]    = useState(null); // Explicit embed selection
+  const [embeds,       setEmbeds]      = useState([]);
+  const [embedIdx,     setEmbedIdx]    = useState(0);
+  const [embedPhase,   setEmbedPhase]  = useState('loading');
 
   const [showCtrl,      setShowCtrl]      = useState(true);
   const [isFullscreen,  setIsFullscreen]  = useState(false);
@@ -84,7 +85,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const [audioTracks,         setAudioTracks]       = useState([]); 
   const [subtitleTracks,      setSubtitleTracks]    = useState([]);
   const [sourceLanguages,     setSourceLanguages]   = useState([]); 
-  const [selectedSourceLang,  setSelectedSourceLang] = useState('English');
+  const [selectedSourceLang,  setSelectedSourceLang] = useState('English / Original');
 
   const [xrayOpen,      setXrayOpen]      = useState(false);
   const [xrayExpanded,  setXrayExpanded]  = useState(false);
@@ -197,18 +198,15 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       list.push({ name:'VidSrc.me', url: tv ? `https://vidsrc.me/embed/tv?imdb=${iid}&season=${s}&episode=${e}`  : `https://vidsrc.me/embed/movie?imdb=${iid}` });
     }
     list.push({ name:'VidSrc',    url: tv ? `https://vidsrc.xyz/embed/tv?tmdb=${tid}&season=${s}&episode=${e}` : `https://vidsrc.xyz/embed/movie?tmdb=${tid}` });
-    list.push({ name:'AutoEmbed', url: tv ? `https://autoembed.cc/tv/tmdb/${tid}-${s}-${e}` : `https://autoembed.cc/movie/tmdb/${tid}` });
+    list.push({ name:'VidSrc.in', url: tv ? `https://vidsrc.in/embed/tv?tmdb=${tid}&season=${s}&episode=${e}`  : `https://vidsrc.in/embed/movie?tmdb=${tid}` });
     list.push({ name:'Videasy',   url: tv ? `https://player.videasy.net/tv/${tid}/${s}/${e}` : `https://player.videasy.net/movie/${tid}` });
+    list.push({ name:'AutoEmbed', url: tv ? `https://autoembed.cc/tv/tmdb/${tid}-${s}-${e}` : `https://autoembed.cc/movie/tmdb/${tid}` });
     return list;
   };
 
   const loadSource = useCallback((src) => {
-    setPlayError(false); setBuffering(true); setPlaying(false); setCurrentTime(0); setBuffered(0);
-    
-    if (src.isEmbed) {
-      setCurEmbed(src.url);
-      setMode('iframe');
-    } else if (src.url.includes('.m3u8') || src.url.includes('m3u') || src.url.includes('playlist')) {
+    setBuffering(true); setPlaying(false); setCurrentTime(0); setBuffered(0);
+    if (src.url.includes('.m3u8') || src.url.includes('m3u') || src.url.includes('playlist')) {
       setHlsUrl(src.url);
       setMode('hls');
     } else {
@@ -218,17 +216,9 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     }
   }, []);
 
-  const buildQualityMenu = useCallback((files, targetLang, embedLinks) => {
-    let filtered = files.filter(f => f.lang && f.lang.includes(targetLang));
-    if (filtered.length === 0) filtered = files; 
-
-    if (targetLang === 'English') {
-       filtered.sort((a, b) => {
-          const aPure = (a.lang === 'English') ? 1 : 0;
-          const bPure = (b.lang === 'English') ? 1 : 0;
-          return bPure - aPure;
-       });
-    }
+  const buildQualityMenu = useCallback((files, targetLang) => {
+    let filtered = files.filter(f => f.lang === targetLang);
+    if (filtered.length === 0) filtered = files; // fallback
 
     const qMap = {};
     filtered.forEach(f => {
@@ -245,18 +235,12 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         const label = qMap[q].length > 1 ? `${q} (Server ${idx + 1})` : q;
         if (!seen.has(label)) { 
           seen.add(label); 
-          menu.push({ label, value: menu.length, sortQ: q, url: f.url, lang: f.lang, isEmbed: false }); 
+          menu.push({ label, value: menu.length, sortQ: q, url: f.url, lang: f.lang }); 
         }
       });
     });
     
     menu.sort((a,b) => (order[b.sortQ]||0) - (order[a.sortQ]||0));
-
-    // Push explicitly requested Embeds at the bottom
-    embedLinks.forEach(emb => {
-       menu.push({ label: `Embed (${emb.name})`, value: menu.length, sortQ: '000', url: emb.url, isEmbed: true });
-    });
-
     menu.forEach((m, i) => m.value = i);
 
     allSourcesRef.current = menu;
@@ -267,15 +251,13 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       selQualityRef.current = menu[0].value;
       loadSource(menu[0]);
     } else {
-      setPlayError(true);
+      setMode('iframe');
     }
   }, [loadSource]);
 
   const handleSourceLangChange = (lang) => {
     setSelectedSourceLang(lang);
-    const iid = ''; 
-    const embedsList = buildEmbeds(tmdbId, iid, mediaType, season, episode);
-    buildQualityMenu(rawFilesRef.current, lang, embedsList);
+    buildQualityMenu(rawFilesRef.current, lang);
   };
 
   const handleQuality = useCallback((val) => {
@@ -293,89 +275,84 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
 
   const tryNextSource = useCallback(() => {
     const idx = allSourcesRef.current.findIndex(s => s.value === selQualityRef.current);
-    
-    // Only auto-switch to next DIRECT source, DO NOT jump to iframe automatically.
-    const nextDirect = allSourcesRef.current.slice(idx + 1).find(s => !s.isEmbed);
-    
-    if (nextDirect) {
-      handleQuality(nextDirect.value);
+    if (idx !== -1 && idx < allSourcesRef.current.length - 1) {
+      handleQuality(allSourcesRef.current[idx + 1].value);
     } else {
-      setBuffering(false);
-      setPlaying(false);
-      setPlayError(true);
+      setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading');
     }
   }, [handleQuality]);
 
   useEffect(() => {
     if (!tmdbId) return;
-    setMode('loading'); setHlsUrl(null); setPlayError(false);
+    setMode('loading'); setHlsUrl(null);
     setDirectFiles([]); setDirectIdx(0); setQualities([]); setSelQuality(-1);
+    setEmbeds([]); setEmbedIdx(0); setEmbedPhase('loading');
     setPlaying(false); setBuffering(false); setAutoMuted(false);
     setCurrentTime(0); setDuration(0); setBuffered(0);
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
 
     let cancelled = false;
-    let externalImdb = null;
+    const ac = new AbortController();
 
-    fetch(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_KEY}&append_to_response=external_ids,credits`)
+    fetch(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_KEY}&append_to_response=external_ids,credits`, { signal: ac.signal })
       .then(r => r.json())
       .then(d => {
         if (cancelled) return;
-        externalImdb = d.imdb_id || d.external_ids?.imdb_id || null;
+        const iid = d.imdb_id || d.external_ids?.imdb_id || null;
         setMovieTitle(d.title || d.name || title);
         setXrayCast((d.credits?.cast || []).slice(0,12).map(p => ({
           id: p.id, name: p.name, character: p.character,
           profile: p.profile_path ? `https://image.tmdb.org/t/p/w185${p.profile_path}` : null,
         })));
+        if (!cancelled) setEmbeds(buildEmbeds(tmdbId, iid, mediaType, season, episode));
       }).catch(() => {});
+
+    setEmbeds(buildEmbeds(tmdbId, null, mediaType, season, episode));
 
     (async () => {
       let streams = [];
       try {
-        const r = await fetch(`/api/multi-stream?${newSearchParams({ tmdbId, type: mediaType, season, episode })}`);
+        const r = await fetch(`/api/multi-stream?${new URLSearchParams({ tmdbId, type: mediaType, season, episode })}`);
         if (r.ok) {
           const data = await r.json();
           if (data?.success && Array.isArray(data.streams))
             streams = data.streams.filter(s => s?.url && s.url.startsWith('http'));
         }
-      } catch (e) { console.warn('[Player] fetch:', e); }
+      } catch (e) { console.warn('[Player] stream fetch:', e.message); }
 
       if (cancelled) return;
-
-      const embedsList = buildEmbeds(tmdbId, externalImdb, mediaType, season, episode);
 
       if (streams.length > 0) {
         const files = [];
         streams.forEach(s => {
-          const l = s.lang || 'Unknown';
-          files.push({ url: s.url, quality: s.quality, lang: l });
-          // Note: Removed the proxy variant because large MP4s break on Vercel proxy.
+          files.push({ url: s.url, quality: s.quality, lang: s.lang });
+          files.push({ url: `/api/proxy?url=${encodeURIComponent(s.url)}`, quality: s.quality, lang: s.lang });
         });
 
         rawFilesRef.current = files;
 
         const availableLangs = new Set();
         files.forEach(f => {
-           if (f.lang === 'Unknown') return;
-           f.lang.split(', ').forEach(l => availableLangs.add(l));
+           availableLangs.add(f.lang);
         });
 
         let langArray = Array.from(availableLangs);
         if (langArray.length === 0) langArray = ['English / Original'];
         setSourceLanguages(langArray);
 
+        // Prioritize English Original by default, else first available
         let defaultLang = langArray.find(l => l.includes('English')) || langArray[0];
         
         setSelectedSourceLang(defaultLang);
-        buildQualityMenu(files, defaultLang, embedsList);
-      } else {
-        // If zero direct streams found, build menu with only Embeds.
-        buildQualityMenu([], 'Unknown', embedsList);
+        buildQualityMenu(files, defaultLang);
+        return;
       }
+
+      if (!cancelled) setMode('iframe');
     })();
 
     return () => {
-      cancelled = true; 
+      cancelled = true; ac.abort();
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
     };
   }, [tmdbId, mediaType, season, episode, buildQualityMenu]);
@@ -388,8 +365,8 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     if (Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true, backBufferLength: 60, maxBufferLength: 30, lowLatencyMode: false,
-        fragLoadingTimeOut: 25000, manifestLoadingTimeOut: 15000, levelLoadingTimeOut: 15000,
-        fragLoadingMaxRetry: 3, manifestLoadingMaxRetry: 2, levelLoadingMaxRetry: 2,
+        fragLoadingTimeOut: 30000, manifestLoadingTimeOut: 20000, levelLoadingTimeOut: 20000,
+        fragLoadingMaxRetry: 4, manifestLoadingMaxRetry: 3, levelLoadingMaxRetry: 3,
         fragLoadingRetryDelay: 500, xhrSetup: xhr => { xhr.withCredentials = false; },
       });
       hlsRef.current = hls;
@@ -450,7 +427,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
           if (netRetries < 2) { netRetries++; setTimeout(() => hls.startLoad(), 1000 * netRetries); }
           else { hls.destroy(); tryNextSource(); }
         } else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) {
-          if (mediaRetries < 1) { mediaRetries++; hls.recoverMediaError(); }
+          if (mediaRetries < 2) { mediaRetries++; hls.recoverMediaError(); }
           else { hls.destroy(); tryNextSource(); }
         } else {
           hls.destroy(); tryNextSource();
@@ -511,10 +488,10 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
 
     const onError = () => { const e = vid.error; if (!e || e.code === 1) return; tryNext(); };
 
-    stallTimer = setTimeout(() => tryNext(), 12000);
+    stallTimer = setTimeout(() => tryNext(), 10000);
     const onProgress = () => {
       clearTimeout(stallTimer);
-      stallTimer = setTimeout(() => { if (vid.readyState < 3 && !vid.paused) tryNext(); }, 12000);
+      stallTimer = setTimeout(() => { if (vid.readyState < 3 && !vid.paused) tryNext(); }, 10000);
     };
 
     vid.addEventListener('canplay',  onCanPlay,  { once: true });
@@ -528,6 +505,16 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       vid.removeEventListener('progress', onProgress);
     };
   }, [mode, directIdx, directFiles, tryNextSource, attemptResume]);
+
+  useEffect(() => {
+    if (mode !== 'iframe' || embedPhase !== 'loading') return;
+    clearTimeout(iframeTimer.current);
+    iframeTimer.current = setTimeout(() => {
+      if (embedIdx < embeds.length - 1) setEmbedIdx(i => i + 1);
+      else setEmbedPhase('failed');
+    }, 15000);
+    return () => clearTimeout(iframeTimer.current);
+  }, [mode, embedPhase, embedIdx, embeds.length]);
 
   useEffect(() => {
     const v = videoRef.current; if (!v) return;
@@ -559,9 +546,9 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   }, [panel, xrayOpen]);
   useEffect(() => { resetCtrlTimer(); return () => clearTimeout(ctrlTimer.current); }, [resetCtrlTimer]);
   useEffect(() => {
-    if (panel || xrayOpen || playError) { setShowCtrl(true); clearTimeout(ctrlTimer.current); }
+    if (panel || xrayOpen) { setShowCtrl(true); clearTimeout(ctrlTimer.current); }
     else resetCtrlTimer();
-  }, [panel, xrayOpen, playError, resetCtrlTimer]);
+  }, [panel, xrayOpen, resetCtrlTimer]);
 
   useEffect(() => {
     const fn = e => {
@@ -649,6 +636,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const pPct   = duration > 0 ? (currentTime / duration) * 100 : 0;
   const bPct   = duration > 0 ? (buffered   / duration) * 100 : 0;
   const VolIco = (muted || volume === 0) ? VolumeMuteIcon : volume < 0.5 ? VolumeMidIcon : VolumeHighIcon;
+  const curEmbed = embeds[embedIdx];
 
   return (
     <div ref={containerRef} onMouseMove={resetCtrlTimer} onClick={() => setPanel(null)}
@@ -701,32 +689,46 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
 
       {mode === 'iframe' && (
         <div style={{ position:'absolute',inset:0,zIndex:1,background:'#000' }}>
-          {curEmbed && (
-            <iframe key={curEmbed} src={curEmbed}
-              style={{ width:'100%',height:'100%',border:'none',display:'block' }}
+          {embedPhase === 'loading' && (
+            <div style={{ position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',background:'#000',zIndex:6,pointerEvents:'none' }}>
+              <div className="spin" />
+            </div>
+          )}
+          {embedPhase === 'failed' && (
+            <div style={{ position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:'#000',zIndex:6 }}>
+              <div style={{ color:'#f87171',fontSize:16,fontWeight:600,marginBottom:8 }}>All sources failed</div>
+              <div style={{ color:'#AAA',fontSize:13,marginBottom:20 }}>This title may not be available right now.</div>
+              <button onClick={() => { setEmbedIdx(0); setEmbedPhase('loading'); }}
+                style={{ background:'none',border:'1px solid rgba(170,170,170,.4)',color:'#AAA',padding:'8px 24px',borderRadius:6,cursor:'pointer',fontWeight:700 }}>Retry</button>
+            </div>
+          )}
+          {curEmbed && embedPhase !== 'failed' && (
+            <iframe ref={iframeRef} key={`${embedIdx}-${tmdbId}-${season}-${episode}`} src={curEmbed.url}
+              style={{ width:'100%',height:'100%',border:'none',display:'block',opacity:embedPhase==='playing'?1:0,transition:'opacity .4s' }}
               allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope"
               allowFullScreen referrerPolicy="no-referrer" title={movieTitle}
+              onLoad={() => { clearTimeout(iframeTimer.current); iframeTimer.current = setTimeout(() => setEmbedPhase('playing'), 1500); }}
             />
+          )}
+          {embedPhase === 'playing' && embedIdx < embeds.length - 1 && showCtrl && (
+            <div style={{ position:'absolute',bottom:72,right:16,zIndex:20 }}>
+              <button onClick={e => { e.stopPropagation(); clearTimeout(iframeTimer.current); setEmbedIdx(i=>i+1); setEmbedPhase('loading'); }}
+                style={{ background:'rgba(0,0,0,.7)',border:'1px solid rgba(170,170,170,.2)',color:'#AAA',padding:'5px 14px',borderRadius:6,cursor:'pointer',fontSize:12,fontWeight:600,backdropFilter:'blur(8px)' }}>
+                Not playing? Try next source →
+              </button>
+            </div>
           )}
         </div>
       )}
 
-      {(mode === 'loading' || (isVideo && buffering) || playError) && (
-        <div style={{ position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:mode==='loading'||playError?'#000':'transparent',zIndex:8,pointerEvents:'none' }}>
-          {playError ? (
-            <div style={{ background:'rgba(0,0,0,0.8)', padding:'20px 30px', borderRadius:8, border:'1px solid rgba(255,255,255,0.1)', textAlign:'center', pointerEvents:'auto' }}>
-               <div style={{ color:'#f87171', fontSize:16, fontWeight:700, marginBottom:8 }}>Playback Failed</div>
-               <div style={{ color:'#AAA', fontSize:14, marginBottom:16 }}>The selected server could not load the video.</div>
-               <div style={{ color:'#FFF', fontSize:13, fontWeight:600 }}>Please click the ⚙ Settings icon below and choose a different Server or Quality.</div>
-            </div>
-          ) : (
-            <div className="spin" />
-          )}
+      {(mode === 'loading' || (isVideo && buffering)) && (
+        <div style={{ position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',background:mode==='loading'?'#000':'transparent',zIndex:8,pointerEvents:'none' }}>
+          <div className="spin" />
         </div>
       )}
 
       <div className="pb" style={{ position:'absolute',inset:0,opacity:showCtrl?1:0,transition:'opacity .3s',
-                                    pointerEvents:showCtrl?'auto':'none',zIndex:5 }}>
+                                    pointerEvents:mode==='iframe'?'none':(showCtrl?'auto':'none'),zIndex:5 }}>
         <div style={{ position:'absolute',top:0,left:0,right:0,height:140,background:'linear-gradient(to bottom,rgba(0,0,0,.8),transparent)',pointerEvents:'none' }} />
         <div style={{ position:'absolute',bottom:0,left:0,right:0,height:140,background:'linear-gradient(to top,rgba(0,0,0,.8),transparent)',pointerEvents:'none' }} />
 
@@ -784,8 +786,8 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
                       <div style={{ color:'#fff',fontSize:15,fontWeight:700,marginBottom:16 }}>Audio</div>
                       
                       {audioTracks.length > 1 && (
-                        <div style={{ marginBottom: 16 }}>
-                          <div style={{ fontSize:10, fontWeight:700, color:'rgba(255,255,255,0.5)', textTransform:'uppercase', letterSpacing:1, marginBottom:8 }}>Native Tracks</div>
+                        <div className="mb-6">
+                          <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">Native Tracks</div>
                           {audioTracks.map(a => (
                             <div key={a.id} style={{ display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer' }} onClick={()=>{ 
                                setAudTrack(a.id); 
@@ -799,7 +801,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
                       )}
 
                       <div>
-                        {audioTracks.length > 1 && <div style={{ fontSize:10, fontWeight:700, color:'rgba(255,255,255,0.5)', textTransform:'uppercase', letterSpacing:1, marginBottom:8 }}>Video Sources</div>}
+                        {audioTracks.length > 1 && <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">Video Sources</div>}
                         {sourceLanguages.map(lang => (
                           <div key={lang} style={{ display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer' }} onClick={() => handleSourceLangChange(lang)}>
                             <div style={{ width:20 }}>{selectedSourceLang === lang && <CheckIcon/>}</div>
