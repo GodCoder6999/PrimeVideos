@@ -2,32 +2,31 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Hls from 'hls.js';
 
-// ─── ICONS ─────────────────────────────────────────────────────────────────
-const SubtitlesIcon = () => (<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="2" y="5" width="20" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/><line x1="5" y1="10" x2="19" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="5" y1="14" x2="14" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>);
-const SettingsIcon = () => (<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.5"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" stroke="currentColor" strokeWidth="1.5"/></svg>);
-const VolumeHighIcon = () => (<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" stroke="currentColor" strokeWidth="1.5" fill="currentColor"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>);
-const VolumeMidIcon = () => (<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" stroke="currentColor" strokeWidth="1.5" fill="currentColor"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>);
-const VolumeMuteIcon = () => (<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" stroke="currentColor" strokeWidth="1.5" fill="currentColor"/><line x1="23" y1="9" x2="17" y2="15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="17" y1="9" x2="23" y2="15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>);
-const PiPIcon = () => (<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="2" y="4" width="20" height="16" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/><rect x="12" y="12" width="8" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" fill="currentColor"/></svg>);
-const FullscreenIcon = () => (<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><polyline points="15 3 21 3 21 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><polyline points="9 21 3 21 3 15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><line x1="21" y1="3" x2="14" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="3" y1="21" x2="10" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>);
-const ExitFullscreenIcon = () => (<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><polyline points="4 14 10 14 10 20" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><polyline points="20 10 14 10 14 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><line x1="10" y1="14" x2="3" y2="21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="21" y1="3" x2="14" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>);
-const CloseIcon = () => (<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>);
-const Rewind10Icon = () => (<svg width="52" height="52" viewBox="0 0 52 52" fill="none"><path d="M26 8C16.06 8 8 16.06 8 26s8.06 18 18 18 18-8.06 18-18" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/><path d="M26 8 L20 14 L26 8 L20 2" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none"/><text x="26" y="30" textAnchor="middle" fill="currentColor" fontSize="12" fontWeight="600" fontFamily="system-ui">10</text></svg>);
-const Forward10Icon = () => (<svg width="52" height="52" viewBox="0 0 52 52" fill="none"><path d="M26 8C35.94 8 44 16.06 44 26s-8.06 18-18 18S8 35.94 8 26" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/><path d="M26 8 L32 14 L26 8 L32 2" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none"/><text x="26" y="30" textAnchor="middle" fill="currentColor" fontSize="12" fontWeight="600" fontFamily="system-ui">10</text></svg>);
-const PlayIcon = () => (<svg width="52" height="52" viewBox="0 0 52 52" fill="none"><polygon points="16,10 42,26 16,42" fill="currentColor"/></svg>);
-const PauseIcon = () => (<svg width="52" height="52" viewBox="0 0 52 52" fill="none"><rect x="12" y="10" width="10" height="32" rx="2" fill="currentColor"/><rect x="30" y="10" width="10" height="32" rx="2" fill="currentColor"/></svg>);
+// ─── ICONS (Cloned from Image) ─────────────────────────────────────────────
+const SubtitlesIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><rect x="2" y="6" width="20" height="13" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/><line x1="6" y1="11" x2="18" y2="11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="6" y1="15" x2="14" y2="15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>);
+const SettingsIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.5"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" stroke="currentColor" strokeWidth="1.5"/></svg>);
+const VolumeHighIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" stroke="currentColor" strokeWidth="1.5" fill="none"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>);
+const VolumeMidIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" stroke="currentColor" strokeWidth="1.5" fill="none"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>);
+const VolumeMuteIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" stroke="currentColor" strokeWidth="1.5" fill="none"/><line x1="23" y1="9" x2="17" y2="15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="17" y1="9" x2="23" y2="15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>);
+const PiPIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><rect x="2" y="5" width="20" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/><rect x="10" y="11" width="10" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" fill="currentColor"/></svg>);
+const FullscreenIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>);
+const ExitFullscreenIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M10 14l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>);
+const CloseIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>);
+const Rewind10Icon = () => (<svg width="56" height="56" viewBox="0 0 52 52" fill="none"><path d="M26 8C16.06 8 8 16.06 8 26s8.06 18 18 18 18-8.06 18-18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/><path d="M26 8 L20 14 L26 8 L20 2" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/><text x="26" y="31.5" textAnchor="middle" fill="currentColor" fontSize="13" fontWeight="bold" fontFamily="system-ui">10</text></svg>);
+const Forward10Icon = () => (<svg width="56" height="56" viewBox="0 0 52 52" fill="none"><path d="M26 8C35.94 8 44 16.06 44 26s-8.06 18-18 18S8 35.94 8 26" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/><path d="M26 8 L32 14 L26 8 L32 2" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/><text x="26" y="31.5" textAnchor="middle" fill="currentColor" fontSize="13" fontWeight="bold" fontFamily="system-ui">10</text></svg>);
+const PlayIcon = () => (<svg width="48" height="48" viewBox="0 0 52 52" fill="none"><polygon points="18,12 40,26 18,40" fill="currentColor"/></svg>);
+const PauseIcon = () => (<svg width="48" height="48" viewBox="0 0 52 52" fill="none"><rect x="14" y="12" width="8" height="28" rx="1.5" fill="currentColor"/><rect x="30" y="12" width="8" height="28" rx="1.5" fill="currentColor"/></svg>);
 const CheckIcon = () => (<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><polyline points="2,8 6,12 14,4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>);
-const XRayExpandIcon = () => (<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><polyline points="15 3 21 3 21 9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/><polyline points="9 21 3 21 3 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/><line x1="21" y1="3" x2="14" y2="10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/><line x1="3" y1="21" x2="10" y2="14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>);
+const ChevronRightIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><polyline points="9 18 15 12 9 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const ChevronUpIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><polyline points="18 15 12 9 6 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const ChevronDownIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><polyline points="6 9 12 15 18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>);
-const ChevronRightIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><polyline points="9 18 15 12 9 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>);
+const XRayExpandIcon = () => (<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 
 // ─── HELPERS ───────────────────────────────────────────────────────────────
 const fmtTime = (s) => {
-  if (!s || isNaN(s)) return '0:00';
+  if (!s || isNaN(s)) return '0:00:00';
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60);
-  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
-  return `${m}:${String(sec).padStart(2,'0')}`;
+  return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
 };
 
 const TMDB_KEY = 'cb1dc311039e6ae85db0aa200345cbc5';
@@ -244,7 +243,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       hls.loadSource(hlsUrl);
       hls.attachMedia(vid);
 
-      // Listen for dynamic track updates
       hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (_, data) => {
         if (data.audioTracks && data.audioTracks.length > 0) {
            setAudioTracks(data.audioTracks.map((t, i) => ({ id: i, name: t.name || t.lang || `Audio ${i+1}` })));
@@ -276,7 +274,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
 
         if (cap1080 !== -1) hls.autoLevelCapping = cap1080;
 
-        // Init Tracks
         if (hls.audioTracks && hls.audioTracks.length > 0) {
           hls.audioTrack = 0;
           setAudioTracks(hls.audioTracks.map((t, i) => ({ id: i, name: t.name || t.lang || `Audio ${i+1}` })));
@@ -533,17 +530,17 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       style={{ position:'fixed',inset:0,background:'#000',fontFamily:"'Amazon Ember','Segoe UI',system-ui,sans-serif",
                userSelect:'none', cursor: showCtrl?'default':'none', zIndex:9999 }}>
       <style>{`
-        :root{--c:#AAA;--ct:rgba(170,170,170,.22);}
+        :root{--c:#B3B3B3;--ct:rgba(179,179,179,.3);}
         .pb *{box-sizing:border-box;}
-        .pbtn{background:none;border:none;cursor:pointer;color:var(--c);padding:6px;display:flex;align-items:center;justify-content:center;transition:opacity .1s;}
-        .pbtn:hover{opacity:.7;}
-        .pbar{position:relative;height:3px;background:var(--ct);cursor:pointer;transition:height .12s;}
-        .pbar:hover{height:5px;}
-        .pbar:hover .pthumb{opacity:1;transform:translate(-50%,-50%) scale(1);}
-        .pbuf{position:absolute;top:0;left:0;height:100%;background:rgba(170,170,170,.28);pointer-events:none;}
-        .ppld{position:absolute;top:0;left:0;height:100%;background:var(--c);pointer-events:none;}
-        .pthumb{position:absolute;top:50%;width:12px;height:12px;background:var(--c);border-radius:50%;transform:translate(-50%,-50%) scale(.7);opacity:0;pointer-events:none;transition:opacity .12s,transform .12s;}
-        .cdot{position:absolute;top:50%;width:3px;height:3px;background:rgba(0,0,0,.6);border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:2;}
+        .pbtn{background:none;border:none;cursor:pointer;color:var(--c);padding:0;display:flex;align-items:center;justify-content:center;transition:color .15s;}
+        .pbtn:hover{color:#FFF;}
+        .pbar{position:relative;height:4px;background:var(--ct);cursor:pointer;transition:height .1s;}
+        .pbar:hover{height:6px;}
+        .pbuf{position:absolute;top:0;left:0;height:100%;background:rgba(179,179,179,.4);pointer-events:none;}
+        .ppld{position:absolute;top:0;left:0;height:100%;background:#FFF;pointer-events:none;}
+        .pthumb{position:absolute;top:50%;width:14px;height:14px;background:#FFF;border-radius:50%;transform:translate(-50%,-50%) scale(0);pointer-events:none;transition:transform .1s;}
+        .pbar:hover .pthumb{transform:translate(-50%,-50%) scale(1);}
+        .cdot{position:absolute;top:0;width:2px;height:100%;background:#000;pointer-events:none;z-index:2;}
         .ppanel{position:absolute;top:48px;right:0;background:#111;border-radius:3px 0 0 3px;min-width:260px;overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,.9);animation:pi .1s ease-out;}
         @keyframes pi{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
         .volpop{position:absolute;bottom:46px;left:50%;transform:translateX(-50%);background:#111;border-radius:4px;padding:14px 11px;width:40px;display:flex;flex-direction:column;align-items:center;gap:10px;box-shadow:0 6px 20px rgba(0,0,0,.9);animation:pi .1s ease-out;}
@@ -616,26 +613,28 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
 
       <div className="pb" style={{ position:'absolute',inset:0,opacity:showCtrl?1:0,transition:'opacity .3s',
                                     pointerEvents:mode==='iframe'?'none':(showCtrl?'auto':'none'),zIndex:5 }}>
-        <div style={{ position:'absolute',top:0,left:0,right:0,height:80,background:'linear-gradient(to bottom,rgba(0,0,0,.65),transparent)',pointerEvents:'none' }} />
-        <div style={{ position:'absolute',bottom:0,left:0,right:0,height:120,background:'linear-gradient(to top,rgba(0,0,0,.75),transparent)',pointerEvents:'none' }} />
+        <div style={{ position:'absolute',top:0,left:0,right:0,height:140,background:'linear-gradient(to bottom,rgba(0,0,0,.8),transparent)',pointerEvents:'none' }} />
+        <div style={{ position:'absolute',bottom:0,left:0,right:0,height:140,background:'linear-gradient(to top,rgba(0,0,0,.8),transparent)',pointerEvents:'none' }} />
 
-        <div style={{ position:'absolute',top:0,left:0,right:0,display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',zIndex:10,pointerEvents:'auto' }}>
-          <div style={{ display:'flex',alignItems:'center',gap:10 }}>
-            <button className="pbtn" onClick={e=>{e.stopPropagation();setXrayOpen(v=>!v);setXrayExpanded(false);setPanel(null);}} style={{ display:'flex',alignItems:'center',gap:6,padding:'4px 8px' }}>
-              <span style={{ fontSize:14,fontWeight:400 }}>X-Ray</span>{xrayOpen?<ChevronUpIcon/>:null}
-            </button>
-            <div style={{ background:'#f5c518',color:'#000',fontSize:11,fontWeight:800,padding:'2px 5px',borderRadius:3 }}>IMDb</div>
-            <button className="pbtn" style={{ fontSize:14,display:'flex',alignItems:'center',gap:3 }} onClick={e=>{e.stopPropagation();setXrayExpanded(true);setXrayOpen(false);setPanel(null);}}>All <ChevronRightIcon/></button>
+        {/* ── TOP BAR ── */}
+        <div style={{ position:'absolute',top:0,left:0,right:0,display:'flex',alignItems:'center',justifyContent:'space-between',padding:'32px 40px',zIndex:10,pointerEvents:'auto' }}>
+          
+          <div style={{ display:'flex',alignItems:'center',gap:16 }}>
+            <span style={{ fontSize:18,fontWeight:600,color:'#FFF',cursor:'pointer' }} onClick={e=>{e.stopPropagation();setXrayOpen(v=>!v);setXrayExpanded(false);setPanel(null);}}>X-Ray</span>
+            <div style={{ border:'1px solid #B3B3B3',color:'#B3B3B3',fontSize:11,fontWeight:700,padding:'2px 5px',borderRadius:3,cursor:'pointer' }} onClick={e=>{e.stopPropagation();setXrayExpanded(true);setXrayOpen(false);setPanel(null);}}>IMDb</div>
+            <button className="pbtn" style={{ fontSize:15,display:'flex',alignItems:'center',gap:4 }} onClick={e=>{e.stopPropagation();setXrayExpanded(true);setXrayOpen(false);setPanel(null);}}>All <ChevronRightIcon/></button>
           </div>
-          <div style={{ position:'absolute',left:'50%',transform:'translateX(-50%)',color:'#fff',fontSize:17,fontWeight:400,whiteSpace:'nowrap' }}>{movieTitle}</div>
-          <div style={{ display:'flex',alignItems:'center',gap:2 }}>
+
+          <div style={{ position:'absolute',left:'50%',transform:'translateX(-50%)',color:'#FFF',fontSize:22,fontWeight:500,whiteSpace:'nowrap',textShadow:'0 1px 3px rgba(0,0,0,0.8)' }}>
+            {movieTitle}
+          </div>
+
+          <div style={{ display:'flex',alignItems:'center',gap:24 }}>
             <div style={{ position:'relative' }}>
               <button className="pbtn" onClick={e=>{e.stopPropagation();setPanel(panel==='subtitles'?null:'subtitles');}} title="Subtitles & Audio"><SubtitlesIcon/></button>
               {panel==='subtitles' && (
                 <div className="ppanel" style={{ width:420, maxHeight:'400px', display:'flex', flexDirection:'column' }} onClick={e=>e.stopPropagation()}>
                   <div style={{ display:'flex', overflowY:'auto' }}>
-                    
-                    {/* Dynamic Subtitles Rendering */}
                     <div style={{ flex:1,borderRight:'1px solid rgba(255,255,255,.15)',padding:'20px 16px' }}>
                       <div style={{ color:'#fff',fontSize:16,fontWeight:700,marginBottom:16 }}>Subtitles</div>
                       <div style={{ display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer' }} onClick={()=>{ setSubTrack(-1); if (hlsRef.current) hlsRef.current.subtitleTrack = -1; }}>
@@ -650,7 +649,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
                       ))}
                     </div>
 
-                    {/* Dynamic Audio Rendering */}
                     <div style={{ flex:1,padding:'20px 16px' }}>
                       <div style={{ color:'#fff',fontSize:16,fontWeight:700,marginBottom:16 }}>Audio</div>
                       {audioTracks.length > 0 ? audioTracks.map(a => (
@@ -665,7 +663,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
                         </div>
                       )}
                     </div>
-
                   </div>
                 </div>
               )}
@@ -699,10 +696,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
             </div>
             <button className="pbtn" onClick={e=>{e.stopPropagation();togglePiP();}} title="PiP"><PiPIcon/></button>
             <button className="pbtn" onClick={e=>{e.stopPropagation();toggleFS();}} title="Fullscreen">{isFullscreen?<ExitFullscreenIcon/>:<FullscreenIcon/>}</button>
-            {(mode==='hls'||mode==='direct') && provider && (
-              <div style={{ fontSize:9,fontWeight:800,padding:'2px 7px',borderRadius:4,border:'1px solid rgba(170,170,170,.4)',color:'#AAA',textTransform:'uppercase',margin:'0 4px' }}>{provider}</div>
-            )}
-            <div style={{ width:1,height:22,background:'#AAA',margin:'0 6px',opacity:.4 }}/>
+            <div style={{ width:1,height:24,background:'#B3B3B3',opacity:.4 }}/>
             <button className="pbtn" onClick={e=>{e.stopPropagation();onClose?.();}} title="Close"><CloseIcon/></button>
           </div>
         </div>
@@ -724,20 +718,22 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
           </div>
         )}
 
+        {/* ── CENTER CONTROLS ── */}
         {isVideo && (
-          <div style={{ position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',display:'flex',alignItems:'center',gap:48,zIndex:8 }} onClick={e=>e.stopPropagation()}>
-            <button className="pbtn" style={{ color:'#AAA',padding:0,position:'relative' }} onClick={()=>skip(-10)}>
-              <Rewind10Icon/>{skipFX==='back'&&<div className="skfx" style={{ left:'50%',transform:'translate(-50%,-50%)',color:'#AAA',fontSize:22 }}>-10</div>}
+          <div style={{ position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',display:'flex',alignItems:'center',gap:80,zIndex:8 }} onClick={e=>e.stopPropagation()}>
+            <button className="pbtn" style={{ position:'relative' }} onClick={()=>skip(-10)}>
+              <Rewind10Icon/>{skipFX==='back'&&<div className="skfx" style={{ left:'50%',transform:'translate(-50%,-50%)',color:'#FFF',fontSize:24 }}>-10</div>}
             </button>
-            <button className="pbtn" style={{ color:'#AAA',padding:0 }} onClick={togglePlay}>{playing?<PauseIcon/>:<PlayIcon/>}</button>
-            <button className="pbtn" style={{ color:'#AAA',padding:0,position:'relative' }} onClick={()=>skip(10)}>
-              <Forward10Icon/>{skipFX==='fwd'&&<div className="skfx" style={{ left:'50%',transform:'translate(-50%,-50%)',color:'#AAA',fontSize:22 }}>+10</div>}
+            <button className="pbtn" onClick={togglePlay}>{playing?<PauseIcon/>:<PlayIcon/>}</button>
+            <button className="pbtn" style={{ position:'relative' }} onClick={()=>skip(10)}>
+              <Forward10Icon/>{skipFX==='fwd'&&<div className="skfx" style={{ left:'50%',transform:'translate(-50%,-50%)',color:'#FFF',fontSize:24 }}>+10</div>}
             </button>
           </div>
         )}
 
+        {/* ── BOTTOM BAR ── */}
         {isVideo && (
-          <div style={{ position:'absolute',bottom:0,left:0,right:0,padding:'0 0 28px',zIndex:10 }}>
+          <div style={{ position:'absolute',bottom:0,left:0,right:0,padding:'0 40px 32px',zIndex:10 }}>
             <div ref={progressBarRef} className="pbar" style={{ marginBottom:12 }}
               onMouseDown={onBarDown} onMouseMove={onBarMove} onMouseUp={onBarUp} onMouseLeave={onBarLeave}
               onClick={e=>e.stopPropagation()}>
@@ -751,7 +747,13 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
                 </div>
               )}
             </div>
-            <div style={{ color:'#AAA',fontSize:13,paddingLeft:20 }}>{fmtTime(currentTime)}{duration>0&&<span> / {fmtTime(duration)}</span>}</div>
+            <div style={{ fontSize:15,fontWeight:500,marginTop:12 }}>
+              <span style={{ color:'#FFF' }}>{fmtTime(currentTime)}</span>
+              <span style={{ color:'#B3B3B3' }}> / {fmtTime(duration)}</span>
+              {(mode==='hls'||mode==='direct') && provider && (
+                <span style={{ marginLeft: 16, fontSize:10,fontWeight:800,padding:'2px 7px',borderRadius:4,border:'1px solid rgba(179,179,179,.4)',color:'#B3B3B3',textTransform:'uppercase' }}>{provider}</span>
+              )}
+            </div>
           </div>
         )}
       </div>
