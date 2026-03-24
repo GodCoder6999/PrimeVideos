@@ -18,7 +18,6 @@ const ChevronRightIcon = () => (<svg width="18" height="18" viewBox="0 0 24 24" 
 const ChevronUpIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><polyline points="18 15 12 9 6 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const ChevronDownIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><polyline points="6 9 12 15 18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const XRayExpandIcon = () => (<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>);
-
 const Rewind10Icon = () => (<svg width="88" height="88" viewBox="0 0 64 64" fill="none"><path d="M 16 24 A 20 20 0 1 1 16 46" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/><path d="M 25 15 L 15 24 L 25 33" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/><text x="32" y="32" dy="0.35em" textAnchor="middle" fill="currentColor" fontSize="16" fontWeight="700" fontFamily="system-ui, sans-serif">10</text></svg>);
 const Forward10Icon = () => (<svg width="88" height="88" viewBox="0 0 64 64" fill="none"><path d="M 48 24 A 20 20 0 1 0 48 46" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/><path d="M 39 15 L 49 24 L 39 33" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/><text x="32" y="32" dy="0.35em" textAnchor="middle" fill="currentColor" fontSize="16" fontWeight="700" fontFamily="system-ui, sans-serif">10</text></svg>);
 const PlayIcon = () => (<svg width="88" height="88" viewBox="0 0 64 64" fill="none"><path d="M 24 16 L 48 32 L 24 48 Z" fill="currentColor" stroke="currentColor" strokeWidth="4" strokeLinejoin="round" /></svg>);
@@ -33,10 +32,39 @@ const fmtTime = (s) => {
 
 const TMDB_KEY = 'cb1dc311039e6ae85db0aa200345cbc5';
 
+// Normalise a language name coming from HLS.js audioTrack (lang codes → readable)
+function normLangName(raw) {
+  if (!raw) return null;
+  const s = String(raw).toLowerCase().trim();
+  const map = {
+    hin:'Hindi', hi:'Hindi', hindi:'Hindi',
+    eng:'English', en:'English', english:'English',
+    tam:'Tamil', ta:'Tamil', tamil:'Tamil',
+    tel:'Telugu', te:'Telugu', telugu:'Telugu',
+    mal:'Malayalam', ml:'Malayalam', malayalam:'Malayalam',
+    kan:'Kannada', kn:'Kannada', kannada:'Kannada',
+    ben:'Bengali', bn:'Bengali', bengali:'Bengali',
+    mar:'Marathi', mr:'Marathi', marathi:'Marathi',
+    pun:'Punjabi', pa:'Punjabi', punjabi:'Punjabi',
+    jpn:'Japanese', ja:'Japanese', japanese:'Japanese',
+    kor:'Korean', ko:'Korean', korean:'Korean',
+    fra:'French', fr:'French', french:'French',
+    deu:'German', de:'German', german:'German',
+    spa:'Spanish', es:'Spanish', spanish:'Spanish',
+    zho:'Chinese', zh:'Chinese', chinese:'Chinese',
+    ara:'Arabic', ar:'Arabic', arabic:'Arabic',
+    rus:'Russian', ru:'Russian', russian:'Russian',
+    por:'Portuguese', pt:'Portuguese', portuguese:'Portuguese',
+    ita:'Italian', it:'Italian', italian:'Italian',
+    mul:'Multi', multi:'Multi',
+  };
+  return map[s] || (raw.length > 0 ? raw.charAt(0).toUpperCase() + raw.slice(1) : null);
+}
+
 // ─── MAIN PLAYER ───────────────────────────────────────────────────────────
 export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', season = 1, episode = 1, onClose }) {
   const navigate = useNavigate();
-  
+
   // refs
   const containerRef   = useRef(null);
   const videoRef       = useRef(null);
@@ -47,13 +75,16 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const volSliderRef   = useRef(null);
   const iframeTimer    = useRef(null);
 
-  // robust source tracking
+  // source tracking
   const rawFilesRef    = useRef([]);
   const allSourcesRef  = useRef([]);
   const selQualityRef  = useRef(-1);
   const hasResumed     = useRef(false);
 
-  // playback
+  // ── FIX: reload counter forces HLS effect to re-run even if same URL ──
+  const [hlsReloadKey, setHlsReloadKey] = useState(0);
+
+  // playback state
   const [playing,     setPlaying]     = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration,    setDuration]    = useState(0);
@@ -64,7 +95,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const [prevVol,     setPrevVol]     = useState(1);
   const [autoMuted,   setAutoMuted]   = useState(false);
 
-  // stream
+  // stream state
   const [mode,         setMode]        = useState('loading');
   const [hlsUrl,       setHlsUrl]      = useState(null);
   const [directFiles,  setDirectFiles] = useState([]);
@@ -75,124 +106,101 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const [embedIdx,     setEmbedIdx]    = useState(0);
   const [embedPhase,   setEmbedPhase]  = useState('loading');
 
-  // ui
-  const [showCtrl,      setShowCtrl]      = useState(true);
-  const [isFullscreen,  setIsFullscreen]  = useState(false);
-  const [seeking,       setSeeking]       = useState(false);
-  const [draggingVol,   setDraggingVol]   = useState(false);
-  const [panel,         setPanel]         = useState(null);
-  const [skipFX,        setSkipFX]        = useState(null);
-  const [hoverT,        setHoverT]        = useState(null);
-  const [hoverX,        setHoverX]        = useState(0);
-  
-  // dynamic tracks & audio routing
-  const [subTrack,            setSubTrack]          = useState(-1);
-  const [audTrack,            setAudTrack]          = useState(0); // for native HLS
-  const [audioTracks,         setAudioTracks]       = useState([]); // native HLS tracks
-  const [subtitleTracks,      setSubtitleTracks]    = useState([]);
-  const [sourceLanguages,     setSourceLanguages]   = useState([]); // extracted source languages
-  const [selectedSourceLang,  setSelectedSourceLang] = useState('Default');
+  // ── AUDIO STATE ──
+  // hlsAudioTracks: tracks detected inside the HLS manifest by HLS.js
+  // These are the REAL switchable tracks — switching them actually changes audio.
+  const [hlsAudioTracks,    setHlsAudioTracks]    = useState([]); // [{id, name}]
+  const [hlsAudioTrackIdx,  setHlsAudioTrackIdx]  = useState(0);
+  // hlsSubtitleTracks: subtitle tracks from manifest
+  const [hlsSubTracks,      setHlsSubTracks]      = useState([]);
+  const [hlsSubTrackIdx,    setHlsSubTrackIdx]     = useState(-1);
+  // sourceLanguages: language options derived from stream metadata (for source-level switching)
+  const [sourceLanguages,     setSourceLanguages]    = useState([]);
+  const [selectedSourceLang,  setSelectedSourceLang] = useState('');
 
-  const [xrayOpen,      setXrayOpen]      = useState(false);
-  const [xrayExpanded,  setXrayExpanded]  = useState(false);
-  const [xrayCast,      setXrayCast]      = useState([]);
-  const [xrayTab,       setXrayTab]       = useState('scene');
-  const [expandCast,    setExpandCast]    = useState(null);
-  const [movieTitle,    setMovieTitle]    = useState(title);
-  
-  // TV Shows Specific
-  const [episodeTitle,   setEpisodeTitle] = useState('');
-  const [nextEpData,     setNextEpData]   = useState(null);
+  // ui state
+  const [showCtrl,     setShowCtrl]     = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [seeking,      setSeeking]      = useState(false);
+  const [draggingVol,  setDraggingVol]  = useState(false);
+  const [panel,        setPanel]        = useState(null);
+  const [skipFX,       setSkipFX]       = useState(null);
+  const [hoverT,       setHoverT]       = useState(null);
+  const [hoverX,       setHoverX]       = useState(0);
+  const [xrayOpen,     setXrayOpen]     = useState(false);
+  const [xrayExpanded, setXrayExpanded] = useState(false);
+  const [xrayCast,     setXrayCast]     = useState([]);
+  const [xrayTab,      setXrayTab]      = useState('scene');
+  const [expandCast,   setExpandCast]   = useState(null);
+  const [movieTitle,   setMovieTitle]   = useState(title);
+  const [episodeTitle, setEpisodeTitle] = useState('');
+  const [nextEpData,   setNextEpData]   = useState(null);
 
   const isVideo  = mode === 'hls' || mode === 'direct';
   const chapters = duration > 0 ? [0.16,0.33,0.5,0.66,0.83].map(p => p * duration) : [];
 
-  // ── FETCH TV SHOW SEASONS & EPISODES ──
+  // ── TV: fetch episode title & next episode ────────────────────────────────
   useEffect(() => {
-    if (mediaType === 'tv') {
-      fetch(`https://api.themoviedb.org/3/tv/${tmdbId}/season/${season}?api_key=${TMDB_KEY}`)
-        .then(r => r.json())
-        .then(data => {
-          if (data.episodes) {
-            const ep = data.episodes.find(e => e.episode_number == episode);
-            if (ep) setEpisodeTitle(ep.name);
-
-            const nextEp = data.episodes.find(e => e.episode_number == Number(episode) + 1);
-            if (nextEp) {
-              setNextEpData({ season, episode: Number(episode) + 1 });
-            } else {
-              fetch(`https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${TMDB_KEY}`)
-                .then(r => r.json())
-                .then(tvData => {
-                   const nextS = tvData.seasons?.find(s => s.season_number == Number(season) + 1);
-                   if (nextS && nextS.episode_count > 0) {
-                     setNextEpData({ season: Number(season) + 1, episode: 1 });
-                   } else {
-                     setNextEpData(null);
-                   }
-                });
-            }
-          }
-        });
-    }
+    if (mediaType !== 'tv') return;
+    fetch(`https://api.themoviedb.org/3/tv/${tmdbId}/season/${season}?api_key=${TMDB_KEY}`)
+      .then(r => r.json())
+      .then(data => {
+        if (!data.episodes) return;
+        const ep = data.episodes.find(e => e.episode_number == episode);
+        if (ep) setEpisodeTitle(ep.name);
+        const nextEp = data.episodes.find(e => e.episode_number == Number(episode) + 1);
+        if (nextEp) {
+          setNextEpData({ season, episode: Number(episode) + 1 });
+        } else {
+          fetch(`https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${TMDB_KEY}`)
+            .then(r => r.json())
+            .then(tv => {
+              const nextS = tv.seasons?.find(s => s.season_number == Number(season) + 1);
+              setNextEpData(nextS && nextS.episode_count > 0 ? { season: Number(season) + 1, episode: 1 } : null);
+            });
+        }
+      });
   }, [tmdbId, mediaType, season, episode]);
 
   const handleNextEpisode = (e) => {
     e.stopPropagation();
-    if (nextEpData) {
-      navigate(`/watch/tv/${tmdbId}?season=${nextEpData.season}&episode=${nextEpData.episode}`, { replace: true });
-    }
+    if (nextEpData) navigate(`/watch/tv/${tmdbId}?season=${nextEpData.season}&episode=${nextEpData.episode}`, { replace: true });
   };
 
-  // ── RESUME PROGRESS LOGIC ──
-  useEffect(() => {
-    hasResumed.current = false;
-  }, [tmdbId, season, episode]);
+  // ── PROGRESS SAVE/RESTORE ─────────────────────────────────────────────────
+  useEffect(() => { hasResumed.current = false; }, [tmdbId, season, episode]);
 
   const saveProgress = useCallback((time, dur) => {
     if (!tmdbId || !dur || time < 5) return;
     const key = `${mediaType === 'tv' ? 't' : 'm'}${tmdbId}`;
-    const allProgress = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
-    const existing = allProgress[key] || {};
-    
-    allProgress[key] = {
-      ...existing,
-      id: tmdbId,
-      type: mediaType,
-      progress: { watched: time, duration: dur },
-      last_season_watched: season,
-      last_episode_watched: episode,
-      last_updated: Date.now()
-    };
-    if (movieTitle) allProgress[key].title = movieTitle;
-    
-    localStorage.setItem('vidFastProgress', JSON.stringify(allProgress));
+    const all = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
+    all[key] = { ...(all[key]||{}), id:tmdbId, type:mediaType, progress:{watched:time,duration:dur},
+      last_season_watched:season, last_episode_watched:episode, last_updated:Date.now(),
+      ...(movieTitle ? {title:movieTitle} : {}) };
+    localStorage.setItem('vidFastProgress', JSON.stringify(all));
   }, [tmdbId, mediaType, season, episode, movieTitle]);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      if (playing && videoRef.current && duration > 0) {
+    const iv = setInterval(() => {
+      if (playing && videoRef.current && duration > 0)
         saveProgress(videoRef.current.currentTime, duration);
-      }
     }, 5000);
-    return () => clearInterval(interval);
+    return () => clearInterval(iv);
   }, [playing, duration, saveProgress]);
 
   const attemptResume = useCallback((vid) => {
     if (hasResumed.current) return;
     const key = `${mediaType === 'tv' ? 't' : 'm'}${tmdbId}`;
-    const allProgress = JSON.parse(localStorage.getItem('vidFastProgress')) || {};
-    const prog = allProgress[key];
-    const isSameEpisode = mediaType === 'tv' ? (prog?.last_season_watched == season && prog?.last_episode_watched == episode) : true;
-    
-    if (prog && prog.progress && prog.progress.watched > 0 && isSameEpisode) {
-      if (prog.progress.watched < prog.progress.duration * 0.95) {
-        vid.currentTime = prog.progress.watched;
-      }
-    }
+    const prog = (JSON.parse(localStorage.getItem('vidFastProgress'))||{})[key];
+    const sameEp = mediaType === 'tv'
+      ? prog?.last_season_watched == season && prog?.last_episode_watched == episode
+      : true;
+    if (prog?.progress?.watched > 0 && sameEp && prog.progress.watched < prog.progress.duration * 0.95)
+      vid.currentTime = prog.progress.watched;
     hasResumed.current = true;
   }, [tmdbId, mediaType, season, episode]);
 
+  // ── volume sync ───────────────────────────────────────────────────────────
   useEffect(() => {
     const v = videoRef.current; if (!v) return;
     const fn = () => { setMuted(v.muted); setVolume(v.volume); if (!v.muted && v.volume > 0) setAutoMuted(false); };
@@ -200,6 +208,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     return () => v.removeEventListener('volumechange', fn);
   }, []);
 
+  // ── embed list ────────────────────────────────────────────────────────────
   const buildEmbeds = (tid, iid, mt, s, e) => {
     const tv = mt === 'tv'; const list = [];
     if (iid) {
@@ -213,10 +222,18 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     return list;
   };
 
+  // ── loadSource: triggers HLS or direct mode ───────────────────────────────
+  // FIX: always bump hlsReloadKey so the HLS useEffect re-runs even for same URL
   const loadSource = useCallback((src) => {
     setBuffering(true); setPlaying(false); setCurrentTime(0); setBuffered(0);
+    setHlsAudioTracks([]); setHlsAudioTrackIdx(0);
+    setHlsSubTracks([]); setHlsSubTrackIdx(-1);
+    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+    if (videoRef.current) { videoRef.current.pause(); videoRef.current.removeAttribute('src'); videoRef.current.load(); }
+
     if (src.url.includes('.m3u8') || src.url.includes('m3u') || src.url.includes('playlist')) {
       setHlsUrl(src.url);
+      setHlsReloadKey(k => k + 1); // ← forces effect re-run even if same URL
       setMode('hls');
     } else {
       setDirectFiles([src]);
@@ -225,39 +242,42 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     }
   }, []);
 
+  // ── buildQualityMenu: filter by source-level language, build menu ─────────
   const buildQualityMenu = useCallback((files, targetLang) => {
-    let filtered = files.filter(f => f.lang.includes(targetLang) || f.lang === 'Multi' || f.lang === 'Dual' || f.lang === 'Unknown');
-    if (filtered.length === 0) {
-        filtered = files; // fallback
-    }
+    // Filter by language — include Multi/Dual/Unknown as they may carry multiple audios
+    let filtered = files.filter(f =>
+      !targetLang ||
+      f.lang === 'Multi' || f.lang === 'Dual' || f.lang === 'Unknown' ||
+      f.lang.includes(targetLang)
+    );
+    if (filtered.length === 0) filtered = files; // fallback: show all
 
+    // Dedupe by quality label — one entry per quality tier per provider
     const qMap = {};
     filtered.forEach(f => {
-       if(!qMap[f.quality]) qMap[f.quality] = [];
-       qMap[f.quality].push(f);
+      const k = f.quality;
+      if (!qMap[k]) qMap[k] = [];
+      qMap[k].push(f);
     });
 
-    const order = { '2160p':6, '1080p':5, '720p':4, '480p':3, '360p':2, 'Auto':1 };
+    const order = { '1080p':6, '720p':5, '480p':4, '360p':3, 'Auto':2, '2160p':1 };
     const menu = [];
-    const seen = new Set();
-    
+    const seenLabels = new Set();
     Object.keys(qMap).forEach(q => {
       qMap[q].forEach((f, idx) => {
-        // Source names hidden: just shows '1080p (Server 1)'
         const label = qMap[q].length > 1 ? `${q} (Server ${idx + 1})` : q;
-        if (!seen.has(label)) { 
-          seen.add(label); 
-          menu.push({ label, value: menu.length, sortQ: q, url: f.url, lang: f.lang }); 
+        if (!seenLabels.has(label)) {
+          seenLabels.add(label);
+          menu.push({ label, value: menu.length, sortQ: q, url: f.url, lang: f.lang });
         }
       });
     });
-    
     menu.sort((a,b) => (order[b.sortQ]||0) - (order[a.sortQ]||0));
-    menu.forEach((m, i) => m.value = i);
+    menu.forEach((m,i) => m.value = i);
 
     allSourcesRef.current = menu;
     setQualities(menu);
-    
+
     if (menu.length > 0) {
       setSelQuality(menu[0].value);
       selQualityRef.current = menu[0].value;
@@ -267,33 +287,29 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     }
   }, [loadSource]);
 
-  const handleSourceLangChange = (lang) => {
+  // ── source-level language switch (changes which stream URL is loaded) ─────
+  const handleSourceLangChange = useCallback((lang) => {
     setSelectedSourceLang(lang);
     buildQualityMenu(rawFilesRef.current, lang);
-  };
+  }, [buildQualityMenu]);
 
+  // ── quality switch ────────────────────────────────────────────────────────
   const handleQuality = useCallback((val) => {
     setSelQuality(val);
     selQualityRef.current = val;
-    const selected = allSourcesRef.current.find(s => s.value === val);
-    if (selected) {
-      setMode('loading');
-      if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
-      if (videoRef.current) { videoRef.current.pause(); videoRef.current.removeAttribute('src'); videoRef.current.load(); }
-      setTimeout(() => loadSource(selected), 50);
-    }
+    const src = allSourcesRef.current.find(s => s.value === val);
+    if (src) { setTimeout(() => loadSource(src), 50); }
     setPanel(null);
   }, [loadSource]);
 
   const tryNextSource = useCallback(() => {
     const idx = allSourcesRef.current.findIndex(s => s.value === selQualityRef.current);
-    if (idx !== -1 && idx < allSourcesRef.current.length - 1) {
+    if (idx !== -1 && idx < allSourcesRef.current.length - 1)
       handleQuality(allSourcesRef.current[idx + 1].value);
-    } else {
-      setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading');
-    }
+    else { setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading'); }
   }, [handleQuality]);
 
+  // ── MAIN INIT ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!tmdbId) return;
     setMode('loading'); setHlsUrl(null);
@@ -301,6 +317,10 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     setEmbeds([]); setEmbedIdx(0); setEmbedPhase('loading');
     setPlaying(false); setBuffering(false); setAutoMuted(false);
     setCurrentTime(0); setDuration(0); setBuffered(0);
+    setHlsAudioTracks([]); setHlsAudioTrackIdx(0);
+    setHlsSubTracks([]); setHlsSubTrackIdx(-1);
+    setSourceLanguages([]); setSelectedSourceLang('');
+    rawFilesRef.current = []; allSourcesRef.current = [];
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
 
     let cancelled = false;
@@ -312,9 +332,9 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         if (cancelled) return;
         const iid = d.imdb_id || d.external_ids?.imdb_id || null;
         setMovieTitle(d.title || d.name || title);
-        setXrayCast((d.credits?.cast || []).slice(0,12).map(p => ({
-          id: p.id, name: p.name, character: p.character,
-          profile: p.profile_path ? `https://image.tmdb.org/t/p/w185${p.profile_path}` : null,
+        setXrayCast((d.credits?.cast||[]).slice(0,12).map(p => ({
+          id:p.id, name:p.name, character:p.character,
+          profile:p.profile_path?`https://image.tmdb.org/t/p/w185${p.profile_path}`:null,
         })));
         if (!cancelled) setEmbeds(buildEmbeds(tmdbId, iid, mediaType, season, episode));
       }).catch(() => {});
@@ -335,29 +355,35 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       if (cancelled) return;
 
       if (streams.length > 0) {
+        // Build file list with proxied fallbacks
         const files = [];
         streams.forEach(s => {
-          const l = s.lang || 'Unknown';
-          files.push({ url: s.url, quality: s.quality, lang: l });
-          files.push({ url: `/api/proxy?url=${encodeURIComponent(s.url)}`, quality: s.quality, lang: l });
+          const q = s.quality || 'Auto';
+          const l = s.lang    || 'Unknown';
+          files.push({ url: s.url,                                          quality: q, lang: l });
+          files.push({ url: `/api/proxy?url=${encodeURIComponent(s.url)}`, quality: q, lang: l });
         });
 
         rawFilesRef.current = files;
 
-        const availableLangs = new Set();
+        // Extract unique non-unknown source languages for the Audio panel
+        const langSet = new Set();
         files.forEach(f => {
-           if (f.lang === 'Unknown') return;
-           f.lang.split(', ').forEach(l => availableLangs.add(l));
+          if (f.lang === 'Unknown') return;
+          // Split "Hindi, English" → ['Hindi','English']
+          f.lang.split(',').map(l => l.trim()).forEach(l => {
+            if (l && l !== 'Unknown') langSet.add(l);
+          });
+          if (f.lang === 'Multi' || f.lang === 'Dual') langSet.add(f.lang);
         });
+        const langArr = Array.from(langSet);
+        setSourceLanguages(langArr);
 
-        let langArray = Array.from(availableLangs);
-        if (langArray.length === 0) langArray = ['Default'];
-        setSourceLanguages(langArray);
-
-        // Force English if available, else first detected
-        let defaultLang = langArray.includes('English') ? 'English' : langArray[0];
-        if (langArray.includes('Multi') && !langArray.includes('English')) defaultLang = 'Multi';
-        
+        // Pick best default language: prefer Hindi (for Indian content) then English then first
+        const defaultLang = langArr.includes('Hindi')   ? 'Hindi'
+                          : langArr.includes('Multi')   ? 'Multi'
+                          : langArr.includes('English') ? 'English'
+                          : langArr[0] || '';
         setSelectedSourceLang(defaultLang);
         buildQualityMenu(files, defaultLang);
         return;
@@ -372,6 +398,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     };
   }, [tmdbId, mediaType, season, episode, buildQualityMenu]);
 
+  // ── HLS SETUP — depends on hlsUrl AND hlsReloadKey ────────────────────────
   useEffect(() => {
     if (mode !== 'hls' || !hlsUrl || !videoRef.current) return;
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
@@ -388,33 +415,44 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       hls.loadSource(hlsUrl);
       hls.attachMedia(vid);
 
-      hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (_, data) => {
-        if (data.audioTracks && data.audioTracks.length > 0) {
-           setAudioTracks(data.audioTracks.map((t, i) => ({ id: i, name: t.name || t.lang || `Audio ${i+1}` })));
-        }
-      });
-      hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, (_, data) => {
-        if (data.subtitleTracks && data.subtitleTracks.length > 0) {
-           setSubtitleTracks(data.subtitleTracks.map((t, i) => ({ id: i, name: t.name || t.lang || `Subtitle ${i+1}` })));
-        }
-      });
-
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         setBuffering(false);
-        const cap = hls.levels.map((l,i) => ({h:l.height||0,i})).filter(x=>x.h>0&&x.h<=1080).sort((a,b)=>b.h-a.h)[0];
+
+        // Cap ABR at 1080p
+        const cap = hls.levels.map((l,i)=>({h:l.height||0,i})).filter(x=>x.h>0&&x.h<=1080).sort((a,b)=>b.h-a.h)[0];
         if (cap) hls.autoLevelCapping = cap.i;
 
+        // ── HLS AUDIO TRACKS (inside the manifest) ──
+        // These are the REAL audio tracks we can switch. Map them to readable names.
         if (hls.audioTracks && hls.audioTracks.length > 0) {
-          hls.audioTrack = 0;
-          setAudioTracks(hls.audioTracks.map((t, i) => ({ id: i, name: t.name || t.lang || `Audio ${i+1}` })));
-          setAudTrack(0);
-        } else { setAudioTracks([]); }
+          const tracks = hls.audioTracks.map((t, i) => {
+            // t.name, t.lang, t.language are all possible fields
+            const raw = t.name || t.lang || t.language || `Track ${i+1}`;
+            const friendly = normLangName(raw) || normLangName(t.language) || raw;
+            return { id: i, name: friendly, raw };
+          });
+          setHlsAudioTracks(tracks);
 
+          // Auto-select best track: prefer Hindi, then first
+          const hindiIdx = tracks.findIndex(t => t.name === 'Hindi' || t.raw?.toLowerCase().includes('hin'));
+          const defaultIdx = hindiIdx >= 0 ? hindiIdx : 0;
+          hls.audioTrack = defaultIdx;
+          setHlsAudioTrackIdx(defaultIdx);
+        } else {
+          setHlsAudioTracks([]);
+        }
+
+        // ── HLS SUBTITLE TRACKS ──
         if (hls.subtitleTracks && hls.subtitleTracks.length > 0) {
-          setSubtitleTracks(hls.subtitleTracks.map((t, i) => ({ id: i, name: t.name || t.lang || `Subtitle ${i+1}` })));
-          hls.subtitleTrack = -1;
-          setSubTrack(-1);
-        } else { setSubtitleTracks([]); }
+          setHlsSubTracks(hls.subtitleTracks.map((t,i) => ({
+            id: i,
+            name: normLangName(t.name || t.lang) || t.name || `Sub ${i+1}`,
+          })));
+          hls.subtitleTrack = -1; // off by default
+          setHlsSubTrackIdx(-1);
+        } else {
+          setHlsSubTracks([]);
+        }
 
         vid.volume = 1; vid.muted = false;
         attemptResume(vid);
@@ -422,37 +460,41 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
           .then(() => setPlaying(true))
           .catch(() => {
             vid.muted = true;
-            vid.play()
-              .then(() => { setPlaying(true); setAutoMuted(true); })
-              .catch(() => { setPlaying(false); setBuffering(false); });
+            vid.play().then(() => { setPlaying(true); setAutoMuted(true); }).catch(() => { setPlaying(false); setBuffering(false); });
           });
       });
 
-      let netRetries = 0, mediaRetries = 0;
+      let netR = 0, medR = 0;
       hls.on(Hls.Events.ERROR, (_, d) => {
         if (d.details === Hls.ErrorDetails.AUDIO_TRACK_LOAD_ERROR || d.details === Hls.ErrorDetails.AUDIO_TRACK_LOAD_TIMEOUT) {
           if (hls.audioTracks && hls.audioTracks.length > 1) {
-            hls.audioTrack = (hls.audioTrack + 1) % hls.audioTracks.length;
-            setAudTrack(hls.audioTrack);
+            const next = (hls.audioTrack + 1) % hls.audioTracks.length;
+            hls.audioTrack = next; setHlsAudioTrackIdx(next);
           } else if (d.fatal) { hls.destroy(); tryNextSource(); }
           return;
         }
         if (!d.fatal) return;
         if (d.type === Hls.ErrorTypes.NETWORK_ERROR) {
-          if (netRetries < 2) { netRetries++; setTimeout(() => hls.startLoad(), 1000 * netRetries); }
+          if (netR < 2) { netR++; setTimeout(() => hls.startLoad(), 1000 * netR); }
           else { hls.destroy(); tryNextSource(); }
         } else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) {
-          if (mediaRetries < 2) { mediaRetries++; hls.recoverMediaError(); }
+          if (medR < 2) { medR++; hls.recoverMediaError(); }
           else { hls.destroy(); tryNextSource(); }
-        } else {
-          hls.destroy(); tryNextSource();
-        }
+        } else { hls.destroy(); tryNextSource(); }
       });
 
     } else if (vid.canPlayType('application/vnd.apple.mpegurl')) {
+      // Safari native HLS — audio track switching via HTMLVideoElement audioTracks
       vid.src = hlsUrl; vid.volume = 1; vid.muted = false;
       vid.addEventListener('loadedmetadata', () => {
         setBuffering(false);
+        // Expose Safari audio tracks if available
+        if (vid.audioTracks && vid.audioTracks.length > 0) {
+          const tracks = Array.from(vid.audioTracks).map((t, i) => ({
+            id: i, name: normLangName(t.language || t.label) || t.label || `Track ${i+1}`, raw: t.language,
+          }));
+          setHlsAudioTracks(tracks);
+        }
         attemptResume(vid);
         vid.play()
           .then(() => setPlaying(true))
@@ -464,63 +506,37 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     }
 
     return () => { if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; } };
-  }, [hlsUrl, mode, tryNextSource, attemptResume]);
+  }, [hlsUrl, hlsReloadKey, mode, tryNextSource, attemptResume]); // ← hlsReloadKey included
 
+  // ── DIRECT MODE ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (mode !== 'direct' || !videoRef.current || !directFiles.length) return;
     const file = directFiles[directIdx]; if (!file?.url) return;
     const vid = videoRef.current;
-
     vid.pause(); vid.removeAttribute('src'); vid.load();
-
-    const loadTimer = setTimeout(() => {
+    const lt = setTimeout(() => {
       if (!videoRef.current) return;
-      vid.volume = 1; vid.muted = false;
-      vid.src = file.url; vid.load();
+      vid.volume = 1; vid.muted = false; vid.src = file.url; vid.load();
     }, 80);
-
-    let done = false, stallTimer = null;
-
-    const tryNext = () => {
-      if (done) return; done = true; clearTimeout(stallTimer);
-      tryNextSource();
-    };
-
+    let done = false, st = null;
+    const tryNext = () => { if (done) return; done = true; clearTimeout(st); tryNextSource(); };
     const onCanPlay = () => {
-      if (done) return;
-      setBuffering(false); clearTimeout(stallTimer);
-      vid.volume = 1; vid.muted = false;
-      attemptResume(vid);
+      if (done) return; setBuffering(false); clearTimeout(st);
+      vid.volume = 1; vid.muted = false; attemptResume(vid);
       vid.play()
         .then(() => { if (!done) setPlaying(true); })
-        .catch(() => {
-          vid.muted = true;
-          vid.play()
-            .then(() => { if (!done) { setPlaying(true); setAutoMuted(true); } })
-            .catch(() => { if (!done) { setPlaying(false); setBuffering(false); } });
-        });
+        .catch(() => { vid.muted = true; vid.play().then(() => { if (!done) { setPlaying(true); setAutoMuted(true); } }).catch(() => { if (!done) { setPlaying(false); setBuffering(false); } }); });
     };
-
     const onError = () => { const e = vid.error; if (!e || e.code === 1) return; tryNext(); };
-
-    stallTimer = setTimeout(() => tryNext(), 10000);
-    const onProgress = () => {
-      clearTimeout(stallTimer);
-      stallTimer = setTimeout(() => { if (vid.readyState < 3 && !vid.paused) tryNext(); }, 10000);
-    };
-
-    vid.addEventListener('canplay',  onCanPlay,  { once: true });
-    vid.addEventListener('error',    onError,    { once: true });
-    vid.addEventListener('progress', onProgress);
-
-    return () => {
-      done = true; clearTimeout(loadTimer); clearTimeout(stallTimer);
-      vid.removeEventListener('canplay',  onCanPlay);
-      vid.removeEventListener('error',    onError);
-      vid.removeEventListener('progress', onProgress);
-    };
+    st = setTimeout(() => tryNext(), 10000);
+    const onProg = () => { clearTimeout(st); st = setTimeout(() => { if (vid.readyState < 3 && !vid.paused) tryNext(); }, 10000); };
+    vid.addEventListener('canplay',  onCanPlay, { once: true });
+    vid.addEventListener('error',    onError,   { once: true });
+    vid.addEventListener('progress', onProg);
+    return () => { done = true; clearTimeout(lt); clearTimeout(st); vid.removeEventListener('canplay',onCanPlay); vid.removeEventListener('error',onError); vid.removeEventListener('progress',onProg); };
   }, [mode, directIdx, directFiles, tryNextSource, attemptResume]);
 
+  // ── IFRAME TIMEOUT ────────────────────────────────────────────────────────
   useEffect(() => {
     if (mode !== 'iframe' || embedPhase !== 'loading') return;
     clearTimeout(iframeTimer.current);
@@ -531,10 +547,9 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     return () => clearTimeout(iframeTimer.current);
   }, [mode, embedPhase, embedIdx, embeds.length]);
 
+  // ── VIDEO DOM EVENTS ──────────────────────────────────────────────────────
   useEffect(() => {
     const v = videoRef.current; if (!v) return;
-    const on  = (ev, fn) => v.addEventListener(ev, fn);
-    const off = (ev, fn) => v.removeEventListener(ev, fn);
     const onPlay    = () => { setPlaying(true);  setBuffering(false); };
     const onPause   = () => setPlaying(false);
     const onTime    = () => setCurrentTime(v.currentTime);
@@ -543,28 +558,23 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     const onWait    = () => setBuffering(true);
     const onPlaying = () => setBuffering(false);
     const onStall   = () => setBuffering(true);
-    on('play',          onPlay);    on('pause',         onPause);
-    on('timeupdate',    onTime);    on('durationchange',onDur);
-    on('progress',      onProg);    on('waiting',       onWait);
-    on('playing',       onPlaying); on('canplay',       onPlaying);
-    on('stalled',       onStall);
+    ['play','pause','timeupdate','durationchange','progress','waiting','playing','canplay','stalled']
+      .forEach((ev, i) => v.addEventListener(ev, [onPlay,onPause,onTime,onDur,onProg,onWait,onPlaying,onPlaying,onStall][i]));
     return () => {
-      off('play',onPlay); off('pause',onPause); off('timeupdate',onTime);
-      off('durationchange',onDur); off('progress',onProg); off('waiting',onWait);
-      off('playing',onPlaying); off('canplay',onPlaying); off('stalled',onStall);
+      ['play','pause','timeupdate','durationchange','progress','waiting','playing','canplay','stalled']
+        .forEach((ev, i) => v.removeEventListener(ev, [onPlay,onPause,onTime,onDur,onProg,onWait,onPlaying,onPlaying,onStall][i]));
     };
   }, []);
 
-  const resetCtrlTimer = useCallback(() => {
+  // ── CONTROLS AUTO-HIDE ────────────────────────────────────────────────────
+  const resetCtrl = useCallback(() => {
     setShowCtrl(true); clearTimeout(ctrlTimer.current);
     ctrlTimer.current = setTimeout(() => { if (!panel && !xrayOpen) setShowCtrl(false); }, 3500);
   }, [panel, xrayOpen]);
-  useEffect(() => { resetCtrlTimer(); return () => clearTimeout(ctrlTimer.current); }, [resetCtrlTimer]);
-  useEffect(() => {
-    if (panel || xrayOpen) { setShowCtrl(true); clearTimeout(ctrlTimer.current); }
-    else resetCtrlTimer();
-  }, [panel, xrayOpen, resetCtrlTimer]);
+  useEffect(() => { resetCtrl(); return () => clearTimeout(ctrlTimer.current); }, [resetCtrl]);
+  useEffect(() => { if (panel || xrayOpen) { setShowCtrl(true); clearTimeout(ctrlTimer.current); } else resetCtrl(); }, [panel, xrayOpen, resetCtrl]);
 
+  // ── KEYBOARD ──────────────────────────────────────────────────────────────
   useEffect(() => {
     const fn = e => {
       if (e.target.tagName === 'INPUT') return;
@@ -585,15 +595,11 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     return () => document.removeEventListener('fullscreenchange', fn);
   }, []);
 
+  // ── ACTIONS ───────────────────────────────────────────────────────────────
   const togglePlay = () => {
     const v = videoRef.current; if (!v) return;
-    if (playing) { v.pause(); }
-    else {
-      v.play().then(() => setPlaying(true)).catch(() => {
-        v.muted = true;
-        v.play().then(() => { setPlaying(true); setAutoMuted(true); }).catch(console.error);
-      });
-    }
+    if (playing) v.pause();
+    else v.play().then(() => setPlaying(true)).catch(() => { v.muted = true; v.play().then(() => { setPlaying(true); setAutoMuted(true); }).catch(console.error); });
   };
   const skip = sec => {
     const v = videoRef.current; if (!v) return;
@@ -605,41 +611,22 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     if (v.muted || v.volume === 0) { v.muted = false; v.volume = prevVol > 0 ? prevVol : 1; setAutoMuted(false); }
     else { setPrevVol(v.volume); v.muted = true; }
   };
-  const unmuteBanner = () => {
-    const v = videoRef.current; if (!v) return;
-    v.muted = false; v.volume = prevVol > 0 ? prevVol : 1; setAutoMuted(false);
-  };
+  const unmuteBanner = () => { const v = videoRef.current; if (!v) return; v.muted = false; v.volume = prevVol > 0 ? prevVol : 1; setAutoMuted(false); };
   const changeVol = val => {
     const v = videoRef.current; if (!v) return;
     if (val > 0) { setPrevVol(val); v.muted = false; v.volume = val; setAutoMuted(false); }
     else { v.muted = true; v.volume = 0; }
   };
-  const toggleFS = () => {
-    if (!document.fullscreenElement) containerRef.current?.requestFullscreen();
-    else document.exitFullscreen();
-  };
-  const togglePiP = async () => {
-    const v = videoRef.current; if (!v) return;
-    try { if (document.pictureInPictureElement) await document.exitPictureInPicture(); else await v.requestPictureInPicture(); } catch(_){}
-  };
+  const toggleFS = () => { if (!document.fullscreenElement) containerRef.current?.requestFullscreen(); else document.exitFullscreen(); };
+  const togglePiP = async () => { const v = videoRef.current; if (!v) return; try { if (document.pictureInPictureElement) await document.exitPictureInPicture(); else await v.requestPictureInPicture(); } catch(_){} };
 
-  const seekTime = e => {
-    const b = progressBarRef.current; if (!b || !duration) return 0;
-    return Math.max(0, Math.min(1, (e.clientX - b.getBoundingClientRect().left) / b.offsetWidth)) * duration;
-  };
-  const onBarDown  = e => { setSeeking(true); const t = seekTime(e); if (videoRef.current) { videoRef.current.currentTime = t; setCurrentTime(t); } };
-  const onBarMove  = e => {
-    const t = seekTime(e);
-    setHoverT(t); if (progressBarRef.current) setHoverX(e.clientX - progressBarRef.current.getBoundingClientRect().left);
-    if (seeking && videoRef.current) { videoRef.current.currentTime = t; setCurrentTime(t); }
-  };
+  // ── PROGRESS BAR ──────────────────────────────────────────────────────────
+  const seekTime = e => { const b = progressBarRef.current; if (!b||!duration) return 0; return Math.max(0,Math.min(1,(e.clientX-b.getBoundingClientRect().left)/b.offsetWidth))*duration; };
+  const onBarDown  = e => { setSeeking(true); const t=seekTime(e); if(videoRef.current){videoRef.current.currentTime=t;setCurrentTime(t);} };
+  const onBarMove  = e => { const t=seekTime(e); setHoverT(t); if(progressBarRef.current)setHoverX(e.clientX-progressBarRef.current.getBoundingClientRect().left); if(seeking&&videoRef.current){videoRef.current.currentTime=t;setCurrentTime(t);} };
   const onBarUp    = () => setSeeking(false);
-  const onBarLeave = () => { setHoverT(null); if (seeking) setSeeking(false); };
-
-  const volFromY = e => {
-    const s = volSliderRef.current; if (!s) return volume;
-    return 1 - Math.max(0, Math.min(1, (e.clientY - s.getBoundingClientRect().top) / s.offsetHeight));
-  };
+  const onBarLeave = () => { setHoverT(null); if(seeking)setSeeking(false); };
+  const volFromY = e => { const s=volSliderRef.current; if(!s)return volume; return 1-Math.max(0,Math.min(1,(e.clientY-s.getBoundingClientRect().top)/s.offsetHeight)); };
   useEffect(() => {
     if (!draggingVol) return;
     const mv = e => changeVol(volFromY(e));
@@ -648,15 +635,20 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     return () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); };
   }, [draggingVol]);
 
-  const pPct   = duration > 0 ? (currentTime / duration) * 100 : 0;
-  const bPct   = duration > 0 ? (buffered   / duration) * 100 : 0;
-  const VolIco = (muted || volume === 0) ? VolumeMuteIcon : volume < 0.5 ? VolumeMidIcon : VolumeHighIcon;
+  const pPct  = duration > 0 ? (currentTime/duration)*100 : 0;
+  const bPct  = duration > 0 ? (buffered/duration)*100   : 0;
+  const VolIco = (muted||volume===0) ? VolumeMuteIcon : volume<0.5 ? VolumeMidIcon : VolumeHighIcon;
   const curEmbed = embeds[embedIdx];
 
+  // ── AUDIO PANEL: what to show ─────────────────────────────────────────────
+  // Priority: HLS manifest tracks (real switching) > source-level language switching
+  const useHlsAudio   = hlsAudioTracks.length > 0;
+  const useSourceLang = !useHlsAudio && sourceLanguages.length > 0;
+
+  // ── RENDER ────────────────────────────────────────────────────────────────
   return (
-    <div ref={containerRef} onMouseMove={resetCtrlTimer} onClick={() => setPanel(null)}
-      style={{ position:'fixed',inset:0,background:'#000',fontFamily:"'Amazon Ember','Segoe UI',system-ui,sans-serif",
-               userSelect:'none', cursor: showCtrl?'default':'none', zIndex:9999 }}>
+    <div ref={containerRef} onMouseMove={resetCtrl} onClick={() => setPanel(null)}
+      style={{ position:'fixed',inset:0,background:'#000',fontFamily:"'Amazon Ember','Segoe UI',system-ui,sans-serif",userSelect:'none',cursor:showCtrl?'default':'none',zIndex:9999 }}>
       <style>{`
         :root{--c:#B3B3B3;--ct:rgba(179,179,179,.3);}
         .pb *{box-sizing:border-box;}
@@ -671,7 +663,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         .cdot{position:absolute;top:0;width:2px;height:100%;background:#000;pointer-events:none;z-index:2;}
         .ppanel{position:absolute;top:48px;right:0;background:#111;border-radius:3px 0 0 3px;min-width:260px;overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,.9);animation:pi .1s ease-out;}
         @keyframes pi{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
-        .volpop{position:absolute;top:100%;margin-top:10px;left:50%;transform:translateX(-50%);background:#111;border-radius:4px;padding:14px 11px;width:40px;display:flex;flex-direction:column;align-items:center;gap:10px;box-shadow:0 6px 20px rgba(0,0,0,.9);animation:pi .1s ease-out; z-index: 50;}
+        .volpop{position:absolute;top:100%;margin-top:10px;left:50%;transform:translateX(-50%);background:#111;border-radius:4px;padding:14px 11px;width:40px;display:flex;flex-direction:column;align-items:center;gap:10px;box-shadow:0 6px 20px rgba(0,0,0,.9);animation:pi .1s ease-out;z-index:50;}
         .voltr{width:3px;height:120px;background:var(--ct);border-radius:2px;position:relative;cursor:pointer;}
         .volfil{position:absolute;bottom:0;left:0;width:100%;background:var(--c);border-radius:2px;pointer-events:none;}
         .volknob{position:absolute;left:50%;width:11px;height:11px;background:var(--c);border-radius:50%;transform:translate(-50%,50%);pointer-events:none;}
@@ -689,43 +681,39 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       `}</style>
 
       {autoMuted && isVideo && (
-        <div className="unmute" onClick={e => { e.stopPropagation(); unmuteBanner(); }}>
-          <VolumeMuteIcon /><span>Tap to unmute</span>
+        <div className="unmute" onClick={e=>{e.stopPropagation();unmuteBanner();}}>
+          <VolumeMuteIcon/><span>Tap to unmute</span>
         </div>
       )}
 
       <video ref={videoRef} playsInline preload="metadata"
-        style={{ width:'100%',height:'100%',objectFit:'contain',display:isVideo?'block':'none' }}
-        onClick={e => { e.stopPropagation(); if (autoMuted) { unmuteBanner(); return; } if (isVideo) togglePlay(); }}
+        style={{width:'100%',height:'100%',objectFit:'contain',display:isVideo?'block':'none'}}
+        onClick={e=>{e.stopPropagation();if(autoMuted){unmuteBanner();return;}if(isVideo)togglePlay();}}
       />
 
-      {mode === 'iframe' && (
-        <div style={{ position:'absolute',inset:0,zIndex:1,background:'#000' }}>
-          {embedPhase === 'loading' && (
-            <div style={{ position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',background:'#000',zIndex:6,pointerEvents:'none' }}>
-              <div className="spin" />
+      {/* IFRAME */}
+      {mode==='iframe' && (
+        <div style={{position:'absolute',inset:0,zIndex:1,background:'#000'}}>
+          {embedPhase==='loading'&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',background:'#000',zIndex:6,pointerEvents:'none'}}><div className="spin"/></div>}
+          {embedPhase==='failed'&&(
+            <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:'#000',zIndex:6}}>
+              <div style={{color:'#f87171',fontSize:16,fontWeight:600,marginBottom:8}}>All sources failed</div>
+              <div style={{color:'#AAA',fontSize:13,marginBottom:20}}>This title may not be available right now.</div>
+              <button onClick={()=>{setEmbedIdx(0);setEmbedPhase('loading');}} style={{background:'none',border:'1px solid rgba(170,170,170,.4)',color:'#AAA',padding:'8px 24px',borderRadius:6,cursor:'pointer',fontWeight:700}}>Retry</button>
             </div>
           )}
-          {embedPhase === 'failed' && (
-            <div style={{ position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:'#000',zIndex:6 }}>
-              <div style={{ color:'#f87171',fontSize:16,fontWeight:600,marginBottom:8 }}>All sources failed</div>
-              <div style={{ color:'#AAA',fontSize:13,marginBottom:20 }}>This title may not be available right now.</div>
-              <button onClick={() => { setEmbedIdx(0); setEmbedPhase('loading'); }}
-                style={{ background:'none',border:'1px solid rgba(170,170,170,.4)',color:'#AAA',padding:'8px 24px',borderRadius:6,cursor:'pointer',fontWeight:700 }}>Retry</button>
-            </div>
-          )}
-          {curEmbed && embedPhase !== 'failed' && (
+          {curEmbed&&embedPhase!=='failed'&&(
             <iframe ref={iframeRef} key={`${embedIdx}-${tmdbId}-${season}-${episode}`} src={curEmbed.url}
-              style={{ width:'100%',height:'100%',border:'none',display:'block',opacity:embedPhase==='playing'?1:0,transition:'opacity .4s' }}
+              style={{width:'100%',height:'100%',border:'none',display:'block',opacity:embedPhase==='playing'?1:0,transition:'opacity .4s'}}
               allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope"
               allowFullScreen referrerPolicy="no-referrer" title={movieTitle}
-              onLoad={() => { clearTimeout(iframeTimer.current); iframeTimer.current = setTimeout(() => setEmbedPhase('playing'), 1500); }}
+              onLoad={()=>{clearTimeout(iframeTimer.current);iframeTimer.current=setTimeout(()=>setEmbedPhase('playing'),1500);}}
             />
           )}
-          {embedPhase === 'playing' && embedIdx < embeds.length - 1 && showCtrl && (
-            <div style={{ position:'absolute',bottom:72,right:16,zIndex:20 }}>
-              <button onClick={e => { e.stopPropagation(); clearTimeout(iframeTimer.current); setEmbedIdx(i=>i+1); setEmbedPhase('loading'); }}
-                style={{ background:'rgba(0,0,0,.7)',border:'1px solid rgba(170,170,170,.2)',color:'#AAA',padding:'5px 14px',borderRadius:6,cursor:'pointer',fontSize:12,fontWeight:600,backdropFilter:'blur(8px)' }}>
+          {embedPhase==='playing'&&embedIdx<embeds.length-1&&showCtrl&&(
+            <div style={{position:'absolute',bottom:72,right:16,zIndex:20}}>
+              <button onClick={e=>{e.stopPropagation();clearTimeout(iframeTimer.current);setEmbedIdx(i=>i+1);setEmbedPhase('loading');}}
+                style={{background:'rgba(0,0,0,.7)',border:'1px solid rgba(170,170,170,.2)',color:'#AAA',padding:'5px 14px',borderRadius:6,cursor:'pointer',fontSize:12,fontWeight:600,backdropFilter:'blur(8px)'}}>
                 Not playing? Try next source →
               </button>
             </div>
@@ -733,234 +721,235 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         </div>
       )}
 
-      {(mode === 'loading' || (isVideo && buffering)) && (
-        <div style={{ position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',background:mode==='loading'?'#000':'transparent',zIndex:8,pointerEvents:'none' }}>
-          <div className="spin" />
+      {(mode==='loading'||(isVideo&&buffering))&&(
+        <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',background:mode==='loading'?'#000':'transparent',zIndex:8,pointerEvents:'none'}}>
+          <div className="spin"/>
         </div>
       )}
 
-      <div className="pb" style={{ position:'absolute',inset:0,opacity:showCtrl?1:0,transition:'opacity .3s',
-                                    pointerEvents:mode==='iframe'?'none':(showCtrl?'auto':'none'),zIndex:5 }}>
-        <div style={{ position:'absolute',top:0,left:0,right:0,height:140,background:'linear-gradient(to bottom,rgba(0,0,0,.8),transparent)',pointerEvents:'none' }} />
-        <div style={{ position:'absolute',bottom:0,left:0,right:0,height:140,background:'linear-gradient(to top,rgba(0,0,0,.8),transparent)',pointerEvents:'none' }} />
+      {/* CONTROLS */}
+      <div className="pb" style={{position:'absolute',inset:0,opacity:showCtrl?1:0,transition:'opacity .3s',pointerEvents:mode==='iframe'?'none':(showCtrl?'auto':'none'),zIndex:5}}>
+        <div style={{position:'absolute',top:0,left:0,right:0,height:140,background:'linear-gradient(to bottom,rgba(0,0,0,.8),transparent)',pointerEvents:'none'}}/>
+        <div style={{position:'absolute',bottom:0,left:0,right:0,height:140,background:'linear-gradient(to top,rgba(0,0,0,.8),transparent)',pointerEvents:'none'}}/>
 
-        {/* ── TOP BAR ── */}
-        <div style={{ position:'absolute',top:0,left:0,right:0,display:'flex',alignItems:'center',justifyContent:'space-between',padding:'32px 40px',zIndex:10,pointerEvents:'auto' }}>
-          
-          <div style={{ display:'flex',alignItems:'center',gap:16 }}>
-            <span style={{ fontSize:18,fontWeight:600,color:'#FFF',cursor:'pointer' }} onClick={e=>{e.stopPropagation();setXrayOpen(v=>!v);setXrayExpanded(false);setPanel(null);}}>X-Ray</span>
-            <div style={{ border:'1px solid #B3B3B3',color:'#B3B3B3',fontSize:11,fontWeight:700,padding:'2px 5px',borderRadius:3,cursor:'pointer' }} onClick={e=>{e.stopPropagation();setXrayExpanded(true);setXrayOpen(false);setPanel(null);}}>IMDb</div>
-            <button className="pbtn" style={{ fontSize:15,display:'flex',alignItems:'center',gap:4 }} onClick={e=>{e.stopPropagation();setXrayExpanded(true);setXrayOpen(false);setPanel(null);}}>All <ChevronRightIcon/></button>
+        {/* TOP BAR */}
+        <div style={{position:'absolute',top:0,left:0,right:0,display:'flex',alignItems:'center',justifyContent:'space-between',padding:'32px 40px',zIndex:10,pointerEvents:'auto'}}>
+          <div style={{display:'flex',alignItems:'center',gap:16}}>
+            <span style={{fontSize:18,fontWeight:600,color:'#FFF',cursor:'pointer'}} onClick={e=>{e.stopPropagation();setXrayOpen(v=>!v);setXrayExpanded(false);setPanel(null);}}>X-Ray</span>
+            <div style={{border:'1px solid #B3B3B3',color:'#B3B3B3',fontSize:11,fontWeight:700,padding:'2px 5px',borderRadius:3,cursor:'pointer'}} onClick={e=>{e.stopPropagation();setXrayExpanded(true);setXrayOpen(false);setPanel(null);}}>IMDb</div>
+            <button className="pbtn" style={{fontSize:15,display:'flex',alignItems:'center',gap:4}} onClick={e=>{e.stopPropagation();setXrayExpanded(true);setXrayOpen(false);setPanel(null);}}>All <ChevronRightIcon/></button>
           </div>
 
-          <div style={{ position:'absolute',left:'50%',transform:'translateX(-50%)', display:'flex', flexDirection:'column', alignItems:'center', whiteSpace:'nowrap', textShadow:'0 1px 3px rgba(0,0,0,0.8)' }}>
-            <span style={{ color:'#FFF',fontSize:22,fontWeight:600 }}>{movieTitle}</span>
-            {mediaType === 'tv' && (
-              <span style={{ color:'#E0E0E0',fontSize:16,fontWeight:400, marginTop:2 }}>
-                Season {season}, Ep. {episode} {episodeTitle ? `${episodeTitle}` : ''}
-              </span>
-            )}
+          <div style={{position:'absolute',left:'50%',transform:'translateX(-50%)',display:'flex',flexDirection:'column',alignItems:'center',whiteSpace:'nowrap',textShadow:'0 1px 3px rgba(0,0,0,0.8)'}}>
+            <span style={{color:'#FFF',fontSize:22,fontWeight:600}}>{movieTitle}</span>
+            {mediaType==='tv'&&<span style={{color:'#E0E0E0',fontSize:16,fontWeight:400,marginTop:2}}>Season {season}, Ep. {episode}{episodeTitle?` — ${episodeTitle}`:''}</span>}
           </div>
 
-          <div style={{ display:'flex',alignItems:'center',gap:24 }}>
-            
-            {/* ── AUDIO & SUBTITLES ROUTER ── */}
-            <div style={{ position:'relative' }}>
+          <div style={{display:'flex',alignItems:'center',gap:24}}>
+            {/* ── SUBTITLES & AUDIO PANEL ── */}
+            <div style={{position:'relative'}}>
               <button className="pbtn" onClick={e=>{e.stopPropagation();setPanel(panel==='subtitles'?null:'subtitles');}} title="Subtitles & Audio"><SubtitlesIcon/></button>
-              {panel==='subtitles' && (
-                <div className="ppanel" style={{ width:420, maxHeight:'400px', display:'flex', flexDirection:'column' }} onClick={e=>e.stopPropagation()}>
-                  <div style={{ display:'flex', overflowY:'auto' }}>
-                    <div style={{ flex:1,borderRight:'1px solid rgba(255,255,255,.15)',padding:'20px 16px' }}>
-                      <div style={{ color:'#fff',fontSize:16,fontWeight:700,marginBottom:16 }}>Subtitles</div>
-                      <div style={{ display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer' }} onClick={()=>{ setSubTrack(-1); if (hlsRef.current) hlsRef.current.subtitleTrack = -1; }}>
-                        <div style={{ width:20 }}>{subTrack === -1 && <CheckIcon/>}</div>
-                        <span style={{ color:subTrack === -1 ? '#fff' : 'rgba(255,255,255,.7)',fontSize:15 }}>Off</span>
+              {panel==='subtitles'&&(
+                <div className="ppanel" style={{width:440,maxHeight:'70vh',overflowY:'auto'}} onClick={e=>e.stopPropagation()}>
+                  <div style={{display:'flex'}}>
+                    {/* Subtitles column */}
+                    <div style={{flex:1,borderRight:'1px solid rgba(255,255,255,.15)',padding:'20px 16px'}}>
+                      <div style={{color:'#fff',fontSize:16,fontWeight:700,marginBottom:16}}>Subtitles</div>
+                      <div style={{display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer'}}
+                        onClick={()=>{setHlsSubTrackIdx(-1);if(hlsRef.current)hlsRef.current.subtitleTrack=-1;}}>
+                        <div style={{width:20}}>{hlsSubTrackIdx===-1&&<CheckIcon/>}</div>
+                        <span style={{color:hlsSubTrackIdx===-1?'#fff':'rgba(255,255,255,.7)',fontSize:15}}>Off</span>
                       </div>
-                      {subtitleTracks.map(s => (
-                        <div key={s.id} style={{ display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer' }} onClick={()=>{ setSubTrack(s.id); if (hlsRef.current) hlsRef.current.subtitleTrack = s.id; }}>
-                          <div style={{ width:20 }}>{subTrack === s.id && <CheckIcon/>}</div>
-                          <span style={{ color:subTrack === s.id ? '#fff' : 'rgba(255,255,255,.7)',fontSize:15 }}>{s.name}</span>
+                      {hlsSubTracks.map(t=>(
+                        <div key={t.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer'}}
+                          onClick={()=>{setHlsSubTrackIdx(t.id);if(hlsRef.current)hlsRef.current.subtitleTrack=t.id;}}>
+                          <div style={{width:20}}>{hlsSubTrackIdx===t.id&&<CheckIcon/>}</div>
+                          <span style={{color:hlsSubTrackIdx===t.id?'#fff':'rgba(255,255,255,.7)',fontSize:15}}>{t.name}</span>
                         </div>
                       ))}
+                      {hlsSubTracks.length===0&&<div style={{color:'rgba(255,255,255,.35)',fontSize:13,fontStyle:'italic'}}>None available</div>}
                     </div>
 
-                    <div style={{ flex:1,padding:'20px 16px' }}>
-                      <div style={{ color:'#fff',fontSize:16,fontWeight:700,marginBottom:16 }}>Audio</div>
-                      {audioTracks.length > 0 ? audioTracks.map(a => (
-                        <div key={a.id} style={{ display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer' }} onClick={()=>{ 
-                           setAudTrack(a.id); 
-                           if (hlsRef.current) hlsRef.current.audioTrack = a.id; 
-                        }}>
-                          <div style={{ width:20 }}>{audTrack === a.id && <CheckIcon/>}</div>
-                          <span style={{ color:audTrack === a.id ? '#fff' : 'rgba(255,255,255,.7)',fontSize:15 }}>{a.name}</span>
+                    {/* Audio column */}
+                    <div style={{flex:1,padding:'20px 16px'}}>
+                      <div style={{color:'#fff',fontSize:16,fontWeight:700,marginBottom:16}}>Audio</div>
+
+                      {/* Case 1: HLS manifest has real audio tracks — switch via hls.audioTrack */}
+                      {useHlsAudio && hlsAudioTracks.map(t=>(
+                        <div key={t.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer'}}
+                          onClick={()=>{
+                            if(hlsRef.current){ hlsRef.current.audioTrack=t.id; }
+                            setHlsAudioTrackIdx(t.id);
+                          }}>
+                          <div style={{width:20}}>{hlsAudioTrackIdx===t.id&&<CheckIcon/>}</div>
+                          <span style={{color:hlsAudioTrackIdx===t.id?'#fff':'rgba(255,255,255,.7)',fontSize:15}}>{t.name}</span>
                         </div>
-                      )) : sourceLanguages.length > 0 ? sourceLanguages.map(lang => (
-                        <div key={lang} style={{ display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer' }} onClick={() => handleSourceLangChange(lang)}>
-                          <div style={{ width:20 }}>{selectedSourceLang === lang && <CheckIcon/>}</div>
-                          <span style={{ color:selectedSourceLang === lang ? '#fff' : 'rgba(255,255,255,.7)',fontSize:15 }}>{lang}</span>
+                      ))}
+
+                      {/* Case 2: no HLS audio tracks, but different source URLs per language */}
+                      {useSourceLang && sourceLanguages.map(lang=>(
+                        <div key={lang} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer'}}
+                          onClick={()=>handleSourceLangChange(lang)}>
+                          <div style={{width:20}}>{selectedSourceLang===lang&&<CheckIcon/>}</div>
+                          <span style={{color:selectedSourceLang===lang?'#fff':'rgba(255,255,255,.7)',fontSize:15}}>{lang}</span>
                         </div>
-                      )) : (
-                        <div style={{ display:'flex',alignItems:'center',gap:10,padding:'8px 4px' }}>
-                          <div style={{ width:20 }}><CheckIcon/></div>
-                          <span style={{ color:'#fff',fontSize:15 }}>Default Audio</span>
-                        </div>
+                      ))}
+
+                      {/* Case 3: nothing detected yet */}
+                      {!useHlsAudio && !useSourceLang && (
+                        <div style={{color:'rgba(255,255,255,.35)',fontSize:13,fontStyle:'italic'}}>Default Audio</div>
                       )}
                     </div>
                   </div>
                 </div>
               )}
             </div>
-            
-            <div style={{ position:'relative' }}>
+
+            {/* Quality */}
+            <div style={{position:'relative'}}>
               <button className="pbtn" onClick={e=>{e.stopPropagation();setPanel(panel==='quality'?null:'quality');}} title="Video Quality"><SettingsIcon/></button>
-              {panel==='quality' && (
-                <div className="ppanel" style={{ width:260, maxHeight:'60vh', overflowY:'auto' }} onClick={e=>e.stopPropagation()}>
-                  <div style={{ padding:'20px 20px 12px' }}>
-                    <div style={{ color:'#fff',fontSize:17,fontWeight:700,marginBottom:14 }}>Video Quality</div>
-                    {qualities.length > 0 ? qualities.map(q=>(
-                      <div key={q.value} className="qi" style={{ display:'flex',alignItems:'center',gap:14,padding:'11px 4px',cursor:'pointer',borderRadius:4 }} onClick={()=>handleQuality(q.value)}>
-                        <div style={{ width:24,flexShrink:0 }}>{selQuality===q.value&&<CheckIcon/>}</div>
-                        <span style={{ color:selQuality===q.value?'#fff':'rgba(255,255,255,.85)',fontSize:14,fontWeight:selQuality===q.value?700:400 }}>{q.label}</span>
+              {panel==='quality'&&(
+                <div className="ppanel" style={{width:260,maxHeight:'60vh',overflowY:'auto'}} onClick={e=>e.stopPropagation()}>
+                  <div style={{padding:'20px 20px 12px'}}>
+                    <div style={{color:'#fff',fontSize:17,fontWeight:700,marginBottom:14}}>Video Quality</div>
+                    {qualities.length>0?qualities.map(q=>(
+                      <div key={q.value} className="qi" style={{display:'flex',alignItems:'center',gap:14,padding:'11px 4px',cursor:'pointer',borderRadius:4}} onClick={()=>handleQuality(q.value)}>
+                        <div style={{width:24,flexShrink:0}}>{selQuality===q.value&&<CheckIcon/>}</div>
+                        <span style={{color:selQuality===q.value?'#fff':'rgba(255,255,255,.85)',fontSize:14,fontWeight:selQuality===q.value?700:400}}>{q.label}</span>
                       </div>
-                    )) : <div style={{ color:'#AAA',fontSize:13,fontStyle:'italic' }}>Loading…</div>}
+                    )):<div style={{color:'#AAA',fontSize:13,fontStyle:'italic'}}>Loading…</div>}
                   </div>
                 </div>
               )}
             </div>
 
-            <div style={{ position:'relative' }} onMouseEnter={()=>setPanel('volume')} onMouseLeave={()=>{ if(!draggingVol) setPanel(null); }}>
+            {/* Volume */}
+            <div style={{position:'relative'}} onMouseEnter={()=>setPanel('volume')} onMouseLeave={()=>{if(!draggingVol)setPanel(null);}}>
               <button className="pbtn" onClick={e=>{e.stopPropagation();toggleMute();}} title="Volume"><VolIco/></button>
-              {panel==='volume' && (
+              {panel==='volume'&&(
                 <div className="volpop" onClick={e=>e.stopPropagation()}>
                   <div ref={volSliderRef} className="voltr" onMouseDown={e=>{e.stopPropagation();setDraggingVol(true);changeVol(volFromY(e));}}>
-                    <div className="volfil" style={{ height:`${(muted?0:volume)*100}%` }}/>
-                    <div className="volknob" style={{ bottom:`${(muted?0:volume)*100}%` }}/>
+                    <div className="volfil" style={{height:`${(muted?0:volume)*100}%`}}/>
+                    <div className="volknob" style={{bottom:`${(muted?0:volume)*100}%`}}/>
                   </div>
                 </div>
               )}
             </div>
+
             <button className="pbtn" onClick={e=>{e.stopPropagation();togglePiP();}} title="PiP"><PiPIcon/></button>
             <button className="pbtn" onClick={e=>{e.stopPropagation();toggleFS();}} title="Fullscreen">{isFullscreen?<ExitFullscreenIcon/>:<FullscreenIcon/>}</button>
-            <div style={{ width:1,height:24,background:'#B3B3B3',opacity:.4 }}/>
+            <div style={{width:1,height:24,background:'#B3B3B3',opacity:.4}}/>
             <button className="pbtn" onClick={e=>{e.stopPropagation();onClose?.();}} title="Close"><CloseIcon/></button>
           </div>
         </div>
 
-        {xrayOpen && xrayCast.length > 0 && (
+        {/* X-Ray mini */}
+        {xrayOpen&&xrayCast.length>0&&(
           <div className="xray-ov" onClick={e=>e.stopPropagation()}>
-            <div style={{ padding:'0 16px 10px',borderBottom:'1px solid rgba(255,255,255,.1)',marginBottom:8,display:'flex',alignItems:'center',gap:8 }}>
-              <span style={{ color:'#AAA',fontSize:14 }}>X-Ray</span>
-              <div style={{ background:'#f5c518',color:'#000',fontSize:10,fontWeight:800,padding:'2px 4px',borderRadius:3 }}>IMDb</div>
-              <button style={{ marginLeft:4,background:'none',border:'none',color:'#AAA',cursor:'pointer',display:'flex',alignItems:'center',gap:3,fontSize:13 }} onClick={()=>{setXrayExpanded(true);setXrayOpen(false);}}>All <ChevronRightIcon/></button>
+            <div style={{padding:'0 16px 10px',borderBottom:'1px solid rgba(255,255,255,.1)',marginBottom:8,display:'flex',alignItems:'center',gap:8}}>
+              <span style={{color:'#AAA',fontSize:14}}>X-Ray</span>
+              <div style={{background:'#f5c518',color:'#000',fontSize:10,fontWeight:800,padding:'2px 4px',borderRadius:3}}>IMDb</div>
+              <button style={{marginLeft:4,background:'none',border:'none',color:'#AAA',cursor:'pointer',display:'flex',alignItems:'center',gap:3,fontSize:13}} onClick={()=>{setXrayExpanded(true);setXrayOpen(false);}}>All <ChevronRightIcon/></button>
             </div>
             {xrayCast.slice(0,3).map(p=>(
-              <div key={p.id} style={{ display:'flex',alignItems:'center',gap:12,padding:'8px 16px',cursor:'pointer' }} onClick={()=>{setXrayExpanded(true);setXrayOpen(false);}}>
-                {p.profile?<img src={p.profile} alt={p.name} style={{ width:64,height:64,objectFit:'cover',borderRadius:4,flexShrink:0 }}/>
-                  :<div style={{ width:64,height:64,background:'#111',borderRadius:4,flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',color:'rgba(255,255,255,.3)',fontSize:20,fontWeight:700 }}>{p.name.charAt(0)}</div>}
-                <div><div style={{ color:'#AAA',fontSize:14 }}>{p.name}</div><div style={{ color:'rgba(170,170,170,.6)',fontSize:12,marginTop:2 }}>{p.character}</div></div>
+              <div key={p.id} style={{display:'flex',alignItems:'center',gap:12,padding:'8px 16px',cursor:'pointer'}} onClick={()=>{setXrayExpanded(true);setXrayOpen(false);}}>
+                {p.profile?<img src={p.profile} alt={p.name} style={{width:64,height:64,objectFit:'cover',borderRadius:4,flexShrink:0}}/>
+                  :<div style={{width:64,height:64,background:'#111',borderRadius:4,flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',color:'rgba(255,255,255,.3)',fontSize:20,fontWeight:700}}>{p.name.charAt(0)}</div>}
+                <div><div style={{color:'#AAA',fontSize:14}}>{p.name}</div><div style={{color:'rgba(170,170,170,.6)',fontSize:12,marginTop:2}}>{p.character}</div></div>
               </div>
             ))}
           </div>
         )}
 
-        {/* ── CENTER CONTROLS ── */}
-        {isVideo && (
-          <div style={{ position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',display:'flex',alignItems:'center',gap:120,zIndex:8 }} onClick={e=>e.stopPropagation()}>
-            <button className="pbtn" style={{ position:'relative' }} onClick={()=>skip(-10)}>
-              <Rewind10Icon/>
-              {skipFX==='back'&&<div className="skfx" style={{ left:'50%',transform:'translate(-50%,-50%)',color:'#FFF',fontSize:24 }}>-10</div>}
+        {/* Center play/skip */}
+        {isVideo&&(
+          <div style={{position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',display:'flex',alignItems:'center',gap:120,zIndex:8}} onClick={e=>e.stopPropagation()}>
+            <button className="pbtn" style={{position:'relative'}} onClick={()=>skip(-10)}>
+              <Rewind10Icon/>{skipFX==='back'&&<div className="skfx" style={{left:'50%',transform:'translate(-50%,-50%)',color:'#FFF',fontSize:24}}>-10</div>}
             </button>
             <button className="pbtn" onClick={togglePlay}>{playing?<PauseIcon/>:<PlayIcon/>}</button>
-            <button className="pbtn" style={{ position:'relative' }} onClick={()=>skip(10)}>
-              <Forward10Icon/>
-              {skipFX==='fwd'&&<div className="skfx" style={{ left:'50%',transform:'translate(-50%,-50%)',color:'#FFF',fontSize:24 }}>+10</div>}
+            <button className="pbtn" style={{position:'relative'}} onClick={()=>skip(10)}>
+              <Forward10Icon/>{skipFX==='fwd'&&<div className="skfx" style={{left:'50%',transform:'translate(-50%,-50%)',color:'#FFF',fontSize:24}}>+10</div>}
             </button>
           </div>
         )}
 
-        {/* ── BOTTOM BAR ── */}
-        {isVideo && (
-          <div style={{ position:'absolute',bottom:0,left:0,right:0,padding:'0 40px 32px',zIndex:10 }}>
-            <div ref={progressBarRef} className="pbar" style={{ marginBottom:12 }}
+        {/* Bottom bar */}
+        {isVideo&&(
+          <div style={{position:'absolute',bottom:0,left:0,right:0,padding:'0 40px 32px',zIndex:10}}>
+            <div ref={progressBarRef} className="pbar" style={{marginBottom:12}}
               onMouseDown={onBarDown} onMouseMove={onBarMove} onMouseUp={onBarUp} onMouseLeave={onBarLeave}
               onClick={e=>e.stopPropagation()}>
-              <div className="pbuf" style={{ width:`${bPct}%` }}/>
-              <div className="ppld" style={{ width:`${pPct}%` }}/>
-              {chapters.map((t,i)=><div key={i} className="cdot" style={{ left:`${(t/duration)*100}%` }}/>)}
-              <div className="pthumb" style={{ left:`${pPct}%` }}/>
-              {hoverT !== null && (
-                <div style={{ position:'absolute',bottom:16,left:Math.max(24,Math.min(hoverX,(progressBarRef.current?.offsetWidth||0)-24)),transform:'translateX(-50%)',background:'rgba(0,0,0,.85)',color:'#AAA',fontSize:11,padding:'3px 8px',borderRadius:4,whiteSpace:'nowrap',pointerEvents:'none' }}>
+              <div className="pbuf" style={{width:`${bPct}%`}}/>
+              <div className="ppld" style={{width:`${pPct}%`}}/>
+              {chapters.map((t,i)=><div key={i} className="cdot" style={{left:`${(t/duration)*100}%`}}/>)}
+              <div className="pthumb" style={{left:`${pPct}%`}}/>
+              {hoverT!==null&&(
+                <div style={{position:'absolute',bottom:16,left:Math.max(24,Math.min(hoverX,(progressBarRef.current?.offsetWidth||0)-24)),transform:'translateX(-50%)',background:'rgba(0,0,0,.85)',color:'#AAA',fontSize:11,padding:'3px 8px',borderRadius:4,whiteSpace:'nowrap',pointerEvents:'none'}}>
                   {fmtTime(hoverT)}
                 </div>
               )}
             </div>
-            
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
-              <div style={{ fontSize:15,fontWeight:500 }}>
-                <span style={{ color:'#FFF' }}>{fmtTime(currentTime)}</span>
-                <span style={{ color:'#B3B3B3' }}> / {fmtTime(duration)}</span>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:12}}>
+              <div style={{fontSize:15,fontWeight:500}}>
+                <span style={{color:'#FFF'}}>{fmtTime(currentTime)}</span>
+                <span style={{color:'#B3B3B3'}}> / {fmtTime(duration)}</span>
               </div>
-              
-              {mediaType === 'tv' && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                  {nextEpData && (
-                    <button 
-                      onClick={handleNextEpisode}
-                      style={{ color:'#FFF', fontSize:15, fontWeight:600, background:'none', border:'none', cursor:'pointer', display:'flex', alignItems:'center', padding:0, transition: 'color 0.2s' }}
-                      onMouseEnter={(e) => e.currentTarget.style.color = '#00A8E1'}
-                      onMouseLeave={(e) => e.currentTarget.style.color = '#FFF'}
-                    >
-                      Next Episode <ChevronRightIcon />
-                    </button>
-                  )}
-                </div>
+              {mediaType==='tv'&&nextEpData&&(
+                <button onClick={handleNextEpisode}
+                  style={{color:'#FFF',fontSize:15,fontWeight:600,background:'none',border:'none',cursor:'pointer',display:'flex',alignItems:'center',padding:0}}
+                  onMouseEnter={e=>e.currentTarget.style.color='#00A8E1'}
+                  onMouseLeave={e=>e.currentTarget.style.color='#FFF'}>
+                  Next Episode <ChevronRightIcon/>
+                </button>
               )}
             </div>
           </div>
         )}
       </div>
 
-      {xrayExpanded && (
+      {/* X-Ray panel */}
+      {xrayExpanded&&(
         <div className="xray-panel" onClick={e=>e.stopPropagation()}>
-          <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'18px 20px',borderBottom:'1px solid rgba(255,255,255,.08)',flexShrink:0 }}>
-            <span style={{ color:'#AAA',fontSize:17,fontWeight:400 }}>X-Ray</span>
-            <div style={{ display:'flex',alignItems:'center',gap:12 }}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'18px 20px',borderBottom:'1px solid rgba(255,255,255,.08)',flexShrink:0}}>
+            <span style={{color:'#AAA',fontSize:17,fontWeight:400}}>X-Ray</span>
+            <div style={{display:'flex',alignItems:'center',gap:12}}>
               <button className="pbtn"><XRayExpandIcon/></button>
-              <div style={{ width:1,height:22,background:'rgba(255,255,255,.2)' }}/>
+              <div style={{width:1,height:22,background:'rgba(255,255,255,.2)'}}/>
               <button className="pbtn" onClick={()=>setXrayExpanded(false)}><CloseIcon/></button>
             </div>
           </div>
-          <div style={{ display:'flex',borderBottom:'1px solid rgba(255,255,255,.08)',flexShrink:0 }}>
+          <div style={{display:'flex',borderBottom:'1px solid rgba(255,255,255,.08)',flexShrink:0}}>
             {['scene','cast'].map(tab=>(
-              <button key={tab} onClick={()=>setXrayTab(tab)} style={{ flex:1,padding:'14px 0',background:'none',border:'none',color:xrayTab===tab?'#fff':'rgba(255,255,255,.5)',fontSize:15,fontWeight:xrayTab===tab?600:400,cursor:'pointer',borderBottom:xrayTab===tab?'2px solid #fff':'2px solid transparent',marginBottom:-1 }}>
+              <button key={tab} onClick={()=>setXrayTab(tab)} style={{flex:1,padding:'14px 0',background:'none',border:'none',color:xrayTab===tab?'#fff':'rgba(255,255,255,.5)',fontSize:15,fontWeight:xrayTab===tab?600:400,cursor:'pointer',borderBottom:xrayTab===tab?'2px solid #fff':'2px solid transparent',marginBottom:-1}}>
                 {tab==='scene'?'In Scene':'Cast'}
               </button>
             ))}
           </div>
-          <div style={{ flex:1,overflowY:'auto',padding:'12px 0',scrollbarWidth:'none' }}>
+          <div style={{flex:1,overflowY:'auto',padding:'12px 0',scrollbarWidth:'none'}}>
             {xrayCast.map(p=>(
-              <div key={p.id} style={{ marginBottom:2 }}>
-                <div style={{ display:'flex',alignItems:'center',gap:14,padding:'12px 16px',cursor:'pointer',background:expandCast===p.id?'rgba(255,255,255,.06)':'transparent' }} onClick={()=>setExpandCast(expandCast===p.id?null:p.id)}>
-                  <div style={{ position:'relative',flexShrink:0 }}>
-                    {p.profile?<img src={p.profile} alt={p.name} style={{ width:72,height:72,objectFit:'cover',borderRadius:6 }}/>
-                      :<div style={{ width:72,height:72,background:'#111',borderRadius:6,display:'flex',alignItems:'center',justifyContent:'center',color:'rgba(255,255,255,.3)',fontSize:22,fontWeight:700 }}>{p.name.charAt(0)}</div>}
-                    <div style={{ position:'absolute',bottom:4,left:4,background:'#f5c518',color:'#000',fontSize:8,fontWeight:800,padding:'1px 3px',borderRadius:2 }}>IMDb</div>
+              <div key={p.id} style={{marginBottom:2}}>
+                <div style={{display:'flex',alignItems:'center',gap:14,padding:'12px 16px',cursor:'pointer',background:expandCast===p.id?'rgba(255,255,255,.06)':'transparent'}} onClick={()=>setExpandCast(expandCast===p.id?null:p.id)}>
+                  <div style={{position:'relative',flexShrink:0}}>
+                    {p.profile?<img src={p.profile} alt={p.name} style={{width:72,height:72,objectFit:'cover',borderRadius:6}}/>
+                      :<div style={{width:72,height:72,background:'#111',borderRadius:6,display:'flex',alignItems:'center',justifyContent:'center',color:'rgba(255,255,255,.3)',fontSize:22,fontWeight:700}}>{p.name.charAt(0)}</div>}
+                    <div style={{position:'absolute',bottom:4,left:4,background:'#f5c518',color:'#000',fontSize:8,fontWeight:800,padding:'1px 3px',borderRadius:2}}>IMDb</div>
                   </div>
-                  <div style={{ flex:1,minWidth:0 }}>
-                    <div style={{ color:'#AAA',fontSize:14,marginBottom:3 }}>{p.name}</div>
-                    <div style={{ color:'rgba(170,170,170,.65)',fontSize:12 }}>Portrays: {p.character}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{color:'#AAA',fontSize:14,marginBottom:3}}>{p.name}</div>
+                    <div style={{color:'rgba(170,170,170,.65)',fontSize:12}}>Portrays: {p.character}</div>
                   </div>
-                  <div style={{ color:'#AAA' }}>{expandCast===p.id?<ChevronUpIcon/>:<ChevronDownIcon/>}</div>
+                  <div style={{color:'#AAA'}}>{expandCast===p.id?<ChevronUpIcon/>:<ChevronDownIcon/>}</div>
                 </div>
                 {expandCast===p.id&&(
-                  <div style={{ padding:'12px 16px 16px 102px',background:'rgba(255,255,255,.03)' }}>
-                    <div style={{ color:'rgba(170,170,170,.7)',fontSize:12,lineHeight:1.6 }}>Known for various acclaimed productions.</div>
-                    <button style={{ marginTop:10,background:'none',border:'1px solid rgba(255,255,255,.2)',color:'#f5c518',fontSize:12,fontWeight:600,padding:'5px 12px',borderRadius:4,cursor:'pointer' }}>View on IMDb</button>
+                  <div style={{padding:'12px 16px 16px 102px',background:'rgba(255,255,255,.03)'}}>
+                    <div style={{color:'rgba(170,170,170,.7)',fontSize:12,lineHeight:1.6}}>Known for various acclaimed productions.</div>
+                    <button style={{marginTop:10,background:'none',border:'1px solid rgba(255,255,255,.2)',color:'#f5c518',fontSize:12,fontWeight:600,padding:'5px 12px',borderRadius:4,cursor:'pointer'}}>View on IMDb</button>
                   </div>
                 )}
               </div>
             ))}
-            {xrayCast.length===0&&<div style={{ padding:'40px 20px',textAlign:'center',color:'rgba(170,170,170,.5)',fontSize:13 }}>Loading cast…</div>}
+            {xrayCast.length===0&&<div style={{padding:'40px 20px',textAlign:'center',color:'rgba(170,170,170,.5)',fontSize:13}}>Loading cast…</div>}
           </div>
         </div>
       )}
