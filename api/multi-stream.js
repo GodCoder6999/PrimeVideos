@@ -56,17 +56,41 @@ function qualityLabel(raw) {
   return 'Auto';
 }
 
+function getLanguage(raw) {
+  if (!raw) return '';
+  const s = String(raw).toLowerCase();
+  const langs = [];
+  if (s.includes('hindi') || s.match(/\bhin\b/)) langs.push('Hin');
+  if (s.includes('english') || s.match(/\beng\b/)) langs.push('Eng');
+  if (s.includes('tamil') || s.match(/\btam\b/)) langs.push('Tam');
+  if (s.includes('telugu') || s.match(/\btel\b/)) langs.push('Tel');
+  if (s.includes('malayalam') || s.match(/\bmal\b/)) langs.push('Mal');
+  if (s.includes('kannada') || s.match(/\bkan\b/)) langs.push('Kan');
+  if (s.includes('bengali') || s.match(/\bben\b/)) langs.push('Ben');
+  
+  if (langs.length === 0) {
+    if (s.includes('multi') || s.includes('multi-audio')) langs.push('Multi');
+    else if (s.includes('dual') || s.includes('dual-audio')) langs.push('Dual');
+  }
+  
+  return langs.length > 0 ? langs.join(', ') : '';
+}
+
 function parseStreams(data) {
   const arr = data.streams || data.sources || data.data || [];
   if (!Array.isArray(arr)) return [];
   return arr.filter(s => {
-      if (s.infoHash || s.ytId) return false; // Filter out torrents and YouTube trailers
+      if (s.infoHash || s.ytId) return false;
       const link = s.url || s.file || s.link;
       return link && typeof link === 'string' && link.startsWith('http');
   }).map(s => {
       const link = s.url || s.file || s.link;
-      const q = qualityLabel(s.quality || s.name || s.title || s.description);
-      return { url: link, quality: q };
+      const rawMeta = s.quality || s.name || s.title || s.description || '';
+      return { 
+        url: link, 
+        quality: qualityLabel(rawMeta),
+        lang: getLanguage(rawMeta)
+      };
   });
 }
 
@@ -101,7 +125,7 @@ const fetchers = [
        const found = []; let match;
        while ((match = m3u8Re.exec(html)) !== null) {
          if (!match[1].includes('audio') && !match[1].includes('subtitle')) {
-           found.push({ url: match[1], quality: 'Auto' });
+           found.push({ url: match[1], quality: 'Auto', lang: '' });
          }
        }
        return found;
@@ -125,7 +149,6 @@ module.exports = async function handler(req, res) {
 
   const imdbId = await safe(getImdbId(tmdbId, mediaType));
   
-  // Run all scrapers in parallel to maximize results
   const allResults = await Promise.allSettled(fetchers.map(f => f(tmdbId, imdbId, mediaType, season, episode)));
   
   let allStreams = [];
@@ -135,7 +158,6 @@ module.exports = async function handler(req, res) {
       }
   });
 
-  // Deduplicate identical links
   const seen = new Set();
   const unique = allStreams.filter(s => {
     if (!s || !s.url || seen.has(s.url)) return false;
@@ -149,6 +171,6 @@ module.exports = async function handler(req, res) {
   return res.end(JSON.stringify({
     success: true,
     imdbId: imdbId || null,
-    streams: unique.slice(0, 30).map(s => ({ url: s.url, quality: s.quality }))
+    streams: unique.slice(0, 30).map(s => ({ url: s.url, quality: s.quality, lang: s.lang }))
   }));
 };
