@@ -282,14 +282,15 @@ export default function PrimePlayer({
           const data = await r.json();
           if (data?.success && Array.isArray(data.streams)) {
             let fetched = data.streams.filter(s => s?.url && s.url.startsWith('http'));
-            // Rank: 1080p > 720p > Auto > 4K  (4K uses AC3 which most browsers can't play)
+            // Sort: 1080p > 720p > 480p > Auto  (4K excluded by multi-stream.js)
             fetched.sort((a, b) => {
               const rank = q => {
                 const s = (q || '').toLowerCase();
-                if (s.includes('1080')) return 4;
-                if (s.includes('720'))  return 3;
-                if (s.includes('auto')) return 2;
-                if (s.includes('4k') || s.includes('2160')) return 1;
+                if (s.includes('1080')) return 5;
+                if (s.includes('720'))  return 4;
+                if (s.includes('480'))  return 3;
+                if (s.includes('360'))  return 2;
+                if (s.includes('auto')) return 1;
                 return 0;
               };
               return rank(b.quality) - rank(a.quality);
@@ -316,18 +317,32 @@ export default function PrimePlayer({
           return;
         }
 
-        // ── Direct MP4 path — include proxied variants as fallbacks ──
+        // ── Direct MP4 path — include proxied variants as fallbacks, skip 4K ──
         const files = [];
         streams.forEach(s => {
           if (!s.url) return;
+          // Drop 4K sources — AC3 audio in most 4K MP4s can't be decoded by browsers
+          const ql = (s.quality || '').toLowerCase();
+          if (ql.includes('4k') || ql.includes('2160')) return;
           files.push({ url: s.url,                                          quality: s.quality || 'Auto', provider: s.provider || 'Stream' });
-          files.push({ url: `/api/proxy?url=${encodeURIComponent(s.url)}`, quality: s.quality || 'Auto', provider: (s.provider || 'Stream') + '↑' });
+          files.push({ url: `/api/proxy?url=${encodeURIComponent(s.url)}`, quality: s.quality || 'Auto', provider: (s.provider || 'Stream') + ' (proxy)' });
+        });
+
+        // Build quality menu — one entry per distinct quality label (not per file),
+        // so the dropdown shows "1080p / 720p / 480p" instead of repeating "4K" six times.
+        const seenLabels = new Set();
+        const qualityMenu = [];
+        files.forEach((f, i) => {
+          if (!seenLabels.has(f.quality)) {
+            seenLabels.add(f.quality);
+            qualityMenu.push({ label: f.quality, value: i });
+          }
         });
 
         if (!_cancelled) {
           setDirectFiles(files);
           setDirectIdx(0);
-          setAvailableQualities(files.map((f, i) => ({ label: f.quality || `Source ${i + 1}`, value: i })));
+          setAvailableQualities(qualityMenu);
           setSelectedQuality(0);
           setBuffering(true);
           setMode('direct');
@@ -385,25 +400,43 @@ export default function PrimePlayer({
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         setBuffering(false);
 
-        // Build quality menu
+        // Build quality menu — EXCLUDE any level above 1080p (4K uses AC3 audio browsers can't decode)
         const levels = hls.levels;
         let max1080Index = -1;
         const qualities = [];
+
         for (let i = levels.length - 1; i >= 0; i--) {
           const h = levels[i].height;
-          if (h) {
-            if (h <= 1080 && max1080Index === -1) max1080Index = i;
-            qualities.push({
-              label: h === 2160 ? '4K (2160p)' : h === 1080 ? '1080p Full HD' : h === 720 ? '720p HD' : `${h}p`,
-              value: i, height: h,
-            });
+          if (!h) continue;
+          if (h > 1080) continue; // drop 4K / 1440p
+
+          if (max1080Index === -1) max1080Index = i;
+
+          const label = h >= 1080 ? '1080p Full HD'
+                      : h >= 720  ? '720p HD'
+                      : h >= 480  ? '480p'
+                      : h >= 360  ? '360p'
+                      : `${h}p`;
+          qualities.push({ label, value: i, height: h });
+        }
+
+        // Edge-case: stream only has 4K levels — show them so the player doesn't appear broken,
+        // but still cap ABR to the lowest-bitrate level to minimise audio codec issues.
+        if (qualities.length === 0) {
+          for (let i = levels.length - 1; i >= 0; i--) {
+            const h = levels[i].height;
+            if (h) {
+              if (max1080Index === -1) max1080Index = i;
+              qualities.push({ label: `${h}p`, value: i, height: h });
+            }
           }
         }
-        qualities.unshift({ label: 'Auto (Max 1080p)', value: -1 });
+
+        qualities.unshift({ label: 'Auto', value: -1 });
         setAvailableQualities(qualities);
         setSelectedQuality(-1);
 
-        // Cap ABR at 1080p — 4K streams often carry AC3 audio which Chrome/Firefox can't decode
+        // Hard-cap ABR — never auto-select above 1080p
         if (max1080Index !== -1) hls.autoLevelCapping = max1080Index;
 
         // Explicitly select audio track 0 so HLS.js always loads audio segments
