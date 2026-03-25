@@ -42,9 +42,18 @@ function parseLanguage(str) {
   if (s.includes('telugu')) langs.push('Telugu');
   if (s.includes('malayalam')) langs.push('Malayalam');
 
-  if (s.includes('dual audio') || s.includes('multi audio')) return langs.length > 0 ? langs.join(' + ') + ' (Multi)' : 'Dual/Multi Audio';
+  if (s.includes('dual audio') || s.includes('multi audio') || s.includes('multi')) return langs.length > 0 ? langs.join(' + ') + ' (Multi)' : 'Dual/Multi Audio';
   if (langs.length > 0) return langs.join(' + ');
   return 'Original';
+}
+
+function parseQuality(str) {
+  const s = (str || '').toLowerCase();
+  if (s.includes('2160') || s.includes('4k')) return '4K';
+  if (s.includes('1080')) return '1080p';
+  if (s.includes('720')) return '720p';
+  if (s.includes('480')) return '480p';
+  return 'Auto';
 }
 
 function friendlyLang(raw) {
@@ -191,14 +200,14 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     return () => v.removeEventListener('volumechange', fn);
   }, []);
 
-  // ── Auto Fallback Logic ───────────────────────────────────────────────────
+  // ── Auto Fallback Logic (Crucial for robust native playback) ───────────────
   const tryNextSource = useCallback(() => {
     const idx = allSourcesRef.current.findIndex(s=>s.value===selQRef.current);
     if (idx !== -1 && idx < allSourcesRef.current.length - 1) {
-      console.log("Source failed, auto-advancing to next quality/proxy...");
+      console.log(`Stream failed (CORS/Format). Advancing to next: ${allSourcesRef.current[idx+1].label}`);
       handleQuality(allSourcesRef.current[idx+1].value);
     } else {
-      console.warn("All direct Nuvio sources failed.");
+      console.warn("All direct NuvioStreams exhausted. Firing Error State.");
       setMode('error'); 
     }
   }, []);
@@ -228,11 +237,12 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     const langs = [...new Set(files.map(f => f.language || 'Original'))];
     setAvailableLangs(langs);
 
+    // Prioritize Hindi/Multi-audio auto-selection as per MoviesMod default
     const newLang = targetLang || langs.find(l => l.includes('Hindi')) || langs[0] || 'Original';
     setSelLang(newLang);
 
     const filteredFiles = files.filter(f => (f.language || 'Original') === newLang);
-    const order = {'1080p':6,'720p':5,'480p':4,'360p':3,'Auto':2,'2160p':1,'4k':7};
+    const order = {'4k':7,'2160p':6,'1080p':5,'720p':4,'480p':3,'360p':2,'Auto':1};
     const seen = new Set(); const menu = [];
     
     filteredFiles.forEach((f, i) => {
@@ -252,6 +262,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
 
     allSourcesRef.current = menu;
     setQualities(menu);
+    
     if (menu.length > 0) {
       setSelQuality(menu[0].value); selQRef.current=menu[0].value;
       loadSource(menu[0]);
@@ -278,7 +289,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     setPanel(null);
   }, [buildAndLoad, duration, saveProgress]);
 
-  // ── MAIN INIT ──────────────────────────────────────────────────────────────
+  // ── MAIN INIT (NUVIO SCRAPER DIRECTLY IN BROWSER) ──────────────────────────
   useEffect(() => {
     if (!tmdbId) return;
     setMode('loading'); setHlsUrl(null);
@@ -292,56 +303,97 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     let cancelled = false;
     const ac = new AbortController();
 
-    // Fetch Details & Subtitles & Streams 
-    Promise.allSettled([
-      fetch(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_KEY}&append_to_response=credits`, {signal:ac.signal}).then(r=>r.json()),
-      fetch(`https://vidsrc.pro/api/subtitles/${tmdbId}${mediaType==='tv'?`/${season}/${episode}`:''}`, {signal:ac.signal}).then(r=>r.json()),
-      fetch(`/api/multi-stream?${new URLSearchParams({tmdbId,type:mediaType,season,episode})}`, {signal:ac.signal}).then(r=>r.json())
-    ]).then(results => {
-      if (cancelled) return;
+    (async () => {
+      try {
+        // 1. Get TMDB Details & IMDb ID concurrently with Subtitles
+        const [tmdbRes, subsRes] = await Promise.allSettled([
+          fetch(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_KEY}&append_to_response=external_ids,credits`, {signal:ac.signal}),
+          fetch(`https://vidsrc.pro/api/subtitles/${tmdbId}${mediaType==='tv'?`/${season}/${episode}`:''}`, {signal:ac.signal})
+        ]);
 
-      // 1. Details Processing
-      if (results[0].status === 'fulfilled' && results[0].value) {
-        const d = results[0].value;
-        setMovieTitle(d.title || d.name || title);
-        setXrayCast((d.credits?.cast||[]).slice(0,12).map(p=>({
-          id:p.id,name:p.name,character:p.character,
-          profile:p.profile_path?`https://image.tmdb.org/t/p/w185${p.profile_path}`:null,
-        })));
-      }
+        if (cancelled) return;
 
-      // 2. Subtitles Processing (convert to safe Blobs to avoid crossOrigin issues)
-      if (results[1].status === 'fulfilled' && results[1].value?.subtitles) {
-        Promise.all(results[1].value.subtitles.map(async (s, i) => {
-          try {
-            const txt = await fetch(s.file).then(r=>r.text());
-            const blob = new Blob([txt], { type: 'text/vtt' });
-            return { ...s, id: i, file: URL.createObjectURL(blob) };
-          } catch(e) { return { ...s, id: i }; }
-        })).then(safeSubs => setSubTracks(safeSubs));
-      }
+        let imdbId = null;
+        if (tmdbRes.status === 'fulfilled') {
+          const d = await tmdbRes.value.json();
+          imdbId = d.imdb_id || d.external_ids?.imdb_id;
+          setMovieTitle(d.title || d.name || title);
+          setXrayCast((d.credits?.cast||[]).slice(0,12).map(p=>({
+            id:p.id, name:p.name, character:p.character,
+            profile:p.profile_path?`https://image.tmdb.org/t/p/w185${p.profile_path}`:null,
+          })));
+        }
 
-      // 3. Streams Processing (Nuvio Direct Only)
-      if (results[2].status === 'fulfilled' && results[2].value?.success) {
-        const streams = results[2].value.streams || [];
+        if (subsRes.status === 'fulfilled') {
+          const sData = await subsRes.value.json();
+          if (sData.subtitles) {
+            const safeSubs = await Promise.all(sData.subtitles.map(async (s, i) => {
+              try {
+                const txt = await fetch(s.file).then(r=>r.text());
+                const blob = new Blob([txt], { type: 'text/vtt' });
+                return { ...s, id: i, file: URL.createObjectURL(blob) };
+              } catch(e) { return { ...s, id: i }; }
+            }));
+            setSubTracks(safeSubs);
+          }
+        }
+
+        if (!imdbId) throw new Error("No IMDb ID found");
+
+        // 2. Fetch DIRECTLY from NuvioStreams (Bypasses backend timeouts)
+        const nuvioUrl = mediaType === 'tv' 
+          ? `https://nuviostreams.hayd.uk/stream/series/${imdbId}:${season}:${episode}.json`
+          : `https://nuviostreams.hayd.uk/stream/movie/${imdbId}.json`;
+        
+        console.log("Scraping NuvioStreams via Browser...", nuvioUrl);
+        const nuvioRes = await fetch(nuvioUrl, { signal: ac.signal });
+        const nuvioData = await nuvioRes.json();
+        const streams = nuvioData.streams || [];
+
+        if (cancelled) return;
+
         if (streams.length > 0) {
           const files = [];
-          streams.forEach(s => {
-            const lang = s.language || parseLanguage(s.url);
-            const type = s.type || (s.url.includes('.m3u8')?'hls':'direct');
-            files.push({url:s.url, quality:s.quality||'Auto', language: lang, type: type});
-            // We push proxy variants for everything just in case strict CORS is enforced on direct links
-            files.push({url:`/api/proxy?url=${encodeURIComponent(s.url)}`, quality:(s.quality||'Auto')+' (Proxy)', language: lang, type: type});
+          
+          // Filter out streams aggressively
+          let validStreams = streams.filter(s => {
+             if (!s.url || (!s.url.includes('.mp4') && !s.url.includes('.mkv') && !s.url.includes('.m3u8'))) return false;
+             return true;
           });
-          rawFilesRef.current = files;
-          buildAndLoad(files);
-          return;
+
+          // Prioritize MoviesMod
+          let isMoviesModOnly = validStreams.filter(s => (`${s.name||''} ${s.title||''}`).toLowerCase().includes('moviesmod'));
+          if (isMoviesModOnly.length > 0) {
+             validStreams = isMoviesModOnly; // Strict enforcement if available
+          }
+
+          validStreams.forEach(s => {
+            const rawName = `${s.name || ''} ${s.title || ''}`;
+            const lang = parseLanguage(rawName);
+            const quality = parseQuality(rawName);
+            const type = s.url.includes('.m3u8') ? 'hls' : 'direct';
+            
+            // Push Direct Link
+            files.push({ url: s.url, quality: quality, language: lang, type: type });
+            // Push Proxy Link (Insurance against hard CORS blocks on .mkv files)
+            files.push({ url: `/api/proxy?url=${encodeURIComponent(s.url)}`, quality: `${quality} (Proxy)`, language: lang, type: type });
+          });
+
+          if (files.length > 0) {
+            rawFilesRef.current = files;
+            buildAndLoad(files);
+            return;
+          }
+        }
+        
+        setMode('error');
+      } catch (err) {
+        if (!cancelled) {
+          console.error("Player Initialization Error:", err);
+          setMode('error');
         }
       }
-      
-      // If we reach here, we found zero streams.
-      setMode('error');
-    });
+    })();
 
     return ()=>{ cancelled=true; ac.abort(); if(hlsRef.current){hlsRef.current.destroy();hlsRef.current=null;} };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -453,8 +505,8 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
 
     const onError = () => {
       if(!isSubscribed) return;
-      // Triggers if CORS blocks it, or if the file format is utterly unsupported.
-      console.warn("Direct stream failed to load/play natively. Falling back in chain...");
+      // SILENT AUTO-FALLBACK trigger
+      console.warn("Direct stream playback failed (Likely CORS or Codec error). Executing fallback logic.");
       tryNextSource();
     };
 
@@ -595,7 +647,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
           <button onClick={onClose} style={{position:'absolute',top:20,left:20,background:'rgba(0,0,0,0.5)',border:'none',borderRadius:'50%',padding:10,cursor:'pointer'}}><CloseIcon/></button>
           <div style={{color:'#f87171',fontSize:20,fontWeight:600,marginBottom:12}}>No Playable Streams Found</div>
           <div style={{color:'#AAA',fontSize:14,marginBottom:30,maxWidth:450,textAlign:'center',lineHeight:1.6}}>
-            All direct connections to the media provider failed. The stream might be geoblocked, your browser may be blocking cross-origin requests, or the backend is currently unreachable.
+            All connections to MoviesMod failed or timed out. The stream might be geoblocked, or the backend is currently unreachable.
           </div>
           <div style={{display:'flex',gap:16}}>
             <button onClick={onClose} style={{background:'none',border:'1px solid rgba(170,170,170,.4)',color:'#AAA',padding:'10px 24px',borderRadius:6,cursor:'pointer',fontWeight:700}}>Go Back</button>
