@@ -1,14 +1,17 @@
 // api/multi-stream.js
+// Primary source: moviesapi.club — returns HLS streams with multiple audio tracks (Hindi, English, etc.)
+// Fallback sources: vidsrc.xyz, vixsrc.to, mediafusion
+
 const https = require('https');
 const http  = require('http');
 const { URL } = require('url');
 
 const TMDB_KEY = 'cb1dc311039e6ae85db0aa200345cbc5';
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
-// ── HTTP GET helper ───────────────────────────────────────────────────────────
 function nodeGet(rawUrl, extraHeaders, timeoutMs) {
   extraHeaders = extraHeaders || {};
-  timeoutMs    = timeoutMs    || 9000;
+  timeoutMs    = timeoutMs    || 10000;
   return new Promise((resolve, reject) => {
     let url;
     try { url = new URL(rawUrl); } catch (e) { return reject(new Error('Bad URL')); }
@@ -19,8 +22,9 @@ function nodeGet(rawUrl, extraHeaders, timeoutMs) {
       path:     url.pathname + url.search,
       method:   'GET',
       headers:  Object.assign({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept':     'application/json, text/plain, */*',
+        'User-Agent': UA,
+        'Accept':     'application/json, text/html, */*',
+        'Accept-Language': 'en-US,en;q=0.9',
       }, extraHeaders),
     }, (res) => {
       if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
@@ -40,9 +44,8 @@ function nodeGet(rawUrl, extraHeaders, timeoutMs) {
   });
 }
 
-function safe(p) { return p.catch(() => []); }
+function safe(p) { return p.catch(() => null); }
 
-// ── IMDB ID ───────────────────────────────────────────────────────────────────
 function getImdbId(tmdbId, mediaType) {
   return nodeGet(
     `https://api.themoviedb.org/3/${mediaType}/${tmdbId}/external_ids?api_key=${TMDB_KEY}`,
@@ -50,225 +53,130 @@ function getImdbId(tmdbId, mediaType) {
   ).then(raw => JSON.parse(raw).imdb_id || null).catch(() => null);
 }
 
-// ── Quality normaliser ────────────────────────────────────────────────────────
-function qualityLabel(raw) {
-  if (!raw) return 'Auto';
-  const s = String(raw).toLowerCase();
-  if (s.includes('2160') || s.includes('4k') || s.includes('uhd')) return '2160p';
-  if (s.includes('1080')) return '1080p';
-  if (s.includes('720'))  return '720p';
-  if (s.includes('480'))  return '480p';
-  if (s.includes('360'))  return '360p';
-  return 'Auto';
-}
-
-// ── Language detection ────────────────────────────────────────────────────────
-// Reads all language hints from a stream name/title/description/label string.
-// Returns a comma-separated list like "Hindi, English", "Multi", or "Unknown".
-function detectLanguage(raw) {
-  if (!raw) return 'Unknown';
-  const s = String(raw).toLowerCase();
-
-  // Multi-audio explicit keywords (highest priority)
-  if (s.includes('multi audio') || s.includes('multi-audio') || s.includes('multiaudio')) return 'Multi';
-  if (s.includes('dual audio')  || s.includes('dual-audio')  || s.includes('dualaudio'))  return 'Dual';
-
-  const langs = [];
-  if (s.includes('hindi')      || s.match(/\bhin\b/))   langs.push('Hindi');
-  if (s.includes('english')    || s.match(/\beng\b/))   langs.push('English');
-  if (s.includes('tamil')      || s.match(/\btam\b/))   langs.push('Tamil');
-  if (s.includes('telugu')     || s.match(/\btel\b/))   langs.push('Telugu');
-  if (s.includes('malayalam')  || s.match(/\bmal\b/))   langs.push('Malayalam');
-  if (s.includes('kannada')    || s.match(/\bkan\b/))   langs.push('Kannada');
-  if (s.includes('bengali')    || s.match(/\bben\b/))   langs.push('Bengali');
-  if (s.includes('marathi')    || s.match(/\bmar\b/))   langs.push('Marathi');
-  if (s.includes('punjabi')    || s.match(/\bpun\b/))   langs.push('Punjabi');
-  if (s.includes('gujarati')   || s.match(/\bguj\b/))   langs.push('Gujarati');
-  if (s.includes('japanese')   || s.match(/\bjpn\b/))   langs.push('Japanese');
-  if (s.includes('korean')     || s.match(/\bkor\b/))   langs.push('Korean');
-  if (s.includes('chinese')    || s.match(/\bchi\b/))   langs.push('Chinese');
-  if (s.includes('french')     || s.match(/\bfre\b/))   langs.push('French');
-  if (s.includes('german')     || s.match(/\bger\b/))   langs.push('German');
-  if (s.includes('spanish')    || s.match(/\bspa\b/))   langs.push('Spanish');
-  if (s.includes('italian')    || s.match(/\bita\b/))   langs.push('Italian');
-  if (s.includes('portuguese') || s.match(/\bpor\b/))   langs.push('Portuguese');
-  if (s.includes('russian')    || s.match(/\brus\b/))   langs.push('Russian');
-  if (s.includes('arabic')     || s.match(/\bara\b/))   langs.push('Arabic');
-
-  if (langs.length >= 3) return 'Multi';
-  if (langs.length === 2) return langs.join(', ');
-  if (langs.length === 1) return langs[0];
-  return 'Unknown';
-}
-
-// ── Stremio addon stream parser ───────────────────────────────────────────────
-// Stremio addons return separate stream objects for each audio/quality variant.
-// We keep ALL of them — they are distinguished by lang/quality, not just URL.
-function parseStremioStreams(data, defaultProvider) {
-  const arr = data.streams || [];
-  if (!Array.isArray(arr)) return [];
-  return arr.filter(s => {
-    if (s.infoHash || s.ytId || s.externalUrl) return false; // skip torrents
-    const link = s.url || s.file || s.link;
-    return link && typeof link === 'string' && link.startsWith('http');
-  }).map(s => {
-    const link = s.url || s.file || s.link;
-    // Combine all text fields — quality + language are embedded in name/title/description
-    const meta = [s.name, s.title, s.description].filter(Boolean).join(' ');
-    return {
-      url:      link,
-      quality:  qualityLabel(meta),
-      lang:     detectLanguage(meta),
-      provider: defaultProvider,
-    };
-  });
-}
-
-// ── Generic direct-API stream parser ─────────────────────────────────────────
-function parseDirectStreams(data, defaultProvider) {
-  const arr = data.streams || data.sources || data.data || (data.url ? [data] : []);
-  if (!Array.isArray(arr)) return [];
-  return arr.filter(s => {
-    if (s.infoHash || s.ytId) return false;
-    const link = s.url || s.file || s.link || s.src;
-    return link && typeof link === 'string' && link.startsWith('http');
-  }).map(s => {
-    const link = s.url || s.file || s.link || s.src;
-    const meta = [s.quality, s.label, s.name, s.title, s.lang, s.language, s.description].filter(Boolean).join(' ');
-    return {
-      url:      link,
-      quality:  qualityLabel(meta),
-      lang:     detectLanguage(meta),
-      provider: defaultProvider,
-    };
-  });
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// FETCHERS
-// ═══════════════════════════════════════════════════════════════════════════
-
-// 1. MediaFusion (Stremio) — aggregates dozens of sources incl. multi-audio
-function fetchMediaFusion(imdbId, type, s, e) {
-  if (!imdbId) return Promise.resolve([]);
-  const url = type === 'tv'
-    ? `https://mediafusion.elfhosted.com/stream/series/${imdbId}:${s}:${e}.json`
-    : `https://mediafusion.elfhosted.com/stream/movie/${imdbId}.json`;
-  return nodeGet(url, {}, 12000)
-    .then(raw => parseStremioStreams(JSON.parse(raw), 'MediaFusion'))
-    .catch(() => []);
-}
-
-// 2. NuvioStreams (Stremio) — multi-audio HLS streams
-function fetchNuvio(imdbId, type, s, e) {
-  if (!imdbId) return Promise.resolve([]);
-  const url = type === 'tv'
-    ? `https://nuviostreams.hayd.uk/stream/series/${imdbId}:${s}:${e}.json`
-    : `https://nuviostreams.hayd.uk/stream/movie/${imdbId}.json`;
-  return nodeGet(url, {}, 12000)
-    .then(raw => parseStremioStreams(JSON.parse(raw), 'NuvioStreams'))
-    .catch(() => []);
-}
-
-// 3. VidSrc.xyz embed scraper
-function fetchVidSrc(tmdbId, imdbId, type, s, e) {
-  const tv = type === 'tv';
-  const candidates = [];
-  if (imdbId) {
-    candidates.push(tv
-      ? `https://vidsrc.xyz/embed/tv?imdb=${imdbId}&season=${s}&episode=${e}`
-      : `https://vidsrc.xyz/embed/movie?imdb=${imdbId}`
-    );
+// ── Extract m3u8 URLs from HTML ───────────────────────────────────────────────
+function extractM3u8(html) {
+  const patterns = [
+    /https?:\/\/[^\s"'\\]+\.m3u8[^\s"'\\]*/g,
+    /file:\s*["']([^"']+\.m3u8[^"']*)/g,
+    /src:\s*["']([^"']+\.m3u8[^"']*)/g,
+    /"hls"\s*:\s*"([^"]+\.m3u8[^"]*)"/g,
+    /["'](https?:\/\/[^"']+\.m3u8[^"']*)/g,
+  ];
+  const found = new Set();
+  for (const pat of patterns) {
+    let m;
+    while ((m = pat.exec(html)) !== null) {
+      const u = (m[1] || m[0]).trim().replace(/\\/g, '');
+      if (u.includes('.m3u8') && u.startsWith('http') && !u.includes('example'))
+        found.add(u);
+    }
   }
-  candidates.push(tv
-    ? `https://vidsrc.xyz/embed/tv?tmdb=${tmdbId}&season=${s}&episode=${e}`
-    : `https://vidsrc.xyz/embed/movie?tmdb=${tmdbId}`
-  );
-  const m3u8Re = /["'`](https?:\/\/[^"'`\s]+\.m3u8[^"'`\s]*)/g;
-  return Promise.all(candidates.map(url =>
-    nodeGet(url, { 'Referer': 'https://vidsrc.xyz/' }, 8000).then(html => {
-      const found = []; let match;
-      while ((match = m3u8Re.exec(html)) !== null) {
-        const u = match[1];
-        if (!u.includes('audio') && !u.includes('subtitle'))
-          found.push({ url: u, quality: 'Auto', lang: 'Unknown', provider: 'VidSrc' });
+  // Prefer non-audio/subtitle streams
+  const all = [...found];
+  return all.find(u => !/audio|subtitle|caption|webvtt/i.test(u)) || all[0] || null;
+}
+
+// ════════════════════════════════════════════════════════════
+// SOURCE 1: moviesapi.club  ← PRIMARY — has multi-audio HLS
+// Returns an m3u8 that contains Hindi + English audio tracks
+// ════════════════════════════════════════════════════════════
+async function fetchMoviesApi(tmdbId, mediaType, season, episode) {
+  try {
+    const url = mediaType === 'tv'
+      ? `https://moviesapi.club/tv/${tmdbId}-${season}-${episode}`
+      : `https://moviesapi.club/movie/${tmdbId}`;
+
+    const html = await nodeGet(url, { 'Referer': 'https://moviesapi.club/' }, 10000);
+
+    // moviesapi.club embeds a JWPlayer/HLS stream — extract m3u8 from page
+    let m3u8 = extractM3u8(html);
+
+    // If not in HTML directly, look for API/config endpoint
+    if (!m3u8) {
+      const apiMatch = html.match(/(?:sources|file|hls)\s*[:=]\s*["']?(https?:\/\/[^"'\s,]+)/i);
+      if (apiMatch) m3u8 = apiMatch[1];
+    }
+
+    // Also try scraping the JSON config embedded in script tags
+    if (!m3u8) {
+      const jsonMatch = html.match(/(?:setup|player\.load)\s*\(\s*(\{[\s\S]+?\})\s*\)/);
+      if (jsonMatch) {
+        try {
+          const cfg = JSON.parse(jsonMatch[1].replace(/'/g, '"'));
+          const src = cfg.file || (Array.isArray(cfg.sources) && cfg.sources[0]?.file);
+          if (src && src.includes('.m3u8')) m3u8 = src;
+        } catch (_) {}
       }
-      return found;
-    }).catch(() => [])
-  )).then(r => r.flat());
+    }
+
+    if (m3u8) {
+      return [{ url: m3u8, quality: 'Auto', provider: 'MoviesAPI' }];
+    }
+    return [];
+  } catch (_) { return []; }
 }
 
-// 4. VixSrc direct API
-function fetchVixSrc(tmdbId, type, s, e) {
-  const url = type === 'tv'
-    ? `https://vixsrc.to/api/tv?tmdb=${tmdbId}&season=${s}&episode=${e}`
-    : `https://vixsrc.to/api/movie?tmdb=${tmdbId}`;
-  return nodeGet(url, { 'Referer': 'https://vixsrc.to/' }, 8000)
-    .then(raw => parseDirectStreams(JSON.parse(raw), 'VixSrc'))
-    .catch(() => []);
+// ════════════════════════════════════════════════════════════
+// SOURCE 2: vidsrc.xyz — fallback, scrapes embed for m3u8
+// ════════════════════════════════════════════════════════════
+async function fetchVidSrc(tmdbId, imdbId, mediaType, season, episode) {
+  const tv = mediaType === 'tv';
+  const urls = [];
+  if (imdbId) urls.push(tv ? `https://vidsrc.xyz/embed/tv?imdb=${imdbId}&season=${season}&episode=${episode}` : `https://vidsrc.xyz/embed/movie?imdb=${imdbId}`);
+  urls.push(tv ? `https://vidsrc.xyz/embed/tv?tmdb=${tmdbId}&season=${season}&episode=${episode}` : `https://vidsrc.xyz/embed/movie?tmdb=${tmdbId}`);
+
+  for (const url of urls) {
+    try {
+      const html = await nodeGet(url, { 'Referer': 'https://vidsrc.xyz/' }, 8000);
+      const m3u8 = extractM3u8(html);
+      if (m3u8) return [{ url: m3u8, quality: 'Auto', provider: 'VidSrc' }];
+      // try atob decode
+      const atobRe = /atob\(["']([A-Za-z0-9+/=]+)["']\)/g;
+      let am;
+      while ((am = atobRe.exec(html)) !== null) {
+        try {
+          const decoded = Buffer.from(am[1], 'base64').toString('utf-8');
+          const u = extractM3u8(decoded);
+          if (u) return [{ url: u, quality: 'Auto', provider: 'VidSrc' }];
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+  return [];
 }
 
-// 5. MP4Hydra direct API
-function fetchMP4Hydra(imdbId, type, s, e) {
-  if (!imdbId) return Promise.resolve([]);
-  const url = type === 'tv'
-    ? `https://mp4hydra.org/tv/${imdbId}/${s}/${e}`
-    : `https://mp4hydra.org/movie/${imdbId}`;
-  return nodeGet(url, { 'Referer': 'https://mp4hydra.org/' }, 8000)
-    .then(raw => parseDirectStreams(JSON.parse(raw), 'MP4Hydra'))
-    .catch(() => []);
+// ════════════════════════════════════════════════════════════
+// SOURCE 3: vixsrc.to — fallback direct API
+// ════════════════════════════════════════════════════════════
+async function fetchVixSrc(tmdbId, mediaType, season, episode) {
+  try {
+    const url = mediaType === 'tv'
+      ? `https://vixsrc.to/api/tv?tmdb=${tmdbId}&season=${season}&episode=${episode}`
+      : `https://vixsrc.to/api/movie?tmdb=${tmdbId}`;
+    const raw  = await nodeGet(url, { 'Referer': 'https://vixsrc.to/' }, 8000);
+    const data = JSON.parse(raw);
+    const arr  = data.streams || data.sources || [];
+    return arr
+      .filter(s => (s.url || s.file || '').startsWith('http'))
+      .map(s => ({ url: s.url || s.file, quality: 'Auto', provider: 'VixSrc' }));
+  } catch (_) { return []; }
 }
 
-// 6. Vidlink — known for multi-language Indian content
-function fetchVidlink(tmdbId, type, s, e) {
-  const url = type === 'tv'
-    ? `https://vidlink.pro/api/b/tv?id=${tmdbId}&season=${s}&episode=${e}&multiLang=1`
-    : `https://vidlink.pro/api/b/movie?id=${tmdbId}&multiLang=1`;
-  return nodeGet(url, { 'Referer': 'https://vidlink.pro/' }, 8000)
-    .then(raw => {
-      const data = JSON.parse(raw);
-      const out  = [];
-      if (data.stream && data.stream.playlist)
-        out.push({ url: data.stream.playlist, quality: 'Auto', lang: 'Multi', provider: 'Vidlink' });
-      if (Array.isArray(data.sources))
-        data.sources.forEach(src => {
-          const link = src.file || src.url;
-          if (link && link.startsWith('http')) {
-            const meta = [src.label, src.type].filter(Boolean).join(' ');
-            out.push({ url: link, quality: qualityLabel(meta), lang: detectLanguage(meta) || 'Unknown', provider: 'Vidlink' });
-          }
-        });
-      return out;
-    }).catch(() => []);
-}
-
-// 7. VidZee (corrected URL)
-function fetchVidZee(tmdbId, type, s, e) {
-  const url = type === 'tv'
-    ? `https://player.vidzee.wtf/api/server?id=${tmdbId}&ss=${s}&ep=${e}&sr=3`
-    : `https://player.vidzee.wtf/api/server?id=${tmdbId}&sr=3`;
-  return nodeGet(url, { 'Referer': 'https://player.vidzee.wtf/' }, 8000)
-    .then(raw => {
-      const data = JSON.parse(raw);
-      const out  = [];
-      [data, data && data.data].forEach(obj => {
-        if (!obj) return;
-        if (obj.url && obj.url.startsWith('http')) {
-          const meta = obj.quality || '';
-          out.push({ url: obj.url, quality: qualityLabel(meta), lang: detectLanguage(meta), provider: 'VidZee' });
-        }
-        if (Array.isArray(obj.sources)) {
-          obj.sources.forEach(src => {
-            const link = src.url || src.file;
-            if (link && link.startsWith('http')) {
-              const meta = src.quality || src.label || '';
-              out.push({ url: link, quality: qualityLabel(meta), lang: detectLanguage(meta), provider: 'VidZee' });
-            }
-          });
-        }
-      });
-      return out;
-    }).catch(() => []);
+// ════════════════════════════════════════════════════════════
+// SOURCE 4: MediaFusion (Stremio) — fallback, good multi-audio
+// ════════════════════════════════════════════════════════════
+async function fetchMediaFusion(imdbId, mediaType, season, episode) {
+  if (!imdbId) return [];
+  try {
+    const url = mediaType === 'tv'
+      ? `https://mediafusion.elfhosted.com/stream/series/${imdbId}:${season}:${episode}.json`
+      : `https://mediafusion.elfhosted.com/stream/movie/${imdbId}.json`;
+    const raw  = await nodeGet(url, {}, 12000);
+    const data = JSON.parse(raw);
+    return (data.streams || [])
+      .filter(s => s.url && s.url.startsWith('http') && (s.url.includes('.m3u8') || s.url.includes('.mp4')))
+      .map(s => ({ url: s.url, quality: 'Auto', provider: 'MediaFusion' }));
+  } catch (_) { return []; }
 }
 
 // ── HANDLER ───────────────────────────────────────────────────────────────────
@@ -288,51 +196,37 @@ module.exports = async function handler(req, res) {
 
   const imdbId = await safe(getImdbId(tmdbId, mediaType));
 
-  // Fire all fetchers in parallel
-  const results = await Promise.allSettled([
-    safe(fetchMediaFusion(imdbId, mediaType, season, episode)),
-    safe(fetchNuvio(imdbId, mediaType, season, episode)),
-    safe(fetchVidSrc(tmdbId, imdbId, mediaType, season, episode)),
-    safe(fetchVixSrc(tmdbId, mediaType, season, episode)),
-    safe(fetchMP4Hydra(imdbId, mediaType, season, episode)),
-    safe(fetchVidlink(tmdbId, mediaType, season, episode)),
-    safe(fetchVidZee(tmdbId, mediaType, season, episode)),
+  // Fire all in parallel — moviesapi.club first in the results array so player picks it first
+  const [moviesApi, vidSrc, vixSrc, mediaFusion] = await Promise.all([
+    safe(fetchMoviesApi(tmdbId, mediaType, season, episode)) .then(r => r || []),
+    safe(fetchVidSrc(tmdbId, imdbId, mediaType, season, episode)).then(r => r || []),
+    safe(fetchVixSrc(tmdbId, mediaType, season, episode))        .then(r => r || []),
+    safe(fetchMediaFusion(imdbId, mediaType, season, episode))   .then(r => r || []),
   ]);
 
-  let allStreams = [];
-  results.forEach(r => {
-    if (r.status === 'fulfilled' && Array.isArray(r.value))
-      allStreams = allStreams.concat(r.value);
-  });
+  // moviesapi.club streams come FIRST so the player uses them as primary
+  const all = [...moviesApi, ...vidSrc, ...vixSrc, ...mediaFusion];
 
-  // ── DEDUP by URL+lang — same URL in different languages = different entry ──
-  // This ensures Hindi and English versions of the same CDN URL both survive.
+  // Deduplicate by URL
   const seen = new Set();
-  const unique = allStreams.filter(s => {
-    if (!s || !s.url) return false;
-    const key = `${s.url}||${s.lang}`;
-    if (seen.has(key)) return false;
-    seen.add(key); return true;
+  const unique = all.filter(s => {
+    if (!s?.url || seen.has(s.url)) return false;
+    seen.add(s.url); return true;
   });
 
-  // Sort: 1080p first, then Hindi/Multi/English priority, 2160p last
-  const qRank = { '1080p':6, '720p':5, '480p':4, '360p':3, 'Auto':2, '2160p':1 };
-  const lRank = { 'Multi':10, 'Dual':9, 'Hindi':8, 'Hindi, English':8, 'English':7 };
-  unique.sort((a, b) => {
-    const qd = (qRank[b.quality] || 0) - (qRank[a.quality] || 0);
-    if (qd !== 0) return qd;
-    return (lRank[b.lang] || 0) - (lRank[a.lang] || 0);
-  });
+  if (unique.length === 0) {
+    res.statusCode = 200;
+    return res.end(JSON.stringify({ success: false, error: 'No streams found' }));
+  }
 
   res.statusCode = 200;
   return res.end(JSON.stringify({
     success: true,
     imdbId:  imdbId || null,
-    // Return up to 30 streams so all language+quality variants reach the player
-    streams: unique.slice(0, 30).map(s => ({
+    streams: unique.slice(0, 6).map(s => ({
       url:      s.url,
-      quality:  s.quality,
-      lang:     s.lang,
+      quality:  s.quality || 'Auto',
+      lang:     'Multi', // moviesapi.club streams contain multiple audio tracks inside the HLS manifest
       provider: s.provider,
     })),
   }));
