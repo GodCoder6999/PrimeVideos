@@ -11,7 +11,7 @@ const VolumeMidIcon  = () => (<svg width="28" height="28" viewBox="0 0 24 24" fi
 const VolumeMuteIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" stroke="currentColor" strokeWidth="1.5" fill="none"/><line x1="23" y1="9" x2="17" y2="15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="17" y1="9" x2="23" y2="15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>);
 const PiPIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><rect x="2" y="5" width="20" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/><rect x="10" y="11" width="10" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" fill="currentColor"/></svg>);
 const FullscreenIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>);
-const ExitFullscreenIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>);
+const ExitFullscreenIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M10 14l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const CloseIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>);
 const CheckIcon = () => (<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><polyline points="2,8 6,12 14,4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const ChevronRightIcon = () => (<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><polyline points="9 18 15 12 9 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>);
@@ -320,7 +320,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       if(cancelled) return;
 
       if(streams.length>0){
-        // Build files list: direct URL + proxied fallback for each stream
         const files=;
         streams.forEach(s=>{
           files.push({url:s.url, quality:s.quality||'Auto'});
@@ -356,11 +355,10 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       hls.on(Hls.Events.MANIFEST_PARSED, ()=>{
         setBuffering(false);
 
-        // Cap ABR at 1080p to avoid 4K AC3 audio issues
         const cap = hls.levels.map((l,i)=>({h:l.height||0,i})).filter(x=>x.h>0&&x.h<=1080).sort((a,b)=>b.h-a.h);
         if(cap) hls.autoLevelCapping=cap.i;
 
-        // ── AUDIO TRACKS from the HLS manifest ──
+        // ── AUDIO TRACKS ──
         if(hls.audioTracks && hls.audioTracks.length>0){
           const tracks = hls.audioTracks.map((t,i)=>({
             id:i,
@@ -438,7 +436,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
 
     return ()=>{ if(hlsRef.current){hlsRef.current.destroy();hlsRef.current=null;} };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hlsUrl, hlsKey, mode]); 
+  }, [hlsUrl, hlsKey, mode]);
 
   // ── DIRECT MODE ────────────────────────────────────────────────────────────
   useEffect(()=>{
@@ -662,7 +660,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
                       {audioTracks.length>0? audioTracks.map(t=>(
                         <div key={t.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer'}}
                           onClick={()=>{
-                            // THE ACTUAL SWITCH — this is what changes the audio language
                             if(hlsRef.current) hlsRef.current.audioTrack=t.id;
                             setActiveAudioIdx(t.id);
                           }}>
