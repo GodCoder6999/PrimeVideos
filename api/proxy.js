@@ -1,77 +1,54 @@
-const https = require('https');
-const http = require('http');
-const { URL } = require('url');
+import axios from 'axios';
 
-module.exports = async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Range');
-
-  if (req.method === 'OPTIONS') return res.status(200).end();
-
-  const targetUrl = req.query.url;
-  if (!targetUrl) return res.status(400).json({ error: 'Missing url param' });
+export default async function handler(req, res) {
+  const { url } = req.query;
+  if (!url) return res.status(400).send('No URL provided');
 
   try {
-    const parsedUrl = new URL(targetUrl);
-    const lib = parsedUrl.protocol === 'https:'? https : http;
-    const options = {
-      method: req.method,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Referer': `${parsedUrl.protocol}//${parsedUrl.hostname}/`,
-        'Accept': '*/*'
-      }
-    };
+    const isM3U8 = url.includes('.m3u8');
+    const headers = { ...req.headers };
+    delete headers.host;
+    delete headers.connection;
 
-    // Forward Range header to support seeking and prevent Vercel memory crashes
-    if (req.headers.range) {
-      options.headers = req.headers.range;
-    }
-
-    const proxyReq = lib.request(parsedUrl, options, (proxyRes) => {
-      // Intercept and rewrite HLS Manifests for Multi-Audio support
-      if (targetUrl.includes('.m3u8')) {
-        let body = '';
-        proxyRes.on('data', chunk => body += chunk);
-        proxyRes.on('end', () => {
-          const myProxyUrl = `${req.headers['x-forwarded-proto'] |
-
-| 'http'}://${req.headers.host}/api/proxy`;
-          const baseUrl = targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1);
-
-          const rewritten = body.split('\n').map(line => {
-            // Rewrite URIs embedded inside tags (Audio tracks, decryption keys)
-            if (line.startsWith('#EXT-X-MEDIA:') |
-
-| line.startsWith('#EXT-X-KEY:') |
-| line.startsWith('#EXT-X-STREAM-INF:')) {
-              return line.replace(/URI=["']([^"']+)["']/g, (match, p1) => {
-                const absUrl = p1.startsWith('http')? p1 : new URL(p1, baseUrl).href;
-                return `URI="${myProxyUrl}?url=${encodeURIComponent(absUrl)}"`;
-              });
-            } 
-            // Rewrite standard segment lines
-            else if (!line.startsWith('#') && line.trim().length > 0) {
-              const absUrl = line.startsWith('http')? line : new URL(line, baseUrl).href;
-              return `${myProxyUrl}?url=${encodeURIComponent(absUrl)}`;
-            }
-            return line;
-          }).join('\n');
-
-          res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-          res.status(200).send(rewritten);
-        });
-      } else {
-        // Direct binary piping for.ts,.mp4, and.mkv files
-        res.writeHead(proxyRes.statusCode, proxyRes.headers);
-        proxyRes.pipe(res);
-      }
+    const response = await axios({
+      method: 'get',
+      url: url,
+      headers: headers,
+      responseType: isM3U8 ? 'text' : 'stream',
+      validateStatus: false
     });
 
-    proxyReq.on('error', () => res.status(502).end());
-    req.pipe(proxyReq);
-  } catch (e) {
-    res.status(400).json({ error: 'Invalid URL' });
+    // Handle Binary Files (.mkv, .mp4) with Range Support
+    if (!isM3U8) {
+      res.setHeader('Content-Type', response.headers['content-type']);
+      res.setHeader('Content-Length', response.headers['content-length']);
+      if (response.headers['content-range']) {
+        res.setHeader('Content-Range', response.headers['content-range']);
+        res.status(206);
+      }
+      return response.data.pipe(res);
+    }
+
+    // Handle HLS Playlists (.m3u8) with Manifest Rewriting
+    let manifest = response.data;
+    const baseUrl = url.substring(0, url.lastIndexOf('/') + 1);
+
+    // Rewrite absolute and relative URIs to point back to this proxy
+    manifest = manifest.replace(/(?:URI=|#EXT-X-STREAM-INF.*[\r\n])(.*)/g, (match, p1) => {
+      if (match.startsWith('#EXT-X-STREAM-INF')) return match; 
+      let fullUrl = p1.startsWith('http') ? p1 : new URL(p1, baseUrl).href;
+      return match.replace(p1, `/api/proxy?url=${encodeURIComponent(fullUrl)}`);
+    });
+
+    // Specifically target URI="..." in #EXT-X-MEDIA and #EXT-X-KEY
+    manifest = manifest.replace(/URI="([^"]+)"/g, (match, p1) => {
+      let fullUrl = p1.startsWith('http') ? p1 : new URL(p1, baseUrl).href;
+      return `URI="/api/proxy?url=${encodeURIComponent(fullUrl)}"`;
+    });
+
+    res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+    return res.status(200).send(manifest);
+  } catch (error) {
+    return res.status(500).send('Proxy error');
   }
-};
+}
