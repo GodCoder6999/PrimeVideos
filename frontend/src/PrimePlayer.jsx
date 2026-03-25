@@ -338,56 +338,79 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     }
   }, [attemptResume]);
 
-  // ── MAIN INIT ──────────────────────────────────────────────────────────────
+  // ── MAIN INIT (UPDATED FOR @movie-web/providers + PROXY) ─────────────────
   useEffect(() => {
     if (!tmdbId) return;
-    
+
+    // Reset state for new media
+    setLoadState('loading'); setErrorMsg('');
+    setStreams([]); setCurrentIdx(0);
+    setPlaying(false); setBuffering(false); setAutoMuted(false);
+    setCurrentTime(0); setDuration(0); setBuffered(0);
+    setAudioTracks([]); setSubTracks([]);
+    streamsRef.current = []; streamIdxRef.current = 0;
+    resumedRef.current = false;
+    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+
     let cancelled = false;
 
-    // First: Fetch metadata (title, year) needed by the extractor
+    // 1. Fetch metadata (Title & Year) needed by the extractor
     fetch(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_KEY}`)
       .then(r => r.json())
       .then(d => {
         if (cancelled) return;
-        const title = d.title || d.name;
+        const fetchedTitle = d.title || d.name || title;
         const year = (d.release_date || d.first_air_date || '').slice(0, 4);
-        setMovieTitle(title);
+        setMovieTitle(fetchedTitle);
 
-        // Next: Call our new extraction layer
-        const extractUrl = `/api/extract?tmdbId=${tmdbId}&title=${encodeURIComponent(title)}&releaseYear=${year}&type=${mediaType}&season=${season}&episode=${episode}`;
+        // 2. Call the new extraction layer to find the stream
+        const extractUrl = `/api/extract?tmdbId=${tmdbId}&title=${encodeURIComponent(fetchedTitle)}&releaseYear=${year}&type=${mediaType}&season=${season}&episode=${episode}`;
         
         return fetch(extractUrl);
       })
       .then(r => r.json())
       .then(data => {
         if (cancelled) return;
-        if (!data.success || !data.streamUrl) {
+        
+        if (!data || !data.success || !data.streamUrl) {
           setLoadState('error');
-          setErrorMsg('Extraction failed.');
+          setErrorMsg(data?.error || 'Extraction failed. No playable streams found.');
           return;
         }
 
-        // Pass the raw master manifest to our proxy
+        // 3. Format the URL to run through our Custom Proxy
         const refererParam = data.headers?.Referer ? `&referer=${encodeURIComponent(data.headers.Referer)}` : '';
         const proxiedStreamUrl = `/api/proxy?url=${encodeURIComponent(data.streamUrl)}${refererParam}`;
 
-        // Create a single stream object for your player's existing logic
-        const stream = { url: proxiedStreamUrl, type: 'hls', quality: 'Auto', provider: 'Aggregator' };
+        // Determine type based on extension
+        const streamType = (data.streamUrl.includes('.m3u8') || data.streamUrl.includes('.m3u')) ? 'hls' : 'mp4';
+
+        // 4. Create the Stream Object and feed it into the existing load logic
+        const stream = { 
+          url: proxiedStreamUrl, 
+          type: streamType, 
+          quality: 'Auto', 
+          provider: 'Aggregator',
+          language: 'Multi' 
+        };
         
         streamsRef.current = [stream];
         setStreams([stream]);
-        loadStreamAt(0); // This calls your existing HLS.js instantiation
+        
+        // Start playback
+        loadStreamAt(0); 
       })
       .catch(err => {
-        if (!cancelled) {
-          setLoadState('error');
-          setErrorMsg('Failed to fetch streams.');
-        }
+        if (cancelled) return;
+        setLoadState('error');
+        setErrorMsg('Failed to fetch and extract stream.');
       });
 
-    return () => { cancelled = true; };
-  }, [tmdbId, mediaType, season, episode]);
-  
+    return () => {
+      cancelled = true;
+      if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+    };
+  }, [tmdbId, mediaType, season, episode, loadStreamAt, title]);
 
   // ── VIDEO DOM EVENTS ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -583,7 +606,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
           <div style={{ fontSize:28, marginBottom:16 }}>⚠️</div>
           <div style={{ color:'#f87171', fontSize:17, fontWeight:700, marginBottom:8 }}>No Playable Streams Found</div>
           <div style={{ color:'#888', fontSize:13, marginBottom:24, textAlign:'center', maxWidth:360, lineHeight:1.6 }}>
-            {errorMsg || 'MoviessMod streams are not available for this title right now.'}
+            {errorMsg || 'Streams are not available for this title right now.'}
           </div>
           <button onClick={onClose}
             style={{ background:'none', border:'1px solid rgba(255,255,255,.3)', color:'#fff',
