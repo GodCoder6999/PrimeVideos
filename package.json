@@ -1,0 +1,9 @@
+{
+  "name": "primevideos-api",
+  "version": "1.0.0",
+  "dependencies": {
+    "@movie-web/providers": "latest",
+    "m3u8-parser": "latest",
+    "axios": "^1.6.0"
+  }
+}
