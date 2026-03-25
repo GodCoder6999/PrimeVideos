@@ -7,7 +7,6 @@ const PauseIcon = ()=><svg width="32" height="32" viewBox="0 0 24 24" fill="#fff
 const FullscreenIcon = ()=><svg width="24" height="24" viewBox="0 0 24 24" fill="#fff"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>;
 const ExitFullscreenIcon = ()=><svg width="24" height="24" viewBox="0 0 24 24" fill="#fff"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>;
 const SettingsIcon = ()=><svg width="24" height="24" viewBox="0 0 24 24" fill="#fff"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.73 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0.44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0.59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>;
-const SubtitlesIcon = ()=><svg width="24" height="24" viewBox="0 0 24 24" fill="#fff"><path d="M19 4H5c-1.11 0-2.9-2 2v12c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-8 7H9.5v-.5h-2v3h2V13H11v1.5c0.28-.22.5-.5.5h-3c-.28 0-.5-.22-.5-.5v-4c0-.28.22-.5.5-.5h3c.28 0.5.22.5.5V11zm7 0h-1.5v-.5h-2v3h2V13H18v1.5c0.28-.22.5-.5.5h-3c-.28 0-.5-.22-.5-.5v-4c0-.28.22-.5.5-.5h3c.28 0.5.22.5.5V11z"/></svg>;
 const VolumeHighIcon = ()=><svg width="24" height="24" viewBox="0 0 24 24" fill="#fff"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>;
 const VolumeMuteIcon = ()=><svg width="24" height="24" viewBox="0 0 24 24" fill="#fff"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0.94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>;
 const LoadingSpinner = ()=>(<svg width="48" height="48" viewBox="0 0 50 50"><circle cx="25" cy="25" r="20" fill="none" stroke="#fff" strokeWidth="4" strokeDasharray="31.4 31.4" strokeLinecap="round"><animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" dur="1s" repeatCount="indefinite"/></circle></svg>);
@@ -22,16 +21,14 @@ const formatTime = (secs) => {
   const h = Math.floor(secs / 3600);
   const m = Math.floor((secs % 3600) / 60);
   const s = Math.floor(secs % 60);
-  if (h > 0) return `${h}:${m < 10? '0' : ''}${m}:${s < 10? '0' : ''}${s}`;
-  return `${m}:${s < 10? '0' : ''}${s}`;
+  if (h > 0) return `${h}:${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
+  return `${m}:${s < 10 ? '0' : ''}${s}`;
 };
 
 function friendlyLang(raw) {
   if (!raw) return raw;
   const map = { hin:'Hindi', eng:'English', tam:'Tamil', tel:'Telugu', mal:'Malayalam', kan:'Kannada', ben:'Bengali' };
-  return map[raw.toLowerCase().trim()] |
-
-| (raw.charAt(0).toUpperCase() + raw.slice(1));
+  return map[raw.toLowerCase().trim()] || (raw.charAt(0).toUpperCase() + raw.slice(1));
 }
 
 export default function PrimePlayer({ tmdbId, title = '', isMovie, season = 1, episode = 1, onClose }) {
@@ -41,34 +38,39 @@ export default function PrimePlayer({ tmdbId, title = '', isMovie, season = 1, e
   const progressBarRef = useRef(null);
   const controlsTimeoutRef = useRef(null);
   
-  const allSourcesRef = useRef();
+  const allSourcesRef = useRef([]);
   const selQRef = useRef(-1);
 
   // Core State
   const [mode, setMode] = useState('loading'); // loading, playing, error
   const [playing, setPlaying] = useState(false);
-  const = useState(0);
-  const = useState(0);
-  const = useState(0);
-  const = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [buffered, setBuffered] = useState(0);
+  const [buffering, setBuffering] = useState(false);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
 
   // Settings
-  const = useState(true);
+  const [showControls, setShowControls] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [panel, setPanel] = useState(null);
   
-  const [qualities, setQualities] = useState();
-  const = useState(-1);
+  const [qualities, setQualities] = useState([]);
+  const [selQuality, setSelQuality] = useState(-1);
   
-  const = useState(); 
+  const [audioTracks, setAudioTracks] = useState([]); 
   const [activeAudioIdx, setActiveAudioIdx] = useState(0);
 
   // ── Source Loading Logic ──
   const loadSource = useCallback((srcObj) => {
-    setBuffering(true); setPlaying(false);
-    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+    setBuffering(true); 
+    setPlaying(false);
+    
+    if (hlsRef.current) { 
+      hlsRef.current.destroy(); 
+      hlsRef.current = null; 
+    }
     
     const vid = videoRef.current;
     if (!vid) return;
@@ -86,22 +88,22 @@ export default function PrimePlayer({ tmdbId, title = '', isMovie, season = 1, e
         
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           setBuffering(false);
-          // Extract multi-audio tracks from the rewritten manifest
+          // Multi-audio track extraction
           if (hls.audioTracks && hls.audioTracks.length > 0) {
-            const tracks = hls.audioTracks.map((t, i) => ({ id: i, name: friendlyLang(t.name |
-
-| t.lang |
-| t.language) }));
+            const tracks = hls.audioTracks.map((t, i) => ({ 
+                id: i, 
+                name: friendlyLang(t.name || t.lang || t.language) 
+            }));
             setAudioTracks(tracks);
             const englishIdx = tracks.findIndex(t => t.name === 'English');
-            const defIdx = englishIdx >= 0? englishIdx : 0;
+            const defIdx = englishIdx >= 0 ? englishIdx : 0;
             hls.audioTrack = defIdx;
             setActiveAudioIdx(defIdx);
           }
           vid.play().catch(()=>{});
         });
 
-        // HLS Error Handling (Auto-Fallback)
+        // HLS Error Handling (Auto-Fallback Chain)
         hls.on(Hls.Events.ERROR, (e, data) => {
           if (data.fatal) {
             console.warn("HLS failed, falling back...", data);
@@ -119,11 +121,11 @@ export default function PrimePlayer({ tmdbId, title = '', isMovie, season = 1, e
       vid.play().catch(()=>{});
     }
     setMode('playing');
-  },);
+  }, []);
 
   const tryNextSource = useCallback(() => {
     const idx = allSourcesRef.current.findIndex(s => s.value === selQRef.current);
-    if (idx!== -1 && idx < allSourcesRef.current.length - 1) {
+    if (idx !== -1 && idx < allSourcesRef.current.length - 1) {
       const nextSrc = allSourcesRef.current[idx + 1];
       setSelQuality(nextSrc.value);
       selQRef.current = nextSrc.value;
@@ -131,12 +133,12 @@ export default function PrimePlayer({ tmdbId, title = '', isMovie, season = 1, e
     } else {
       setMode('error');
     }
-  },);
+  }, [loadSource]);
 
   // ── Main Init Fetch ──
   useEffect(() => {
     setMode('loading');
-    fetch(`/api/multi-stream?tmdbId=${tmdbId}&type=${isMovie? 'movie' : 'tv'}&season=${season}&episode=${episode}`)
+    fetch(`/api/multi-stream?tmdbId=${tmdbId}&type=${isMovie ? 'movie' : 'tv'}&season=${season}&episode=${episode}`)
      .then(res => res.json())
      .then(data => {
         if (data.success && data.streams && data.streams.length > 0) {
@@ -144,9 +146,7 @@ export default function PrimePlayer({ tmdbId, title = '', isMovie, season = 1, e
           
           // Build Quality Menu
           const menu = files.map((f, i) => ({
-            label: f.quality |
-
-| 'Auto',
+            label: f.quality || 'Auto',
             value: i,
             url: f.url,
             type: f.type
@@ -156,7 +156,7 @@ export default function PrimePlayer({ tmdbId, title = '', isMovie, season = 1, e
           setQualities(menu);
           setSelQuality(0);
           selQRef.current = 0;
-          loadSource(menu);
+          loadSource(menu[0]);
         } else {
           setMode('error');
         }
@@ -164,7 +164,7 @@ export default function PrimePlayer({ tmdbId, title = '', isMovie, season = 1, e
      .catch(() => setMode('error'));
 
     return () => { if (hlsRef.current) hlsRef.current.destroy(); };
-  },);
+  }, [tmdbId, isMovie, season, episode, loadSource]);
 
   // ── Native Video Error Handling (Auto-Fallback for MKV/MP4 failures) ──
   const handleVideoError = () => {
@@ -173,7 +173,7 @@ export default function PrimePlayer({ tmdbId, title = '', isMovie, season = 1, e
   };
 
   // ── UI Controls ──
-  const togglePlay = () => { videoRef.current?.paused? videoRef.current.play() : videoRef.current.pause(); };
+  const togglePlay = () => { videoRef.current?.paused ? videoRef.current.play() : videoRef.current.pause(); };
   const skip = (amt) => { if (videoRef.current) videoRef.current.currentTime += amt; };
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) { containerRef.current?.requestFullscreen(); setIsFullscreen(true); } 
@@ -181,7 +181,7 @@ export default function PrimePlayer({ tmdbId, title = '', isMovie, season = 1, e
   };
   
   const handleSeek = (e) => {
-    if (!videoRef.current ||!duration) return;
+    if (!videoRef.current || !duration) return;
     const rect = progressBarRef.current.getBoundingClientRect();
     const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     videoRef.current.currentTime = pos * duration;
@@ -207,7 +207,7 @@ export default function PrimePlayer({ tmdbId, title = '', isMovie, season = 1, e
     const wakeControls = () => {
       setShowControls(true);
       clearTimeout(controlsTimeoutRef.current);
-      if (playing &&!panel) controlsTimeoutRef.current = setTimeout(() => setShowControls(false), 3000);
+      if (playing && !panel) controlsTimeoutRef.current = setTimeout(() => setShowControls(false), 3000);
     };
     const el = containerRef.current;
     if (el) { el.addEventListener('mousemove', wakeControls); el.addEventListener('click', wakeControls); }
@@ -231,36 +231,34 @@ export default function PrimePlayer({ tmdbId, title = '', isMovie, season = 1, e
   return (
     <div ref={containerRef} style={styles.fullscreenBase}>
       
-      {/* Video Element */}
+      {/* Native Browser Video Element (No iFrame) */}
       <video
         ref={videoRef}
-        style={{width:'100%', height:'100%', objectFit:'contain', display: mode === 'playing'? 'block' : 'none'}}
+        style={{width:'100%', height:'100%', objectFit:'contain', display: mode === 'playing' ? 'block' : 'none'}}
         playsInline
         onError={handleVideoError}
       />
 
-      {(mode === 'loading' |
-
-| buffering) && (
+      {(mode === 'loading' || buffering) && (
         <div style={{position:'absolute', zIndex: 8}}>
           <LoadingSpinner />
         </div>
       )}
 
       {/* Controls Overlay */}
-      <div style={{...styles.controlsOverlay, opacity: showControls? 1 : 0, pointerEvents: showControls? 'auto' : 'none'}}>
+      <div style={{...styles.controlsOverlay, opacity: showControls ? 1 : 0, pointerEvents: showControls ? 'auto' : 'none'}}>
         
         {/* Top Bar */}
         <div style={styles.topGradient}>
           <button onClick={onClose} style={styles.iconBtn}><BackIcon/></button>
-          <div style={{color:'#fff', fontSize:18, fontWeight:600}}>{title} {season? `— S${season} E${episode}` : ''}</div>
+          <div style={{color:'#fff', fontSize:18, fontWeight:600}}>{title} {season && !isMovie ? `— S${season} E${episode}` : ''}</div>
         </div>
 
         {/* Center Controls */}
         <div style={styles.centerControls}>
           <button onClick={(e)=>{e.stopPropagation();skip(-10)}} style={styles.bigBtn}><Replay10Icon/></button>
           <button onClick={(e)=>{e.stopPropagation();togglePlay()}} style={{...styles.bigBtn, transform:'scale(1.2)'}}>
-            {playing? <PauseIcon/> : <PlayIcon/>}
+            {playing ? <PauseIcon/> : <PlayIcon/>}
           </button>
           <button onClick={(e)=>{e.stopPropagation();skip(10)}} style={styles.bigBtn}><Forward10Icon/></button>
         </div>
@@ -277,13 +275,13 @@ export default function PrimePlayer({ tmdbId, title = '', isMovie, season = 1, e
 
           <div style={styles.controlsRow}>
             <div style={{display:'flex', alignItems:'center', gap:12}}>
-              <button onClick={togglePlay} style={styles.iconBtn}>{playing? <PauseIcon/> : <PlayIcon/>}</button>
+              <button onClick={togglePlay} style={styles.iconBtn}>{playing ? <PauseIcon/> : <PlayIcon/>}</button>
               <div style={{color:'#fff', fontSize:14}}>{formatTime(currentTime)} / {formatTime(duration)}</div>
             </div>
 
             <div style={{display:'flex', alignItems:'center', gap:12}}>
               <button onClick={()=>setPanel(panel==='settings'?'':'settings')} style={styles.iconBtn}><SettingsIcon/></button>
-              <button onClick={toggleFullscreen} style={styles.iconBtn}>{isFullscreen? <ExitFullscreenIcon/> : <FullscreenIcon/>}</button>
+              <button onClick={toggleFullscreen} style={styles.iconBtn}>{isFullscreen ? <ExitFullscreenIcon/> : <FullscreenIcon/>}</button>
             </div>
           </div>
         </div>
@@ -303,24 +301,25 @@ export default function PrimePlayer({ tmdbId, title = '', isMovie, season = 1, e
               {qualities.map(q => (
                 <div key={q.value} style={styles.menuItem} onClick={()=>{
                   setSelQuality(q.value); selQRef.current = q.value;
-                  loadSource(q); setPanel(null);
+                  loadSource(qualities.find(s => s.value === q.value)); 
+                  setPanel(null);
                 }}>
                   <div style={{width:20}}>{selQuality===q.value && <CheckIcon/>}</div>
-                  <span style={{color:selQuality===q.value? '#fff':'rgba(255,255,255,.7)'}}>{q.label}</span>
+                  <span style={{color:selQuality===q.value ? '#fff' : 'rgba(255,255,255,.7)'}}>{q.label}</span>
                 </div>
               ))}
             </div>
 
             <div style={{flex:1, padding:'20px 16px'}}>
               <div style={{color:'#fff', fontSize:16, fontWeight:700, marginBottom:16}}>Audio</div>
-              {audioTracks.length > 0? (
+              {audioTracks.length > 0 ? (
                 audioTracks.map(t => (
                   <div key={t.id} style={styles.menuItem} onClick={()=>{
                     if(hlsRef.current) hlsRef.current.audioTrack = t.id;
                     setActiveAudioIdx(t.id);
                   }}>
                     <div style={{width:20}}>{activeAudioIdx===t.id && <CheckIcon/>}</div>
-                    <span style={{color:activeAudioIdx===t.id? '#fff':'rgba(255,255,255,.7)'}}>{t.name}</span>
+                    <span style={{color:activeAudioIdx===t.id ? '#fff':'rgba(255,255,255,.7)'}}>{t.name}</span>
                   </div>
                 ))
               ) : (
