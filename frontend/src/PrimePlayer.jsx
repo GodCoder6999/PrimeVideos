@@ -1,247 +1,116 @@
-// frontend/src/PrimePlayer.jsx
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Hls from 'hls.js';
-import { useNavigate } from 'react-router-dom';
 
-// ─── ICONS ─────────────────────────────────────────────
-const SubtitlesIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><rect x="2" y="6" width="20" height="13" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/><line x1="6" y1="11" x2="18" y2="11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="6" y1="15" x2="14" y2="15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>);
-const SettingsIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.5"/><path d="M19.4 15a1.65 1.65 0 0 0.33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" stroke="currentColor" strokeWidth="1.5"/></svg>);
-const VolumeHighIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" stroke="currentColor" strokeWidth="1.5" fill="none"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>);
-const VolumeMidIcon  = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" stroke="currentColor" strokeWidth="1.5" fill="none"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>);
-const VolumeMuteIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" stroke="currentColor" strokeWidth="1.5" fill="none"/><line x1="23" y1="9" x2="17" y2="15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="17" y1="9" x2="23" y2="15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>);
-const PiPIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><rect x="2" y="5" width="20" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/><rect x="10" y="11" width="10" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" fill="currentColor"/></svg>);
-const FullscreenIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>);
-const ExitFullscreenIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M10 14l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>);
-const CloseIcon = () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>);
-const CheckIcon = () => (<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><polyline points="2,8 6,12 14,4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>);
-const ChevronRightIcon = () => (<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><polyline points="9 18 15 12 9 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>);
-const ChevronUpIcon   = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><polyline points="18 15 12 9 6 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>);
-const ChevronDownIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><polyline points="6 9 12 15 18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>);
-const XRayExpandIcon  = () => (<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>);
-const Rewind10Icon = () => (<svg width="88" height="88" viewBox="0 0 64 64" fill="none"><path d="M16 24 A20 20 0 1 1 16 46" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/><path d="M25 15 L15 24 L25 33" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/><text x="32" y="32" dy="0.35em" textAnchor="middle" fill="currentColor" fontSize="16" fontWeight="700" fontFamily="system-ui">10</text></svg>);
-const Forward10Icon = () => (<svg width="88" height="88" viewBox="0 0 64 64" fill="none"><path d="M48 24 A20 20 0 1 0 48 46" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/><path d="M39 15 L49 24 L39 33" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/><text x="32" y="32" dy="0.35em" textAnchor="middle" fill="currentColor" fontSize="16" fontWeight="700" fontFamily="system-ui">10</text></svg>);
-const PlayIcon  = () => (<svg width="88" height="88" viewBox="0 0 64 64" fill="none"><path d="M24 16 L48 32 L24 48 Z" fill="currentColor" stroke="currentColor" strokeWidth="4" strokeLinejoin="round"/></svg>);
-const PauseIcon = () => (<svg width="88" height="88" viewBox="0 0 64 64" fill="none"><rect x="20" y="16" width="7" height="32" rx="3.5" fill="currentColor"/><rect x="37" y="16" width="7" height="32" rx="3.5" fill="currentColor"/></svg>);
+// SVG Icons (abridged for brevity, keeping the ones used)
+const PlayIcon = ()=><svg width="32" height="32" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg>;
+const PauseIcon = ()=><svg width="32" height="32" viewBox="0 0 24 24" fill="#fff"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>;
+const FullscreenIcon = ()=><svg width="24" height="24" viewBox="0 0 24 24" fill="#fff"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>;
+const ExitFullscreenIcon = ()=><svg width="24" height="24" viewBox="0 0 24 24" fill="#fff"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>;
+const SettingsIcon = ()=><svg width="24" height="24" viewBox="0 0 24 24" fill="#fff"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.73 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>;
+const SubtitleIcon = ()=><svg width="24" height="24" viewBox="0 0 24 24" fill="#fff"><path d="M19 4H5c-1.11 0-2 .9-2 2v12c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-8 7H9.5v-.5h-2v3h2V13H11v1.5c0 .28-.22.5-.5.5h-3c-.28 0-.5-.22-.5-.5v-4c0-.28.22-.5.5-.5h3c.28 0 .5.22.5.5V11zm7 0h-1.5v-.5h-2v3h2V13H18v1.5c0 .28-.22.5-.5.5h-3c-.28 0-.5-.22-.5-.5v-4c0-.28.22-.5.5-.5h3c.28 0 .5.22.5.5V11z"/></svg>;
+const VolumeUpIcon = ()=><svg width="24" height="24" viewBox="0 0 24 24" fill="#fff"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>;
+const VolumeOffIcon = ()=><svg width="24" height="24" viewBox="0 0 24 24" fill="#fff"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>;
+const LoadingSpinner = ()=>(<svg width="48" height="48" viewBox="0 0 50 50"><circle cx="25" cy="25" r="20" fill="none" stroke="#fff" strokeWidth="4" strokeDasharray="31.4 31.4" strokeLinecap="round"><animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" dur="1s" repeatCount="indefinite"/></circle></svg>);
+const BackIcon = ()=><svg width="28" height="28" viewBox="0 0 24 24" fill="#fff"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>;
+const Forward10Icon = ()=><svg width="28" height="28" viewBox="0 0 24 24" fill="#fff"><path d="M18 13c0 3.31-2.69 6-6 6s-6-2.69-6-6 2.69-6 6-6v4l5-5-5-5v4c-4.42 0-8 3.58-8 8s3.58 8 8 8 8-3.58 8-8h-2z"/><text x="12" y="16" fill="#fff" fontSize="7px" textAnchor="middle" fontWeight="bold">10</text></svg>;
+const Replay10Icon = ()=><svg width="28" height="28" viewBox="0 0 24 24" fill="#fff"><path d="M12 5V1l-5 5 5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/><text x="12" y="16" fill="#fff" fontSize="7px" textAnchor="middle" fontWeight="bold">10</text></svg>;
+const CheckIcon = ()=><svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>;
+const PiPIcon = ()=><svg width="24" height="24" viewBox="0 0 24 24" fill="#fff"><path d="M19 7h-8v6h8V7zm2-4H3c-1.1 0-2 .9-2 2v14c0 1.1.9 1.98 2 1.98h18c1.1 0 2-.88 2-1.98V5c0-1.1-.9-2-2-2zm0 16.01H3V4.98h18v14.03z"/></svg>;
+const CloseIcon = ()=><svg width="24" height="24" viewBox="0 0 24 24" fill="#fff"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>;
 
-// ─── HELPERS ──────────────────────────────────────────────────────────────────
-const fmtTime = (s) => {
-  if (!s |
-
-| isNaN(s)) return '0:00:00';
-  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = Math.floor(s%60);
-  return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+// Helpers
+const formatTime = (secs) => {
+  if (isNaN(secs)) return '0:00';
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = Math.floor(secs % 60);
+  if (h > 0) return `${h}:${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
+  return `${m}:${s < 10 ? '0' : ''}${s}`;
 };
-const TMDB_KEY = 'cb1dc311039e6ae85db0aa200345cbc5';
 
-// Map ISO language codes / raw names → readable display names
-function friendlyLang(raw) {
-  if (!raw) return raw;
-  const map = {
-    hin:'Hindi', hi:'Hindi', hindi:'Hindi',
-    eng:'English', en:'English', english:'English',
-    tam:'Tamil', ta:'Tamil', tamil:'Tamil',
-    tel:'Telugu', te:'Telugu', telugu:'Telugu',
-    mal:'Malayalam', ml:'Malayalam', malayalam:'Malayalam',
-    kan:'Kannada', kn:'Kannada', kannada:'Kannada',
-    ben:'Bengali', bn:'Bengali', bengali:'Bengali',
-    mar:'Marathi', mr:'Marathi', marathi:'Marathi',
-    pun:'Punjabi', pa:'Punjabi', punjabi:'Punjabi',
-    jpn:'Japanese', ja:'Japanese', japanese:'Japanese',
-    kor:'Korean', ko:'Korean', korean:'Korean',
-    fra:'French', fr:'French', french:'French',
-    deu:'German', de:'German', german:'German',
-    spa:'Spanish', es:'Spanish', spanish:'Spanish',
-    zho:'Chinese', zh:'Chinese', chinese:'Chinese',
-    ara:'Arabic', ar:'Arabic', arabic:'Arabic',
-    mul:'Multi', multi:'Multi',
-    und:'Unknown', unknown:'Unknown',
-  };
-  const key = raw.toLowerCase().trim();
-  return map[key] |
-
-| (raw.charAt(0).toUpperCase() + raw.slice(1));
-}
-
-// ─── MAIN PLAYER ──────────────────────────────────────────────────────────────
-export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', season = 1, episode = 1, onClose }) {
-  const navigate = useNavigate();
-
-  const containerRef   = useRef(null);
-  const videoRef       = useRef(null);
-  const hlsRef         = useRef(null);
-  const iframeRef      = useRef(null);
+export default function PrimePlayer({ 
+  id, title, isMovie, season, episode, onClose, 
+  tmdbId, providerId 
+}) {
+  const containerRef = useRef(null);
+  const videoRef = useRef(null);
+  const hlsRef = useRef(null);
+  const controlsTimeoutRef = useRef(null);
   const progressBarRef = useRef(null);
-  const ctrlTimer      = useRef(null);
-  const volSliderRef   = useRef(null);
-  const iframeTimer    = useRef(null);
 
-  const rawFilesRef   = useRef();
-  const allSourcesRef = useRef();
-  const selQRef       = useRef(-1);
-  const hasResumed    = useRef(false);
+  // Core state
+  const [mode, setMode] = useState('loading'); // loading, custom, iframe, error
+  const [iframeUrl, setIframeUrl] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
 
-  // playback
-  const [playing,     setPlaying]     = useState(false);
-  const = useState(0);
-  const    = useState(0);
-  const    = useState(0);
-  const   = useState(false);
-  const [volume,      setVolume]      = useState(1);
-  const [muted,       setMuted]       = useState(false);
-  const [prevVol,     setPrevVol]     = useState(1);
-  const [autoMuted,   setAutoMuted]   = useState(false);
+  // Video UI state
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [buffered, setBuffered] = useState(0);
+  const [volume, setVolume] = useState(1);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showControls, setShowControls] = useState(true);
+  const [isBuffering, setBuffering] = useState(false);
 
-  // stream
-  const [mode,       setMode]       = useState('loading');
-  const [hlsUrl,     setHlsUrl]     = useState(null);
-  const [hlsKey,     setHlsKey]     = useState(0); // forces reload even for same URL
-  const= useState();
-  const  = useState(0);
-  const [qualities,  setQualities]  = useState();
-  const = useState(-1);
-  const [embeds,     setEmbeds]     = useState();
-  const [embedIdx,   setEmbedIdx]   = useState(0);
-  const [embedPhase, setEmbedPhase] = useState('loading');
+  // Settings & Menus
+  const [panel, setPanel] = useState(null); // 'settings', 'subtitles', 'audio', 'qualities'
+  const [qualities, setQualities] = useState([]);
+  const [selQuality, setSelQuality] = useState(0);
 
-  // ── AUDIO TRACKS — populated from HLS.js after manifest loads ──
-  const    = useState(); // [{id, name}]
+  // Subtitles & Audio (HLS specific)
+  const [subs, setSubs] = useState([]);
+  const [activeSubId, setActiveSubId] = useState(-1);
+  const [audioTracks, setAudioTracks] = useState([]);
   const [activeAudioIdx, setActiveAudioIdx] = useState(0);
 
-  // subtitle tracks
-  const    = useState();
-  const = useState(-1);
+  // *** Multi-Language Stream states ***
+  const [availableLangs, setAvailableLangs] = useState([]);
+  const [selLang, setSelLang] = useState('Original');
 
-  // ui
-  const     = useState(true);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const      = useState(false);
-  const  = useState(false);
-  const [panel,        setPanel]        = useState(null);
-  const       = useState(null);
-  const       = useState(null);
-  const [hoverX,       setHoverX]       = useState(0);
-  const [xrayOpen,     setXrayOpen]     = useState(false);
-  const [xrayExpanded, setXrayExpanded] = useState(false);
-  const [xrayCast,     setXrayCast]     = useState();
-  const      = useState('scene');
-  const [expandCast,   setExpandCast]   = useState(null);
-  const   = useState(title);
-  const = useState('');
-  const   = useState(null);
+  // Refs for logic
+  const rawFilesRef = useRef([]);
+  const allSourcesRef = useRef([]);
+  const selQRef = useRef(0);
+  const isDraggingRef = useRef(false);
 
-  const isVideo  = mode === 'hls' |
-
-| mode === 'direct';
-  const chapters = duration > 0? [0.16,0.33,0.5,0.66,0.83].map(p => p*duration) :;
-
-  // ── TV episode info ────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (mediaType!== 'tv') return;
-    fetch(`https://api.themoviedb.org/3/tv/${tmdbId}/season/${season}?api_key=${TMDB_KEY}`)
-     .then(r => r.json()).then(d => {
-        if (!d.episodes) return;
-        const ep = d.episodes.find(e => e.episode_number == episode);
-        if (ep) setEpisodeTitle(ep.name);
-        const next = d.episodes.find(e => e.episode_number == Number(episode)+1);
-        if (next) { setNextEpData({ season, episode: Number(episode)+1 }); return; }
-        fetch(`https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${TMDB_KEY}`)
-         .then(r=>r.json()).then(tv=>{
-            const ns = tv.seasons?.find(s=>s.season_number==Number(season)+1);
-            setNextEpData(ns&&ns.episode_count>0?{season:Number(season)+1,episode:1}:null);
-          });
-      });
-  },);
-
-  const handleNextEpisode = e => {
-    e.stopPropagation();
-    if (nextEpData) navigate(`/watch/tv/${tmdbId}?season=${nextEpData.season}&episode=${nextEpData.episode}`,{replace:true});
-  };
-
-  // ── Progress save/restore ──────────────────────────────────────────────────
-  useEffect(() => { hasResumed.current = false; }, [tmdbId, season, episode]);
+  // ── Progress Tracking ────────────────────────────────────────────────────────
+  const progressKey = `progress_${id}${!isMovie ? `_s${season}e${episode}` : ''}`;
 
   const saveProgress = useCallback((time, dur) => {
-    if (!tmdbId ||!dur |
-
-| time < 5) return;
-    const key = `${mediaType==='tv'?'t':'m'}${tmdbId}`;
-    const all = JSON.parse(localStorage.getItem('vidFastProgress')||'{}');
-    all[key] = {...(all[key]||{}), id:tmdbId, type:mediaType,
-      progress:{watched:time,duration:dur}, last_season_watched:season,
-      last_episode_watched:episode, last_updated:Date.now(),
-     ...(movieTitle?{title:movieTitle}:{}) };
-    localStorage.setItem('vidFastProgress', JSON.stringify(all));
-  },);
-
-  useEffect(() => {
-    const iv = setInterval(() => {
-      if (playing && videoRef.current && duration>0) saveProgress(videoRef.current.currentTime, duration);
-    }, 5000);
-    return () => clearInterval(iv);
-  }, [playing, duration, saveProgress]);
-
-  const attemptResume = useCallback(vid => {
-    if (hasResumed.current) return;
-    const key = `${mediaType==='tv'?'t':'m'}${tmdbId}`;
-    const prog = (JSON.parse(localStorage.getItem('vidFastProgress')||'{}'))[key];
-    const sameEp = mediaType==='tv'? prog?.last_season_watched==season && prog?.last_episode_watched==episode : true;
-    if (prog?.progress?.watched>0 && sameEp && prog.progress.watched < prog.progress.duration*0.95)
-      vid.currentTime = prog.progress.watched;
-    hasResumed.current = true;
-  },);
-
-  // ── Volume sync ────────────────────────────────────────────────────────────
-  useEffect(() => {
-    const v = videoRef.current; if (!v) return;
-    const fn = () => { setMuted(v.muted); setVolume(v.volume); if(!v.muted&&v.volume>0) setAutoMuted(false); };
-    v.addEventListener('volumechange', fn);
-    return () => v.removeEventListener('volumechange', fn);
-  },);
-
-  // ── Embed list ─────────────────────────────────────────────────────────────
-  const buildEmbeds = (tid, iid, mt, s, e) => {
-    const tv = mt==='tv'; const list=;
-    if(iid){
-      list.push({name:'VidSrc',    url:tv?`https://vidsrc.xyz/embed/tv?imdb=${iid}&season=${s}&episode=${e}`:`https://vidsrc.xyz/embed/movie?imdb=${iid}`});
-      list.push({name:'VidSrc.me', url:tv?`https://vidsrc.me/embed/tv?imdb=${iid}&season=${s}&episode=${e}`:`https://vidsrc.me/embed/movie?imdb=${iid}`});
+    if (time > 5 && dur > 10) {
+      localStorage.setItem(progressKey, JSON.stringify({
+        time,
+        duration: dur,
+        percentage: time / dur,
+        timestamp: Date.now()
+      }));
     }
-    list.push({name:'VidSrc',    url:tv?`https://vidsrc.xyz/embed/tv?tmdb=${tid}&season=${s}&episode=${e}`:`https://vidsrc.xyz/embed/movie?tmdb=${tid}`});
-    list.push({name:'VidSrc.in', url:tv?`https://vidsrc.in/embed/tv?tmdb=${tid}&season=${s}&episode=${e}`:`https://vidsrc.in/embed/movie?tmdb=${tid}`});
-    list.push({name:'Videasy',   url:tv?`https://player.videasy.net/tv/${tid}/${s}/${e}`:`https://player.videasy.net/movie/${tid}`});
-    list.push({name:'AutoEmbed', url:tv?`https://autoembed.cc/tv/tmdb/${tid}-${s}-${e}`:`https://autoembed.cc/movie/tmdb/${tid}`});
-    return list;
-  };
+  }, [progressKey]);
 
-  // ── loadSource ─────────────────────────────────────────────────────────────
-  const loadSource = useCallback(src => {
-    setBuffering(true); setPlaying(false); setCurrentTime(0); setBuffered(0);
-    setAudioTracks(); setActiveAudioIdx(0);
-    setSubTracks(); setActiveSubIdx(-1);
-    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
-    if (videoRef.current) { videoRef.current.pause(); videoRef.current.removeAttribute('src'); videoRef.current.load(); }
-
-    if (src.url.includes('.m3u8') |
-
-| src.url.includes('m3u') |
-| src.url.includes('playlist')) {
-      setHlsUrl(src.url);
-      setHlsKey(k => k+1); // always bump so useEffect re-runs even for same URL
-      setMode('hls');
-    } else {
-      setDirectFiles([src]);
-      setDirectIdx(0);
-      setMode('direct');
-    }
-  },);
+  const attemptResume = useCallback((vid) => {
+    try {
+      const saved = localStorage.getItem(progressKey);
+      if (saved) {
+        const { time, percentage } = JSON.parse(saved);
+        if (percentage < 0.95 && time > 0) {
+          vid.currentTime = time;
+        }
+      }
+    } catch(e) {}
+  }, [progressKey]);
 
   // ── Build quality menu + load first source ─────────────────────────────────
-  const buildAndLoad = useCallback(files => {
-    const order = {'1080p':6,'720p':5,'480p':4,'360p':3,'Auto':2,'2160p':1};
-    const seen = new Set(); const menu =;
-    files.forEach((f, i) => {
-      const label = f.quality |
-
-| 'Auto';
+  const updateQualityMenu = useCallback((files, lang, autoLoad = true) => {
+    const order = {'1080p':6,'720p':5,'480p':4,'360p':3,'Auto':2,'2160p':1,'4k':7};
+    const seen = new Set(); const menu = [];
+    
+    // Filter the raw streams by the selected language
+    const filteredFiles = files.filter(f => (f.language || 'Original') === lang);
+    
+    filteredFiles.forEach((f, i) => {
+      const label = f.quality || 'Auto';
       const key = `${label}-${i}`;
       if (!seen.has(label)) {
         seen.add(label);
@@ -251,570 +120,507 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         seen.add(key);
       }
     });
-    menu.sort((a,b) => (order[b.label.split(' ')]||0)-(order[a.label.split(' ')]||0));
+    
+    menu.sort((a,b) => (order[b.label.split(' ')[0].toLowerCase()]||0)-(order[a.label.split(' ')[0].toLowerCase()]||0));
     menu.forEach((m,i) => m.value=i);
 
     allSourcesRef.current = menu;
     setQualities(menu);
-    if (menu.length > 0) {
-      setSelQuality(0); selQRef.current=0;
-      loadSource(menu);
-    } else {
+    if (menu.length > 0 && autoLoad) {
+      setSelQuality(menu[0].value); selQRef.current=menu[0].value;
+      loadSource(menu[0]);
+    } else if (menu.length === 0 && autoLoad) {
       setMode('iframe');
     }
-  },);
+  }, []);
+
+  const buildAndLoad = useCallback(files => {
+    // Extract unique languages
+    const langs = [...new Set(files.map(f => f.language || 'Original'))];
+    setAvailableLangs(langs);
+    
+    // Auto-select Hindi/Multi if available, otherwise first language
+    const initialLang = langs.find(l => l.includes('Hindi')) || langs[0];
+    setSelLang(initialLang);
+    
+    updateQualityMenu(files, initialLang, true);
+  }, [updateQualityMenu]);
+
+  // ── Fetch Sources ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    const init = async () => {
+      // 1. Fetch Subtitles
+      try {
+        const subUrl = `https://vidsrc.pro/api/subtitles/${tmdbId}${!isMovie?`/${season}/${episode}`:''}`;
+        const sRes = await fetch(subUrl);
+        if(sRes.ok){
+          const sData=await sRes.json();
+          if(sData.subtitles) setSubs(sData.subtitles.map((s,i)=>({...s, id:i})));
+        }
+      } catch(e){}
+
+      // 2. Fetch direct streams
+      try {
+        const epStr = !isMovie ? `&s=${season}&e=${episode}` : '';
+        const res = await fetch(`/api/multi-stream?tmdbId=${tmdbId}&type=${isMovie?'movie':'tv'}${epStr}`);
+        const data = await res.json();
+        const streams = data.streams||[];
+
+        if(streams.length>0){
+          const files=[];
+          streams.forEach(s=>{
+            // Include language parsed from backend
+            files.push({url:s.url, quality:s.quality||'Auto', language: s.language || 'Original'});
+            files.push({url:`/api/proxy?url=${encodeURIComponent(s.url)}`, quality:(s.quality||'Auto')+' ↑', language: s.language || 'Original'});
+          });
+          rawFilesRef.current=files;
+          buildAndLoad(files);
+          return;
+        }
+      } catch(e) { console.warn('Stream fetch failed',e); }
+      
+      // 3. Fallback to iframe
+      setIframeUrl(`https://vidsrc.pro/embed/${isMovie?'movie':'tv'}/${tmdbId}${!isMovie?`/${season}/${episode}`:''}`);
+      setMode('iframe');
+    };
+    init();
+  }, [tmdbId, isMovie, season, episode, buildAndLoad]);
+
+  // ── Media Engine Setup ─────────────────────────────────────────────────────
+  const loadSource = useCallback((srcObj) => {
+    if (!videoRef.current) return;
+    const vid = videoRef.current;
+    const url = srcObj.url;
+
+    if(hlsRef.current){ hlsRef.current.destroy(); hlsRef.current=null; }
+    
+    setBuffering(true); setAudioTracks([]); setActiveAudioIdx(0);
+
+    const friendlyLang = (raw) => {
+      if(!raw) return raw;
+      const m={hin:'Hindi',hi:'Hindi',hindi:'Hindi',eng:'English',en:'English',english:'English'};
+      return m[raw.toLowerCase().trim()] || (raw.charAt(0).toUpperCase()+raw.slice(1));
+    };
+
+    if (url.includes('.m3u8')) {
+      if (Hls.isSupported()) {
+        const hls = new Hls({ maxBufferLength:30, maxMaxBufferLength:600 });
+        hlsRef.current = hls;
+        hls.loadSource(url);
+        hls.attachMedia(vid);
+        
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          setBuffering(false);
+          if(hls.audioTracks && hls.audioTracks.length>0){
+            const t=hls.audioTracks.map((tr,i)=>({
+              id:i, name:friendlyLang(tr.name)||friendlyLang(tr.lang)||friendlyLang(tr.language)||`Track ${i+1}`
+            }));
+            setAudioTracks(t);
+            // Default to English if available
+            const eIdx=t.findIndex(x=>x.name==='English');
+            const defIdx=eIdx>=0?eIdx:0;
+            hls.audioTrack=defIdx;
+            setActiveAudioIdx(defIdx);
+          }
+          vid.play().catch(()=>{});
+        });
+        hls.on(Hls.Events.ERROR, (e, data) => { if(data.fatal) setMode('iframe'); });
+      } else if (vid.canPlayType('application/vnd.apple.mpegurl')) {
+        vid.src = url;
+        vid.play().catch(()=>{});
+      }
+    } else {
+      // Direct MP4 / MKV
+      vid.src = url;
+      vid.play().catch(()=>{});
+    }
+    setMode('custom');
+  }, []);
+
+  // ── UI Interactions ────────────────────────────────────────────────────────
+  const togglePlay = () => {
+    if(!videoRef.current) return;
+    videoRef.current.paused ? videoRef.current.play() : videoRef.current.pause();
+  };
+
+  const handleSeek = (e) => {
+    if(!videoRef.current) return;
+    const rect = progressBarRef.current.getBoundingClientRect();
+    const pos = (e.clientX - rect.left) / rect.width;
+    const newTime = pos * duration;
+    videoRef.current.currentTime = newTime;
+    setCurrentTime(newTime);
+  };
+
+  const skip = (amt) => {
+    if(videoRef.current) videoRef.current.currentTime += amt;
+  };
+
+  const toggleFullscreen = async () => {
+    if (!document.fullscreenElement) {
+      if(containerRef.current.requestFullscreen) await containerRef.current.requestFullscreen();
+      setIsFullscreen(true);
+    } else {
+      if(document.exitFullscreen) await document.exitFullscreen();
+      setIsFullscreen(false);
+    }
+  };
+
+  const togglePiP = async () => {
+    if (document.pictureInPictureElement) {
+      await document.exitPictureInPicture();
+    } else if (document.pictureInPictureEnabled && videoRef.current) {
+      await videoRef.current.requestPictureInPicture();
+    }
+  };
+
+  // ── Multi-Audio Feature Handlers ───────────────────────────────────────────
+  const handleLanguage = useCallback(lang => {
+    setSelLang(lang);
+    // Save progress instantly before switching
+    if (videoRef.current && duration > 0) saveProgress(videoRef.current.currentTime, duration);
+    updateQualityMenu(rawFilesRef.current, lang, true);
+    setPanel(null);
+  }, [duration, saveProgress, updateQualityMenu]);
 
   const handleQuality = useCallback(val => {
     setSelQuality(val); selQRef.current=val;
     const src = allSourcesRef.current.find(s=>s.value===val);
+    // Save progress instantly before switching
+    if (videoRef.current && duration > 0) saveProgress(videoRef.current.currentTime, duration);
     if (src) loadSource(src);
     setPanel(null);
-  },);
+  }, [loadSource, duration, saveProgress]);
 
-  const tryNextSource = useCallback(() => {
-    const idx = allSourcesRef.current.findIndex(s=>s.value===selQRef.current);
-    if (idx!==-1 && idx<allSourcesRef.current.length-1) handleQuality(allSourcesRef.current[idx+1].value);
-    else { setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading'); }
-  }, [handleQuality]);
-
-  // ── MAIN INIT ──────────────────────────────────────────────────────────────
+  // ── Event Listeners ────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!tmdbId) return;
-    setMode('loading'); setHlsUrl(null);
-    setDirectFiles(); setDirectIdx(0); setQualities(); setSelQuality(-1);
-    setEmbeds(); setEmbedIdx(0); setEmbedPhase('loading');
-    setPlaying(false); setBuffering(false); setAutoMuted(false);
-    setCurrentTime(0); setDuration(0); setBuffered(0);
-    setAudioTracks(); setSubTracks();
-    rawFilesRef.current=; allSourcesRef.current=;
-    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current=null; }
-
-    let cancelled = false;
-    const ac = new AbortController();
-
-    fetch(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_KEY}&append_to_response=external_ids,credits`,{signal:ac.signal})
-     .then(r=>r.json()).then(d=>{
-        if(cancelled) return;
-        const iid = d.imdb_id||d.external_ids?.imdb_id||null;
-        setMovieTitle(d.title||d.name||title);
-        setXrayCast((d.credits?.cast||).slice(0,12).map(p=>({
-          id:p.id,name:p.name,character:p.character,
-          profile:p.profile_path?`https://image.tmdb.org/t/p/w185${p.profile_path}`:null,
-        })));
-        if(!cancelled) setEmbeds(buildEmbeds(tmdbId,iid,mediaType,season,episode));
-      }).catch(()=>{});
-
-    setEmbeds(buildEmbeds(tmdbId,null,mediaType,season,episode));
-
-    (async()=>{
-      let streams=;
-      try {
-        const r = await fetch(`/api/multi-stream?${new URLSearchParams({tmdbId,type:mediaType,season,episode})}`);
-        if(r.ok){
-          const d=await r.json();
-          if(d?.success&&Array.isArray(d.streams))
-            streams=d.streams.filter(s=>s?.url&&s.url.startsWith('http'));
-        }
-      } catch(e){ console.warn('[Player]',e.message); }
-
-      if(cancelled) return;
-
-      if(streams.length>0){
-        const files=;
-        streams.forEach(s=>{
-          files.push({url:s.url, quality:s.quality||'Auto'});
-          files.push({url:`/api/proxy?url=${encodeURIComponent(s.url)}`, quality:(s.quality||'Auto')+' ↑'});
-        });
-        rawFilesRef.current=files;
-        buildAndLoad(files);
-        return;
-      }
-      if(!cancelled) setMode('iframe');
-    })();
-
-    return ()=>{ cancelled=true; ac.abort(); if(hlsRef.current){hlsRef.current.destroy();hlsRef.current=null;} };
-  },);
-
-  // ── HLS SETUP ──────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (mode!=='hls' ||!hlsUrl ||!videoRef.current) return;
-    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current=null; }
     const vid = videoRef.current;
+    if (!vid) return;
 
-    if (Hls.isSupported()) {
-      const hls = new Hls({
-        enableWorker:true, backBufferLength:60, maxBufferLength:30, lowLatencyMode:false,
-        fragLoadingTimeOut:30000, manifestLoadingTimeOut:20000, levelLoadingTimeOut:20000,
-        fragLoadingMaxRetry:4, manifestLoadingMaxRetry:3, levelLoadingMaxRetry:3,
-        fragLoadingRetryDelay:500, xhrSetup:xhr=>{ xhr.withCredentials=false; },
-      });
-      hlsRef.current=hls;
-      hls.loadSource(hlsUrl);
-      hls.attachMedia(vid);
-
-      hls.on(Hls.Events.MANIFEST_PARSED, ()=>{
-        setBuffering(false);
-
-        const cap = hls.levels.map((l,i)=>({h:l.height||0,i})).filter(x=>x.h>0&&x.h<=1080).sort((a,b)=>b.h-a.h);
-        if(cap) hls.autoLevelCapping=cap.i;
-
-        // ── AUDIO TRACKS ──
-        if(hls.audioTracks && hls.audioTracks.length>0){
-          const tracks = hls.audioTracks.map((t,i)=>({
-            id:i,
-            name: friendlyLang(t.name) |
-
-| friendlyLang(t.lang) |
-| friendlyLang(t.language) |
-| `Track ${i+1}`,
-          }));
-          setAudioTracks(tracks);
-          
-          // Auto-select: prefer English track, else first
-          const englishIdx = tracks.findIndex(t=>t.name==='English');
-          const defaultIdx = englishIdx>=0? englishIdx : 0;
-          hls.audioTrack=defaultIdx;
-          setActiveAudioIdx(defaultIdx);
-        } else {
-          setAudioTracks();
-        }
-
-        // Subtitle tracks
-        if(hls.subtitleTracks && hls.subtitleTracks.length>0){
-          setSubTracks(hls.subtitleTracks.map((t,i)=>({
-            id:i, name:friendlyLang(t.name||t.lang)||`Sub ${i+1}`,
-          })));
-          hls.subtitleTrack=-1;
-          setActiveSubIdx(-1);
-        } else {
-          setSubTracks();
-        }
-
-        vid.volume=1; vid.muted=false;
-        attemptResume(vid);
-        vid.play()
-         .then(()=>setPlaying(true))
-         .catch(()=>{
-            vid.muted=true;
-            vid.play().then(()=>{setPlaying(true);setAutoMuted(true);}).catch(()=>{setPlaying(false);setBuffering(false);});
-          });
-      });
-
-      let netR=0, medR=0;
-      hls.on(Hls.Events.ERROR, (_,d)=>{
-        if(d.details===Hls.ErrorDetails.AUDIO_TRACK_LOAD_ERROR||d.details===Hls.ErrorDetails.AUDIO_TRACK_LOAD_TIMEOUT){
-          if(hls.audioTracks&&hls.audioTracks.length>1){
-            const next=(hls.audioTrack+1)%hls.audioTracks.length;
-            hls.audioTrack=next; setActiveAudioIdx(next);
-          } else if(d.fatal){hls.destroy();tryNextSource();}
-          return;
-        }
-        if(!d.fatal) return;
-        if(d.type===Hls.ErrorTypes.NETWORK_ERROR){
-          if(netR<2){netR++;setTimeout(()=>hls.startLoad(),1000*netR);}
-          else{hls.destroy();tryNextSource();}
-        } else if(d.type===Hls.ErrorTypes.MEDIA_ERROR){
-          if(medR<2){medR++;hls.recoverMediaError();}
-          else{hls.destroy();tryNextSource();}
-        } else{hls.destroy();tryNextSource();}
-      });
-
-    } else if(vid.canPlayType('application/vnd.apple.mpegurl')){
-      vid.src=hlsUrl; vid.volume=1; vid.muted=false;
-      vid.addEventListener('loadedmetadata',()=>{
-        setBuffering(false);
-        if(vid.audioTracks&&vid.audioTracks.length>0){
-          setAudioTracks(Array.from(vid.audioTracks).map((t,i)=>({
-            id:i, name:friendlyLang(t.language||t.label)||`Track ${i+1}`,
-          })));
-        }
-        attemptResume(vid);
-        vid.play().then(()=>setPlaying(true)).catch(()=>{vid.muted=true;vid.play().then(()=>{setPlaying(true);setAutoMuted(true);}).catch(()=>setPlaying(false));});
-      },{once:true});
-      vid.addEventListener('error',tryNextSource,{once:true});
-    } else { tryNextSource(); }
-
-    return ()=>{ if(hlsRef.current){hlsRef.current.destroy();hlsRef.current=null;} };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hlsUrl, hlsKey, mode]);
-
-  // ── DIRECT MODE ────────────────────────────────────────────────────────────
-  useEffect(()=>{
-    if(mode!=='direct'||!videoRef.current||!directFiles.length) return;
-    const file=directFiles[directIdx]; if(!file?.url) return;
-    const vid=videoRef.current;
-    vid.pause(); vid.removeAttribute('src'); vid.load();
-    const lt=setTimeout(()=>{if(!videoRef.current)return;vid.volume=1;vid.muted=false;vid.src=file.url;vid.load();},80);
-    let done=false,st=null;
-    const tryNext=()=>{if(done)return;done=true;clearTimeout(st);tryNextSource();};
-    const onCanPlay=()=>{if(done)return;setBuffering(false);clearTimeout(st);vid.volume=1;vid.muted=false;attemptResume(vid);
-      vid.play().then(()=>{if(!done)setPlaying(true);}).catch(()=>{vid.muted=true;vid.play().then(()=>{if(!done){setPlaying(true);setAutoMuted(true);}}).catch(()=>{if(!done){setPlaying(false);setBuffering(false);}});});};
-    const onError=()=>{const e=vid.error;if(!e||e.code===1)return;tryNext();};
-    st=setTimeout(()=>tryNext(),10000);
-    const onProg=()=>{clearTimeout(st);st=setTimeout(()=>{if(vid.readyState<3&&!vid.paused)tryNext();},10000);};
-    vid.addEventListener('canplay',onCanPlay,{once:true});
-    vid.addEventListener('error',onError,{once:true});
-    vid.addEventListener('progress',onProg);
-    return()=>{done=true;clearTimeout(lt);clearTimeout(st);vid.removeEventListener('canplay',onCanPlay);vid.removeEventListener('error',onError);vid.removeEventListener('progress',onProg);};
-  },);
-
-  // ── IFRAME TIMEOUT ─────────────────────────────────────────────────────────
-  useEffect(()=>{
-    if(mode!=='iframe'||embedPhase!=='loading') return;
-    clearTimeout(iframeTimer.current);
-    iframeTimer.current=setTimeout(()=>{if(embedIdx<embeds.length-1)setEmbedIdx(i=>i+1);else setEmbedPhase('failed');},15000);
-    return()=>clearTimeout(iframeTimer.current);
-  },[mode,embedPhase,embedIdx,embeds.length]);
-
-  // ── VIDEO DOM EVENTS ───────────────────────────────────────────────────────
-  useEffect(()=>{
-    const v=videoRef.current; if(!v) return;
-    const handlers=,
-      ['pause',   ()=>setPlaying(false)],
-     ,
-     ,
-     ,
-     ,
-     ,
-     ,
-     ;
-    handlers.forEach(([ev,fn])=>v.addEventListener(ev,fn));
-    return()=>handlers.forEach(([ev,fn])=>v.removeEventListener(ev,fn));
-  },);
-
-  // ── CONTROLS HIDE ──────────────────────────────────────────────────────────
-  const resetCtrl=useCallback(()=>{setShowCtrl(true);clearTimeout(ctrlTimer.current);ctrlTimer.current=setTimeout(()=>{if(!panel&&!xrayOpen)setShowCtrl(false);},3500);},[panel,xrayOpen]);
-  useEffect(()=>{resetCtrl();return()=>clearTimeout(ctrlTimer.current);},[resetCtrl]);
-  useEffect(()=>{if(panel||xrayOpen){setShowCtrl(true);clearTimeout(ctrlTimer.current);}else resetCtrl();},[panel,xrayOpen,resetCtrl]);
-
-  // ── KEYBOARD ───────────────────────────────────────────────────────────────
-  useEffect(()=>{
-    const fn=e=>{
-      if(e.target.tagName==='INPUT') return;
-      if(e.key===' '||e.key==='k'){e.preventDefault();togglePlay();}
-      else if(e.key==='ArrowLeft'){e.preventDefault();skip(-10);}
-      else if(e.key==='ArrowRight'){e.preventDefault();skip(10);}
-      else if(e.key==='f') toggleFS();
-      else if(e.key==='m') toggleMute();
-      else if(e.key==='Escape'){setPanel(null);setXrayOpen(false);setXrayExpanded(false);}
+    const onTimeUpdate = () => {
+      if(!isDraggingRef.current) setCurrentTime(vid.currentTime);
+      if(vid.buffered.length>0) setBuffered(vid.buffered.end(vid.buffered.length-1));
     };
-    window.addEventListener('keydown',fn);
-    return()=>window.removeEventListener('keydown',fn);
-  },[playing,muted,volume]);
+    const onDuration = () => setDuration(vid.duration);
+    const onPlay = () => setIsPlaying(true);
+    const onPause = () => setIsPlaying(false);
+    const onWaiting = () => setBuffering(true);
+    const onPlaying = () => setBuffering(false);
+    
+    // Resume when video metadata loads (perfect for hot-swapping URLs)
+    const onCanPlay = () => attemptResume(vid);
 
-  useEffect(()=>{
-    const fn=()=>setIsFullscreen(!!document.fullscreenElement);
-    document.addEventListener('fullscreenchange',fn);
-    return()=>document.removeEventListener('fullscreenchange',fn);
-  },);
+    vid.addEventListener('timeupdate', onTimeUpdate);
+    vid.addEventListener('durationchange', onDuration);
+    vid.addEventListener('play', onPlay);
+    vid.addEventListener('pause', onPause);
+    vid.addEventListener('waiting', onWaiting);
+    vid.addEventListener('playing', onPlaying);
+    vid.addEventListener('loadedmetadata', onCanPlay);
 
-  // ── ACTIONS ────────────────────────────────────────────────────────────────
-  const togglePlay=()=>{const v=videoRef.current;if(!v)return;if(playing)v.pause();else v.play().then(()=>setPlaying(true)).catch(()=>{v.muted=true;v.play().then(()=>{setPlaying(true);setAutoMuted(true);}).catch(console.error);});};
-  const skip=sec=>{const v=videoRef.current;if(!v)return;v.currentTime=Math.max(0,Math.min(duration,v.currentTime+sec));setSkipFX(sec<0?'back':'fwd');setTimeout(()=>setSkipFX(null),600);};
-  const toggleMute=()=>{const v=videoRef.current;if(!v)return;if(v.muted||v.volume===0){v.muted=false;v.volume=prevVol>0?prevVol:1;setAutoMuted(false);}else{setPrevVol(v.volume);v.muted=true;}};
-  const unmuteBanner=()=>{const v=videoRef.current;if(!v)return;v.muted=false;v.volume=prevVol>0?prevVol:1;setAutoMuted(false);};
-  const changeVol=val=>{const v=videoRef.current;if(!v)return;if(val>0){setPrevVol(val);v.muted=false;v.volume=val;setAutoMuted(false);}else{v.muted=true;v.volume=0;}};
-  const toggleFS=()=>{if(!document.fullscreenElement)containerRef.current?.requestFullscreen();else document.exitFullscreen();};
-  const togglePiP=async()=>{const v=videoRef.current;if(!v)return;try{if(document.pictureInPictureElement)await document.exitPictureInPicture();else await v.requestPictureInPicture();}catch(_){}};
+    // Save progress interval
+    const int = setInterval(()=>{
+      if(!vid.paused && vid.currentTime>0 && vid.duration>0){
+        saveProgress(vid.currentTime, vid.duration);
+      }
+    }, 5000);
 
-  // ── PROGRESS BAR ───────────────────────────────────────────────────────────
-  const seekTime=e=>{const b=progressBarRef.current;if(!b||!duration)return 0;return Math.max(0,Math.min(1,(e.clientX-b.getBoundingClientRect().left)/b.offsetWidth))*duration;};
-  const onBarDown=e=>{setSeeking(true);const t=seekTime(e);if(videoRef.current){videoRef.current.currentTime=t;setCurrentTime(t);}};
-  const onBarMove=e=>{const t=seekTime(e);setHoverT(t);if(progressBarRef.current)setHoverX(e.clientX-progressBarRef.current.getBoundingClientRect().left);if(seeking&&videoRef.current){videoRef.current.currentTime=t;setCurrentTime(t);}};
-  const onBarUp=()=>setSeeking(false);
-  const onBarLeave=()=>{setHoverT(null);if(seeking)setSeeking(false);};
-  const volFromY=e=>{const s=volSliderRef.current;if(!s)return volume;return 1-Math.max(0,Math.min(1,(e.clientY-s.getBoundingClientRect().top)/s.offsetHeight));};
-  useEffect(()=>{
-    if(!draggingVol)return;
-    const mv=e=>changeVol(volFromY(e));
-    const up=()=>{setDraggingVol(false);setPanel(null);};
-    window.addEventListener('mousemove',mv);window.addEventListener('mouseup',up);
-    return()=>{window.removeEventListener('mousemove',mv);window.removeEventListener('mouseup',up);};
-  },[draggingVol]);
+    return () => {
+      vid.removeEventListener('timeupdate', onTimeUpdate);
+      vid.removeEventListener('durationchange', onDuration);
+      vid.removeEventListener('play', onPlay);
+      vid.removeEventListener('pause', onPause);
+      vid.removeEventListener('waiting', onWaiting);
+      vid.removeEventListener('playing', onPlaying);
+      vid.removeEventListener('loadedmetadata', onCanPlay);
+      clearInterval(int);
+    };
+  }, [saveProgress, attemptResume, mode]);
 
-  const pPct  = duration>0?(currentTime/duration)*100:0;
-  const bPct  = duration>0?(buffered/duration)*100:0;
-  const VolIco=(muted||volume===0)?VolumeMuteIcon:volume<0.5?VolumeMidIcon:VolumeHighIcon;
-  const curEmbed=embeds[embedIdx];
+  useEffect(() => {
+    const wakeControls = () => {
+      setShowControls(true);
+      clearTimeout(controlsTimeoutRef.current);
+      if (isPlaying && !panel) {
+        controlsTimeoutRef.current = setTimeout(() => setShowControls(false), 3000);
+      }
+    };
+    const el = containerRef.current;
+    if(el){
+      el.addEventListener('mousemove', wakeControls);
+      el.addEventListener('click', wakeControls);
+      el.addEventListener('mouseleave', () => { if(isPlaying && !panel) setShowControls(false) });
+    }
+    return () => {
+      if(el){
+        el.removeEventListener('mousemove', wakeControls);
+        el.removeEventListener('click', wakeControls);
+      }
+      clearTimeout(controlsTimeoutRef.current);
+    };
+  }, [isPlaying, panel]);
+
+  // Hotkeys
+  useEffect(() => {
+    const handleKey = e => {
+      if(mode!=='custom') return;
+      if(e.code==='Space'){ e.preventDefault(); togglePlay(); }
+      if(e.code==='ArrowRight'){ e.preventDefault(); skip(10); }
+      if(e.code==='ArrowLeft'){ e.preventDefault(); skip(-10); }
+      if(e.code==='KeyF'){ e.preventDefault(); toggleFullscreen(); }
+    };
+    window.addEventListener('keydown', handleKey);
+    return ()=>window.removeEventListener('keydown', handleKey);
+  }, [mode]);
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+  if (mode === 'loading') {
+    return (
+      <div style={styles.fullscreenBase}>
+        <LoadingSpinner />
+        <div style={{color:'#fff',marginTop:20,fontFamily:'sans-serif'}}>Hunting Streams...</div>
+      </div>
+    );
+  }
+
+  if (mode === 'iframe') {
+    return (
+      <div style={styles.fullscreenBase}>
+        <button onClick={onClose} style={styles.closeBtn}><BackIcon/></button>
+        <iframe src={iframeUrl} style={{width:'100%',height:'100%',border:'none'}} allowFullScreen/>
+      </div>
+    );
+  }
 
   return (
-    <div ref={containerRef} onMouseMove={resetCtrl} onClick={()=>setPanel(null)}
-      style={{position:'fixed',inset:0,background:'#000',fontFamily:"'Amazon Ember','Segoe UI',system-ui,sans-serif",userSelect:'none',cursor:showCtrl?'default':'none',zIndex:9999}}>
-      <style>{`
-        :root{--c:#B3B3B3;--ct:rgba(179,179,179,.3);}
-       .pb *{box-sizing:border-box;}
-       .pbtn{background:none;border:none;cursor:pointer;color:var(--c);padding:0;display:flex;align-items:center;justify-content:center;transition:color.15s;}
-       .pbtn:hover{color:#FFF;}
-       .pbar{position:relative;height:4px;background:var(--ct);cursor:pointer;transition:height.1s;}
-       .pbar:hover{height:6px;}
-       .pbuf{position:absolute;top:0;left:0;height:100%;background:rgba(179,179,179,.4);pointer-events:none;}
-       .ppld{position:absolute;top:0;left:0;height:100%;background:#FFF;pointer-events:none;}
-       .pthumb{position:absolute;top:50%;width:14px;height:14px;background:#FFF;border-radius:50%;transform:translate(-50%,-50%) scale(0);pointer-events:none;transition:transform.1s;}
-       .pbar:hover.pthumb{transform:translate(-50%,-50%) scale(1);}
-       .cdot{position:absolute;top:0;width:2px;height:100%;background:#000;pointer-events:none;z-index:2;}
-       .ppanel{position:absolute;top:48px;right:0;background:#111;border-radius:3px 0 0 3px;min-width:260px;overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,.9);animation:pi.1s ease-out;}
-        @keyframes pi{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
-       .volpop{position:absolute;top:100%;margin-top:10px;left:50%;transform:translateX(-50%);background:#111;border-radius:4px;padding:14px 11px;width:40px;display:flex;flex-direction:column;align-items:center;gap:10px;box-shadow:0 6px 20px rgba(0,0,0,.9);animation:pi.1s ease-out;z-index:50;}
-       .voltr{width:3px;height:120px;background:var(--ct);border-radius:2px;position:relative;cursor:pointer;}
-       .volfil{position:absolute;bottom:0;left:0;width:100%;background:var(--c);border-radius:2px;pointer-events:none;}
-       .volknob{position:absolute;left:50%;width:11px;height:11px;background:var(--c);border-radius:50%;transform:translate(-50%,50%);pointer-events:none;}
-       .xray-ov{position:absolute;top:52px;left:14px;background:rgba(0,0,0,.9);border-radius:3px;padding:8px 0;min-width:250px;max-height:55vh;overflow-y:auto;scrollbar-width:none;animation:pi.12s ease-out;}
-       .xray-ov::-webkit-scrollbar{display:none;}
-       .xray-panel{position:absolute;top:0;right:0;bottom:0;width:340px;background:#080808;border-left:1px solid rgba(170,170,170,.08);display:flex;flex-direction:column;animation:si.18s ease-out;z-index:10;}
-        @keyframes si{from{transform:translateX(100%)}to{transform:translateX(0)}}
-       .skfx{position:absolute;top:50%;transform:translateY(-50%);pointer-events:none;animation:sf.4s ease-out forwards;}
-        @keyframes sf{0%{opacity:.8}100%{opacity:0}}
-       .spin{width:48px;height:48px;border-radius:50%;border:2px solid rgba(170,170,170,.2);border-top-color:#AAA;animation:sp.85s linear infinite;}
-        @keyframes sp{to{transform:rotate(360deg)}}
-       .qi:hover{background:rgba(255,255,255,.08);}
-       .unmute{position:absolute;bottom:90px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.88);border:1px solid rgba(255,255,255,.3);color:#fff;padding:10px 24px;border-radius:999px;display:flex;align-items:center;gap:10px;cursor:pointer;z-index:30;backdrop-filter:blur(10px);animation:pi.25s ease-out;white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,.6);font-size:14px;font-weight:600;}
-       .unmute:hover{background:rgba(20,20,20,.95);}
-      `}</style>
+    <div ref={containerRef} style={styles.fullscreenBase}>
+      
+      {/* Video Element */}
+      <video
+        ref={videoRef}
+        style={{width:'100%',height:'100%',backgroundColor:'#000',objectFit:'contain'}}
+        autoPlay playsInline
+        crossOrigin="anonymous"
+      >
+        {subs.map(s => (
+          <track key={s.id} kind="subtitles" src={s.file} srcLang={s.lang} label={s.label} default={s.id===activeSubId}/>
+        ))}
+      </video>
 
-      {autoMuted&&isVideo&&<div className="unmute" onClick={e=>{e.stopPropagation();unmuteBanner();}}><VolumeMuteIcon/><span>Tap to unmute</span></div>}
-
-      <video ref={videoRef} playsInline preload="metadata"
-        style={{width:'100%',height:'100%',objectFit:'contain',display:isVideo?'block':'none'}}
-        onClick={e=>{e.stopPropagation();if(autoMuted){unmuteBanner();return;}if(isVideo)togglePlay();}}
-      />
-
-      {mode==='iframe'&&(
-        <div style={{position:'absolute',inset:0,zIndex:1,background:'#000'}}>
-          {embedPhase==='loading'&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',background:'#000',zIndex:6,pointerEvents:'none'}}><div className="spin"/></div>}
-          {embedPhase==='failed'&&(
-            <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:'#000',zIndex:6}}>
-              <div style={{color:'#f87171',fontSize:16,fontWeight:600,marginBottom:8}}>All sources failed</div>
-              <div style={{color:'#AAA',fontSize:13,marginBottom:20}}>This title may not be available right now.</div>
-              <button onClick={()=>{setEmbedIdx(0);setEmbedPhase('loading');}} style={{background:'none',border:'1px solid rgba(170,170,170,.4)',color:'#AAA',padding:'8px 24px',borderRadius:6,cursor:'pointer',fontWeight:700}}>Retry</button>
-            </div>
-          )}
-          {curEmbed&&embedPhase!=='failed'&&(
-            <iframe ref={iframeRef} key={`${embedIdx}-${tmdbId}-${season}-${episode}`} src={curEmbed.url}
-              style={{width:'100%',height:'100%',border:'none',display:'block',opacity:embedPhase==='playing'?1:0,transition:'opacity.4s'}}
-              allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowFullScreen referrerPolicy="no-referrer" title={movieTitle}
-              onLoad={()=>{clearTimeout(iframeTimer.current);iframeTimer.current=setTimeout(()=>setEmbedPhase('playing'),1500);}}
-            />
-          )}
-          {embedPhase==='playing'&&embedIdx<embeds.length-1&&showCtrl&&(
-            <div style={{position:'absolute',bottom:72,right:16,zIndex:20}}>
-              <button onClick={e=>{e.stopPropagation();clearTimeout(iframeTimer.current);setEmbedIdx(i=>i+1);setEmbedPhase('loading');}}
-                style={{background:'rgba(0,0,0,.7)',border:'1px solid rgba(170,170,170,.2)',color:'#AAA',padding:'5px 14px',borderRadius:6,cursor:'pointer',fontSize:12,fontWeight:600,backdropFilter:'blur(8px)'}}>
-                Not playing? Try next source →
-              </button>
-            </div>
-          )}
+      {/* Buffering Indicator */}
+      {isBuffering && (
+        <div style={{position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',pointerEvents:'none'}}>
+          <LoadingSpinner />
         </div>
       )}
 
-      {(mode==='loading'||(isVideo&&buffering))&&(
-        <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',background:mode==='loading'?'#000':'transparent',zIndex:8,pointerEvents:'none'}}>
-          <div className="spin"/>
+      {/* Top Gradient & Back Button */}
+      <div style={{...styles.topGradient, opacity: showControls ? 1 : 0}}>
+        <button onClick={onClose} style={styles.iconBtn}><BackIcon/></button>
+        <div style={{color:'#fff',fontSize:18,fontWeight:600,fontFamily:'sans-serif',textShadow:'0 1px 3px rgba(0,0,0,0.8)'}}>
+          {title} {season ? `— S${season} E${episode}` : ''}
         </div>
-      )}
-
-      <div className="pb" style={{position:'absolute',inset:0,opacity:showCtrl?1:0,transition:'opacity.3s',pointerEvents:mode==='iframe'?'none':(showCtrl?'auto':'none'),zIndex:5}}>
-        <div style={{position:'absolute',top:0,left:0,right:0,height:140,background:'linear-gradient(to bottom,rgba(0,0,0,.8),transparent)',pointerEvents:'none'}}/>
-        <div style={{position:'absolute',bottom:0,left:0,right:0,height:140,background:'linear-gradient(to top,rgba(0,0,0,.8),transparent)',pointerEvents:'none'}}/>
-
-        {/* TOP BAR */}
-        <div style={{position:'absolute',top:0,left:0,right:0,display:'flex',alignItems:'center',justifyContent:'space-between',padding:'32px 40px',zIndex:10,pointerEvents:'auto'}}>
-          <div style={{display:'flex',alignItems:'center',gap:16}}>
-            <span style={{fontSize:18,fontWeight:600,color:'#FFF',cursor:'pointer'}} onClick={e=>{e.stopPropagation();setXrayOpen(v=>!v);setXrayExpanded(false);setPanel(null);}}>X-Ray</span>
-            <div style={{border:'1px solid #B3B3B3',color:'#B3B3B3',fontSize:11,fontWeight:700,padding:'2px 5px',borderRadius:3,cursor:'pointer'}} onClick={e=>{e.stopPropagation();setXrayExpanded(true);setXrayOpen(false);setPanel(null);}}>IMDb</div>
-            <button className="pbtn" style={{fontSize:15,display:'flex',alignItems:'center',gap:4}} onClick={e=>{e.stopPropagation();setXrayExpanded(true);setXrayOpen(false);setPanel(null);}}>All <ChevronRightIcon/></button>
-          </div>
-
-          <div style={{position:'absolute',left:'50%',transform:'translateX(-50%)',display:'flex',flexDirection:'column',alignItems:'center',whiteSpace:'nowrap',textShadow:'0 1px 3px rgba(0,0,0,0.8)'}}>
-            <span style={{color:'#FFF',fontSize:22,fontWeight:600}}>{movieTitle}</span>
-            {mediaType==='tv'&&<span style={{color:'#E0E0E0',fontSize:16,fontWeight:400,marginTop:2}}>Season {season}, Ep. {episode}{episodeTitle?` — ${episodeTitle}`:''}</span>}
-          </div>
-
-          <div style={{display:'flex',alignItems:'center',gap:24}}>
-            {/* SUBTITLES & AUDIO */}
-            <div style={{position:'relative'}}>
-              <button className="pbtn" onClick={e=>{e.stopPropagation();setPanel(panel==='subtitles'?null:'subtitles');}} title="Subtitles & Audio"><SubtitlesIcon/></button>
-              {panel==='subtitles'&&(
-                <div className="ppanel" style={{width:420,maxHeight:'70vh',overflowY:'auto'}} onClick={e=>e.stopPropagation()}>
-                  <div style={{display:'flex'}}>
-                    {/* Subtitles */}
-                    <div style={{flex:1,borderRight:'1px solid rgba(255,255,255,.15)',padding:'20px 16px'}}>
-                      <div style={{color:'#fff',fontSize:16,fontWeight:700,marginBottom:16}}>Subtitles</div>
-                      <div style={{display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer'}}
-                        onClick={()=>{setActiveSubIdx(-1);if(hlsRef.current)hlsRef.current.subtitleTrack=-1;}}>
-                        <div style={{width:20}}>{activeSubIdx===-1&&<CheckIcon/>}</div>
-                        <span style={{color:activeSubIdx===-1?'#fff':'rgba(255,255,255,.7)',fontSize:15}}>Off</span>
-                      </div>
-                      {subTracks.map(t=>(
-                        <div key={t.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer'}}
-                          onClick={()=>{setActiveSubIdx(t.id);if(hlsRef.current)hlsRef.current.subtitleTrack=t.id;}}>
-                          <div style={{width:20}}>{activeSubIdx===t.id&&<CheckIcon/>}</div>
-                          <span style={{color:activeSubIdx===t.id?'#fff':'rgba(255,255,255,.7)',fontSize:15}}>{t.name}</span>
-                        </div>
-                      ))}
-                      {subTracks.length===0&&<div style={{color:'rgba(255,255,255,.3)',fontSize:13,fontStyle:'italic'}}>None available</div>}
-                    </div>
-
-                    {/* Audio — switches hls.audioTrack directly */}
-                    <div style={{flex:1,padding:'20px 16px'}}>
-                      <div style={{color:'#fff',fontSize:16,fontWeight:700,marginBottom:16}}>Audio</div>
-                      {audioTracks.length>0? audioTracks.map(t=>(
-                        <div key={t.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer'}}
-                          onClick={()=>{
-                            if(hlsRef.current) hlsRef.current.audioTrack=t.id;
-                            setActiveAudioIdx(t.id);
-                          }}>
-                          <div style={{width:20}}>{activeAudioIdx===t.id&&<CheckIcon/>}</div>
-                          <span style={{color:activeAudioIdx===t.id?'#fff':'rgba(255,255,255,.7)',fontSize:15}}>{t.name}</span>
-                        </div>
-                      )) : (
-                        <div style={{color:'rgba(255,255,255,.3)',fontSize:13,fontStyle:'italic',padding:'8px 4px'}}>
-                          {isVideo? 'Loading audio tracks…' : 'Default Audio'}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Quality */}
-            <div style={{position:'relative'}}>
-              <button className="pbtn" onClick={e=>{e.stopPropagation();setPanel(panel==='quality'?null:'quality');}} title="Video Quality"><SettingsIcon/></button>
-              {panel==='quality'&&(
-                <div className="ppanel" style={{width:260,maxHeight:'60vh',overflowY:'auto'}} onClick={e=>e.stopPropagation()}>
-                  <div style={{padding:'20px 20px 12px'}}>
-                    <div style={{color:'#fff',fontSize:17,fontWeight:700,marginBottom:14}}>Video Quality</div>
-                    {qualities.length>0?qualities.map(q=>(
-                      <div key={q.value} className="qi" style={{display:'flex',alignItems:'center',gap:14,padding:'11px 4px',cursor:'pointer',borderRadius:4}} onClick={()=>handleQuality(q.value)}>
-                        <div style={{width:24,flexShrink:0}}>{selQuality===q.value&&<CheckIcon/>}</div>
-                        <span style={{color:selQuality===q.value?'#fff':'rgba(255,255,255,.85)',fontSize:14,fontWeight:selQuality===q.value?700:400}}>{q.label}</span>
-                      </div>
-                    )):<div style={{color:'#AAA',fontSize:13,fontStyle:'italic'}}>Loading…</div>}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Volume */}
-            <div style={{position:'relative'}} onMouseEnter={()=>setPanel('volume')} onMouseLeave={()=>{if(!draggingVol)setPanel(null);}}>
-              <button className="pbtn" onClick={e=>{e.stopPropagation();toggleMute();}} title="Volume"><VolIco/></button>
-              {panel==='volume'&&(
-                <div className="volpop" onClick={e=>e.stopPropagation()}>
-                  <div ref={volSliderRef} className="voltr" onMouseDown={e=>{e.stopPropagation();setDraggingVol(true);changeVol(volFromY(e));}}>
-                    <div className="volfil" style={{height:`${(muted?0:volume)*100}%`}}/>
-                    <div className="volknob" style={{bottom:`${(muted?0:volume)*100}%`}}/>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <button className="pbtn" onClick={e=>{e.stopPropagation();togglePiP();}} title="PiP"><PiPIcon/></button>
-            <button className="pbtn" onClick={e=>{e.stopPropagation();toggleFS();}} title="Fullscreen">{isFullscreen?<ExitFullscreenIcon/>:<FullscreenIcon/>}</button>
-            <div style={{width:1,height:24,background:'#B3B3B3',opacity:.4}}/>
-            <button className="pbtn" onClick={e=>{e.stopPropagation();onClose?.();}} title="Close"><CloseIcon/></button>
-          </div>
-        </div>
-
-        {/* X-Ray mini */}
-        {xrayOpen&&xrayCast.length>0&&(
-          <div className="xray-ov" onClick={e=>e.stopPropagation()}>
-            <div style={{padding:'0 16px 10px',borderBottom:'1px solid rgba(255,255,255,.1)',marginBottom:8,display:'flex',alignItems:'center',gap:8}}>
-              <span style={{color:'#AAA',fontSize:14}}>X-Ray</span>
-              <div style={{background:'#f5c518',color:'#000',fontSize:10,fontWeight:800,padding:'2px 4px',borderRadius:3}}>IMDb</div>
-              <button style={{marginLeft:4,background:'none',border:'none',color:'#AAA',cursor:'pointer',display:'flex',alignItems:'center',gap:3,fontSize:13}} onClick={()=>{setXrayExpanded(true);setXrayOpen(false);}}>All <ChevronRightIcon/></button>
-            </div>
-            {xrayCast.slice(0,3).map(p=>(
-              <div key={p.id} style={{display:'flex',alignItems:'center',gap:12,padding:'8px 16px',cursor:'pointer'}} onClick={()=>{setXrayExpanded(true);setXrayOpen(false);}}>
-                {p.profile?<img src={p.profile} alt={p.name} style={{width:64,height:64,objectFit:'cover',borderRadius:4,flexShrink:0}}/>
-                  :<div style={{width:64,height:64,background:'#111',borderRadius:4,flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',color:'rgba(255,255,255,.3)',fontSize:20,fontWeight:700}}>{p.name.charAt(0)}</div>}
-                <div><div style={{color:'#AAA',fontSize:14}}>{p.name}</div><div style={{color:'rgba(170,170,170,.6)',fontSize:12,marginTop:2}}>{p.character}</div></div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Center controls */}
-        {isVideo&&(
-          <div style={{position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',display:'flex',alignItems:'center',gap:120,zIndex:8}} onClick={e=>e.stopPropagation()}>
-            <button className="pbtn" style={{position:'relative'}} onClick={()=>skip(-10)}><Rewind10Icon/>{skipFX==='back'&&<div className="skfx" style={{left:'50%',transform:'translate(-50%,-50%)',color:'#FFF',fontSize:24}}>-10</div>}</button>
-            <button className="pbtn" onClick={togglePlay}>{playing?<PauseIcon/>:<PlayIcon/>}</button>
-            <button className="pbtn" style={{position:'relative'}} onClick={()=>skip(10)}><Forward10Icon/>{skipFX==='fwd'&&<div className="skfx" style={{left:'50%',transform:'translate(-50%,-50%)',color:'#FFF',fontSize:24}}>+10</div>}</button>
-          </div>
-        )}
-
-        {/* Bottom bar */}
-        {isVideo&&(
-          <div style={{position:'absolute',bottom:0,left:0,right:0,padding:'0 40px 32px',zIndex:10}}>
-            <div ref={progressBarRef} className="pbar" style={{marginBottom:12}}
-              onMouseDown={onBarDown} onMouseMove={onBarMove} onMouseUp={onBarUp} onMouseLeave={onBarLeave} onClick={e=>e.stopPropagation()}>
-              <div className="pbuf" style={{width:`${bPct}%`}}/><div className="ppld" style={{width:`${pPct}%`}}/>
-              {chapters.map((t,i)=><div key={i} className="cdot" style={{left:`${(t/duration)*100}%`}}/>)}
-              <div className="pthumb" style={{left:`${pPct}%`}}/>
-              {hoverT!==null&&(
-                <div style={{position:'absolute',bottom:16,left:Math.max(24,Math.min(hoverX,(progressBarRef.current?.offsetWidth||0)-24)),transform:'translateX(-50%)',background:'rgba(0,0,0,.85)',color:'#AAA',fontSize:11,padding:'3px 8px',borderRadius:4,whiteSpace:'nowrap',pointerEvents:'none'}}>{fmtTime(hoverT)}</div>
-              )}
-            </div>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:12}}>
-              <div style={{fontSize:15,fontWeight:500}}>
-                <span style={{color:'#FFF'}}>{fmtTime(currentTime)}</span>
-                <span style={{color:'#B3B3B3'}}> / {fmtTime(duration)}</span>
-              </div>
-              {mediaType==='tv'&&nextEpData&&(
-                <button onClick={handleNextEpisode} style={{color:'#FFF',fontSize:15,fontWeight:600,background:'none',border:'none',cursor:'pointer',display:'flex',alignItems:'center',padding:0}}
-                  onMouseEnter={e=>e.currentTarget.style.color='#00A8E1'} onMouseLeave={e=>e.currentTarget.style.color='#FFF'}>
-                  Next Episode <ChevronRightIcon/>
-                </button>
-              )}
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* X-Ray expanded */}
-      {xrayExpanded&&(
-        <div className="xray-panel" onClick={e=>e.stopPropagation()}>
-          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'18px 20px',borderBottom:'1px solid rgba(255,255,255,.08)',flexShrink:0}}>
-            <span style={{color:'#AAA',fontSize:17,fontWeight:400}}>X-Ray</span>
-            <div style={{display:'flex',alignItems:'center',gap:12}}>
-              <button className="pbtn"><XRayExpandIcon/></button>
-              <div style={{width:1,height:22,background:'rgba(255,255,255,.2)'}}/>
-              <button className="pbtn" onClick={()=>setXrayExpanded(false)}><CloseIcon/></button>
+      {/* Main Controls Overlay */}
+      <div style={{...styles.controlsOverlay, opacity: showControls ? 1 : 0, pointerEvents: showControls?'auto':'none'}}>
+        
+        {/* Center Play/Pause & Skip */}
+        <div style={styles.centerControls}>
+          <button onClick={(e)=>{e.stopPropagation();skip(-10)}} style={styles.bigBtn}><Replay10Icon/></button>
+          <button onClick={(e)=>{e.stopPropagation();togglePlay()}} style={{...styles.bigBtn, transform:'scale(1.2)'}}>
+            {isPlaying ? <PauseIcon/> : <PlayIcon/>}
+          </button>
+          <button onClick={(e)=>{e.stopPropagation();skip(10)}} style={styles.bigBtn}><Forward10Icon/></button>
+        </div>
+
+        {/* Bottom Bar */}
+        <div style={styles.bottomBar}>
+          {/* Progress Bar */}
+          <div 
+            ref={progressBarRef}
+            onClick={handleSeek}
+            style={styles.progressContainer}
+            onMouseDown={()=>{isDraggingRef.current=true;}}
+            onMouseUp={()=>{isDraggingRef.current=false;}}
+            onMouseLeave={()=>{isDraggingRef.current=false;}}
+            onMouseMove={(e)=>{
+              if(isDraggingRef.current) handleSeek(e);
+            }}
+          >
+            <div style={{...styles.progressBg}}>
+              <div style={{...styles.progressBuffer, width: `${(buffered/duration)*100}%`}}/>
+              <div style={{...styles.progressFill, width: `${(currentTime/duration)*100}%`}}/>
+              <div style={{...styles.progressThumb, left: `${(currentTime/duration)*100}%`}}/>
             </div>
           </div>
-          <div style={{display:'flex',borderBottom:'1px solid rgba(255,255,255,.08)',flexShrink:0}}>
-            {['scene','cast'].map(tab=>(
-              <button key={tab} onClick={()=>setXrayTab(tab)} style={{flex:1,padding:'14px 0',background:'none',border:'none',color:xrayTab===tab?'#fff':'rgba(255,255,255,.5)',fontSize:15,fontWeight:xrayTab===tab?600:400,cursor:'pointer',borderBottom:xrayTab===tab?'2px solid #fff':'2px solid transparent',marginBottom:-1}}>
-                {tab==='scene'?'In Scene':'Cast'}
+
+          {/* Controls Row */}
+          <div style={styles.controlsRow}>
+            <div style={{display:'flex',alignItems:'center',gap:12}}>
+              <button onClick={togglePlay} style={styles.iconBtn}>
+                {isPlaying ? <PauseIcon/> : <PlayIcon/>}
               </button>
-            ))}
-          </div>
-          <div style={{flex:1,overflowY:'auto',padding:'12px 0',scrollbarWidth:'none'}}>
-            {xrayCast.map(p=>(
-              <div key={p.id} style={{marginBottom:2}}>
-                <div style={{display:'flex',alignItems:'center',gap:14,padding:'12px 16px',cursor:'pointer',background:expandCast===p.id?'rgba(255,255,255,.06)':'transparent'}} onClick={()=>setExpandCast(expandCast===p.id?null:p.id)}>
-                  <div style={{position:'relative',flexShrink:0}}>
-                    {p.profile?<img src={p.profile} alt={p.name} style={{width:72,height:72,objectFit:'cover',borderRadius:6}}/>
-                      :<div style={{width:72,height:72,background:'#111',borderRadius:6,display:'flex',alignItems:'center',justifyContent:'center',color:'rgba(255,255,255,.3)',fontSize:22,fontWeight:700}}>{p.name.charAt(0)}</div>}
-                    <div style={{position:'absolute',bottom:4,left:4,background:'#f5c518',color:'#000',fontSize:8,fontWeight:800,padding:'1px 3px',borderRadius:2}}>IMDb</div>
-                  </div>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{color:'#AAA',fontSize:14,marginBottom:3}}>{p.name}</div>
-                    <div style={{color:'rgba(170,170,170,.65)',fontSize:12}}>Portrays: {p.character}</div>
-                  </div>
-                  <div style={{color:'#AAA'}}>{expandCast===p.id?<ChevronUpIcon/>:<ChevronDownIcon/>}</div>
-                </div>
-                {expandCast===p.id&&(
-                  <div style={{padding:'12px 16px 16px 102px',background:'rgba(255,255,255,.03)'}}>
-                    <div style={{color:'rgba(170,170,170,.7)',fontSize:12,lineHeight:1.6}}>Known for various acclaimed productions.</div>
-                    <button style={{marginTop:10,background:'none',border:'1px solid rgba(255,255,255,.2)',color:'#f5c518',fontSize:12,fontWeight:600,padding:'5px 12px',borderRadius:4,cursor:'pointer'}}>View on IMDb</button>
-                  </div>
-                )}
+              <div style={{color:'#fff',fontFamily:'sans-serif',fontSize:14,fontWeight:500}}>
+                {formatTime(currentTime)} / {formatTime(duration)}
               </div>
-            ))}
-            {xrayCast.length===0&&<div style={{padding:'40px 20px',textAlign:'center',color:'rgba(170,170,170,.5)',fontSize:13}}>Loading cast…</div>}
+            </div>
+
+            <div style={{display:'flex',alignItems:'center',gap:12}}>
+              <button onClick={()=>setPanel(panel==='settings'?'':'settings')} style={styles.iconBtn}><SettingsIcon/></button>
+              {document.pictureInPictureEnabled && <button onClick={togglePiP} style={styles.iconBtn}><PiPIcon/></button>}
+              <button onClick={toggleFullscreen} style={styles.iconBtn}>
+                {isFullscreen ? <ExitFullscreenIcon/> : <FullscreenIcon/>}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Settings Panel */}
+      {panel === 'settings' && (
+        <div style={styles.settingsPanel}>
+          <div style={styles.panelHeader}>
+            <span>Settings</span>
+            <button onClick={()=>setPanel(null)} style={styles.iconBtn}><CloseIcon/></button>
+          </div>
+          <div style={{display:'flex',flexDirection:'row'}}>
+            
+            {/* Qualities */}
+            <div style={{flex:1,borderRight:'1px solid rgba(255,255,255,0.1)',padding:'20px 16px'}}>
+              <div style={{color:'#fff',fontSize:16,fontWeight:700,marginBottom:16}}>Quality</div>
+              {qualities.map(q => (
+                <div key={q.value} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer'}}
+                  onClick={()=>handleQuality(q.value)}>
+                  <div style={{width:20}}>{selQuality===q.value&&<CheckIcon/>}</div>
+                  <span style={{color:selQuality===q.value?'#fff':'rgba(255,255,255,.7)',fontSize:15}}>{q.label}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Audio — switches hls.audioTrack directly OR switches video file based on parsed Languages */}
+            <div style={{flex:1,padding:'20px 16px'}}>
+              <div style={{color:'#fff',fontSize:16,fontWeight:700,marginBottom:16}}>Audio</div>
+              
+              {audioTracks && audioTracks.length > 0 ? (
+                  // HLS Native Audio Tracks
+                  audioTracks.map(t=>(
+                    <div key={t.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer'}}
+                      onClick={()=>{
+                        if(hlsRef.current) hlsRef.current.audioTrack=t.id;
+                        setActiveAudioIdx(t.id);
+                      }}>
+                      <div style={{width:20}}>{activeAudioIdx===t.id&&<CheckIcon/>}</div>
+                      <span style={{color:activeAudioIdx===t.id?'#fff':'rgba(255,255,255,.7)',fontSize:15}}>{t.name}</span>
+                    </div>
+                  ))
+              ) : availableLangs && availableLangs.length > 1 ? (
+                  // File-Based Stream Switching (for .mkv/.mp4 single-track files from MoviesMod)
+                  availableLangs.map(lang => (
+                      <div key={lang} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer'}}
+                      onClick={()=>handleLanguage(lang)}>
+                      <div style={{width:20}}>{selLang===lang&&<CheckIcon/>}</div>
+                      <span style={{color:selLang===lang?'#fff':'rgba(255,255,255,.7)',fontSize:15}}>{lang}</span>
+                    </div>
+                  ))
+              ) : (
+                <div style={{color:'rgba(255,255,255,.3)',fontSize:13,fontStyle:'italic',padding:'8px 4px'}}>
+                  {isMovie? (availableLangs?.[0] || 'Default Audio') : 'Loading audio...'}
+                </div>
+              )}
+            </div>
+
+            {/* Subtitles */}
+            {subs.length > 0 && (
+              <div style={{flex:1,borderLeft:'1px solid rgba(255,255,255,0.1)',padding:'20px 16px',maxHeight:300,overflowY:'auto'}}>
+                <div style={{color:'#fff',fontSize:16,fontWeight:700,marginBottom:16}}>Subtitles</div>
+                <div style={{display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer'}}
+                  onClick={()=>setActiveSubId(-1)}>
+                  <div style={{width:20}}>{activeSubId===-1&&<CheckIcon/>}</div>
+                  <span style={{color:activeSubId===-1?'#fff':'rgba(255,255,255,.7)',fontSize:15}}>Off</span>
+                </div>
+                {subs.map(s => (
+                  <div key={s.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 4px',cursor:'pointer'}}
+                    onClick={()=>setActiveSubId(s.id)}>
+                    <div style={{width:20}}>{activeSubId===s.id&&<CheckIcon/>}</div>
+                    <span style={{color:activeSubId===s.id?'#fff':'rgba(255,255,255,.7)',fontSize:15}}>{s.label}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
+
     </div>
   );
 }
+
+// Inline styles for zero external CSS dependencies
+const styles = {
+  fullscreenBase: {
+    position:'fixed', top:0, left:0, width:'100vw', height:'100vh',
+    backgroundColor:'#000', zIndex:99999, display:'flex', flexDirection:'column',
+    alignItems:'center', justifyContent:'center', fontFamily:'sans-serif'
+  },
+  closeBtn: {
+    position:'absolute', top:20, left:20, zIndex:999999, background:'rgba(0,0,0,0.5)',
+    border:'none', borderRadius:'50%', padding:10, cursor:'pointer'
+  },
+  iconBtn: {
+    background:'transparent', border:'none', cursor:'pointer', display:'flex', alignItems:'center',
+    justifyContent:'center', padding:8, opacity:0.8, transition:'opacity 0.2s'
+  },
+  bigBtn: {
+    background:'rgba(0,0,0,0.4)', border:'none', borderRadius:'50%', cursor:'pointer',
+    display:'flex', alignItems:'center', justifyContent:'center', padding:16,
+    color:'#fff', backdropFilter:'blur(4px)', transition:'transform 0.1s'
+  },
+  topGradient: {
+    position:'absolute', top:0, left:0, width:'100%', padding:'20px 30px',
+    background:'linear-gradient(to bottom, rgba(0,0,0,0.8) 0%, transparent 100%)',
+    display:'flex', alignItems:'center', gap:20, transition:'opacity 0.3s ease'
+  },
+  controlsOverlay: {
+    position:'absolute', top:0, left:0, width:'100%', height:'100%',
+    display:'flex', flexDirection:'column', justifyContent:'flex-end',
+    transition:'opacity 0.3s ease'
+  },
+  centerControls: {
+    position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)',
+    display:'flex', alignItems:'center', gap:40
+  },
+  bottomBar: {
+    width:'100%', padding:'0 30px 20px 30px',
+    background:'linear-gradient(to top, rgba(0,0,0,0.9) 0%, transparent 100%)'
+  },
+  progressContainer: {
+    width:'100%', height:20, display:'flex', alignItems:'center', cursor:'pointer', marginBottom:10
+  },
+  progressBg: {
+    position:'relative', width:'100%', height:5, backgroundColor:'rgba(255,255,255,0.2)', borderRadius:3
+  },
+  progressBuffer: {
+    position:'absolute', top:0, left:0, height:'100%', backgroundColor:'rgba(255,255,255,0.4)', borderRadius:3
+  },
+  progressFill: {
+    position:'absolute', top:0, left:0, height:'100%', backgroundColor:'#00a8e1', borderRadius:3
+  },
+  progressThumb: {
+    position:'absolute', top:'50%', width:14, height:14, backgroundColor:'#00a8e1',
+    borderRadius:'50%', transform:'translate(-50%, -50%)', boxShadow:'0 0 5px rgba(0,0,0,0.5)'
+  },
+  controlsRow: {
+    display:'flex', justifyContent:'space-between', alignItems:'center'
+  },
+  settingsPanel: {
+    position:'absolute', bottom:80, right:30, width:'max-content', minWidth:500,
+    backgroundColor:'rgba(15,15,15,0.95)', backdropFilter:'blur(10px)',
+    borderRadius:12, border:'1px solid rgba(255,255,255,0.1)', overflow:'hidden',
+    display:'flex', flexDirection:'column', boxShadow:'0 10px 30px rgba(0,0,0,0.5)'
+  },
+  panelHeader: {
+    display:'flex', justifyContent:'space-between', alignItems:'center', padding:'16px 20px',
+    borderBottom:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontWeight:600
+  }
+};
