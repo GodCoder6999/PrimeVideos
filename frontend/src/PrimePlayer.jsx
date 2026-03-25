@@ -1,356 +1,795 @@
+// frontend/src/PrimePlayer.jsx
+// Sovereign player: no iframes, HLS.js only, multi-audio from manifest, MKV/MP4 direct.
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Hls from 'hls.js';
+import { useNavigate } from 'react-router-dom';
 
-// SVG Icons
-const PlayIcon = ()=><svg width="32" height="32" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg>;
-const PauseIcon = ()=><svg width="32" height="32" viewBox="0 0 24 24" fill="#fff"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>;
-const FullscreenIcon = ()=><svg width="24" height="24" viewBox="0 0 24 24" fill="#fff"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>;
-const ExitFullscreenIcon = ()=><svg width="24" height="24" viewBox="0 0 24 24" fill="#fff"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>;
-const SettingsIcon = ()=><svg width="24" height="24" viewBox="0 0 24 24" fill="#fff"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.73 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0.44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0.59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>;
-const VolumeHighIcon = ()=><svg width="24" height="24" viewBox="0 0 24 24" fill="#fff"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>;
-const VolumeMuteIcon = ()=><svg width="24" height="24" viewBox="0 0 24 24" fill="#fff"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0.94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>;
-const LoadingSpinner = ()=>(<svg width="48" height="48" viewBox="0 0 50 50"><circle cx="25" cy="25" r="20" fill="none" stroke="#fff" strokeWidth="4" strokeDasharray="31.4 31.4" strokeLinecap="round"><animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" dur="1s" repeatCount="indefinite"/></circle></svg>);
-const BackIcon = ()=><svg width="28" height="28" viewBox="0 0 24 24" fill="#fff"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>;
-const Forward10Icon = ()=><svg width="28" height="28" viewBox="0 0 24 24" fill="#fff"><path d="M18 13c0 3.31-2.69 6-6 6s-6-2.69-6-6 2.69-6 6-6v4l5-5-5-5v4c-4.42 0-8 3.58-8 8s3.58 8 8 8 8-3.58 8-8h-2z"/><text x="12" y="16" fill="#fff" fontSize="7px" textAnchor="middle" fontWeight="bold">10</text></svg>;
-const Replay10Icon = ()=><svg width="28" height="28" viewBox="0 0 24 24" fill="#fff"><path d="M12 5V1l-5 5 5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/><text x="12" y="16" fill="#fff" fontSize="7px" textAnchor="middle" fontWeight="bold">10</text></svg>;
-const CheckIcon = ()=><svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>;
-const CloseIcon = ()=><svg width="24" height="24" viewBox="0 0 24 24" fill="#fff"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>;
-
-const formatTime = (secs) => {
-  if (isNaN(secs)) return '0:00';
-  const h = Math.floor(secs / 3600);
-  const m = Math.floor((secs % 3600) / 60);
-  const s = Math.floor(secs % 60);
-  if (h > 0) return `${h}:${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
-  return `${m}:${s < 10 ? '0' : ''}${s}`;
+// ─── ICONS ────────────────────────────────────────────────────────────────────
+const IC = {
+  Sub: () => (<svg width="26" height="26" viewBox="0 0 24 24" fill="none"><rect x="2" y="6" width="20" height="13" rx="2" stroke="currentColor" strokeWidth="1.5"/><line x1="6" y1="11" x2="18" y2="11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="6" y1="15" x2="13" y2="15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>),
+  Settings: () => (<svg width="26" height="26" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.5"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" stroke="currentColor" strokeWidth="1.5"/></svg>),
+  VolHi:  () => (<svg width="26" height="26" viewBox="0 0 24 24" fill="none"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" stroke="currentColor" strokeWidth="1.5" fill="none"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>),
+  VolMid: () => (<svg width="26" height="26" viewBox="0 0 24 24" fill="none"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" stroke="currentColor" strokeWidth="1.5" fill="none"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>),
+  VolX:   () => (<svg width="26" height="26" viewBox="0 0 24 24" fill="none"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" stroke="currentColor" strokeWidth="1.5" fill="none"/><line x1="23" y1="9" x2="17" y2="15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="17" y1="9" x2="23" y2="15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>),
+  FS:     () => (<svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>),
+  ExitFS: () => (<svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M10 14l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>),
+  PiP:    () => (<svg width="26" height="26" viewBox="0 0 24 24" fill="none"><rect x="2" y="5" width="20" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/><rect x="10" y="11" width="10" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" fill="currentColor"/></svg>),
+  Close:  () => (<svg width="26" height="26" viewBox="0 0 24 24" fill="none"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>),
+  Check:  () => (<svg width="15" height="15" viewBox="0 0 16 16" fill="none"><polyline points="2,8 6,12 14,4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>),
+  ChevR:  () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><polyline points="9 18 15 12 9 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>),
+  Rw10:   () => (<svg width="80" height="80" viewBox="0 0 64 64" fill="none"><path d="M16 24A20 20 0 1 1 16 46" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/><path d="M25 15 L15 24 L25 33" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/><text x="32" y="32" dy="0.35em" textAnchor="middle" fill="currentColor" fontSize="15" fontWeight="700" fontFamily="system-ui">10</text></svg>),
+  Fw10:   () => (<svg width="80" height="80" viewBox="0 0 64 64" fill="none"><path d="M48 24A20 20 0 1 0 48 46" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/><path d="M39 15 L49 24 L39 33" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/><text x="32" y="32" dy="0.35em" textAnchor="middle" fill="currentColor" fontSize="15" fontWeight="700" fontFamily="system-ui">10</text></svg>),
+  Play:   () => (<svg width="80" height="80" viewBox="0 0 64 64" fill="none"><path d="M24 16 L48 32 L24 48 Z" fill="currentColor" stroke="currentColor" strokeWidth="3" strokeLinejoin="round"/></svg>),
+  Pause:  () => (<svg width="80" height="80" viewBox="0 0 64 64" fill="none"><rect x="20" y="16" width="7" height="32" rx="3" fill="currentColor"/><rect x="37" y="16" width="7" height="32" rx="3" fill="currentColor"/></svg>),
 };
 
-function friendlyLang(raw) {
-  if (!raw) return raw;
-  const map = { hin:'Hindi', eng:'English', tam:'Tamil', tel:'Telugu', mal:'Malayalam', kan:'Kannada', ben:'Bengali' };
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
+const fmt = (s) => {
+  if (!s || isNaN(s)) return '0:00:00';
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60);
+  return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+};
+
+// Normalise raw language codes from HLS.js audio track metadata
+const normLang = (raw) => {
+  if (!raw) return null;
+  const map = {
+    hin:'Hindi',hi:'Hindi',hindi:'Hindi',
+    eng:'English',en:'English',english:'English',
+    tam:'Tamil',ta:'Tamil',tamil:'Tamil',
+    tel:'Telugu',te:'Telugu',telugu:'Telugu',
+    mal:'Malayalam',ml:'Malayalam',malayalam:'Malayalam',
+    kan:'Kannada',kn:'Kannada',kannada:'Kannada',
+    ben:'Bengali',bn:'Bengali',bengali:'Bengali',
+    mul:'Multi',multi:'Multi',und:'Unknown',
+  };
   return map[raw.toLowerCase().trim()] || (raw.charAt(0).toUpperCase() + raw.slice(1));
-}
+};
 
-export default function PrimePlayer({ tmdbId, title = '', isMovie, season = 1, episode = 1, onClose }) {
-  const containerRef = useRef(null);
-  const videoRef = useRef(null);
-  const hlsRef = useRef(null);
-  const progressBarRef = useRef(null);
-  const controlsTimeoutRef = useRef(null);
-  
-  const allSourcesRef = useRef([]);
-  const selQRef = useRef(-1);
+const TMDB_KEY = 'cb1dc311039e6ae85db0aa200345cbc5';
 
-  // Core State
-  const [mode, setMode] = useState('loading'); // loading, playing, error
-  const [playing, setPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [buffered, setBuffered] = useState(0);
-  const [buffering, setBuffering] = useState(false);
-  const [volume, setVolume] = useState(1);
-  const [muted, setMuted] = useState(false);
+// ─── PLAYER ───────────────────────────────────────────────────────────────────
+export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', season = 1, episode = 1, onClose }) {
+  const navigate = useNavigate();
 
-  // Settings
-  const [showControls, setShowControls] = useState(true);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [panel, setPanel] = useState(null);
-  
-  const [qualities, setQualities] = useState([]);
-  const [selQuality, setSelQuality] = useState(-1);
-  
-  const [audioTracks, setAudioTracks] = useState([]); 
-  const [activeAudioIdx, setActiveAudioIdx] = useState(0);
+  // refs
+  const vidRef         = useRef(null);
+  const hlsRef         = useRef(null);
+  const containerRef   = useRef(null);
+  const progressRef    = useRef(null);
+  const volSliderRef   = useRef(null);
+  const ctrlTimerRef   = useRef(null);
+  const streamsRef     = useRef([]); // full ordered stream list for fallback chain
+  const streamIdxRef   = useRef(0);  // current position in fallback chain
+  const resumedRef     = useRef(false);
 
-  // ── Source Loading Logic ──
-  const loadSource = useCallback((srcObj) => {
-    setBuffering(true); 
-    setPlaying(false);
-    
-    if (hlsRef.current) { 
-      hlsRef.current.destroy(); 
-      hlsRef.current = null; 
+  // stream state
+  const [loadState,    setLoadState]    = useState('loading'); // loading | playing | error
+  const [errorMsg,     setErrorMsg]     = useState('');
+  const [streams,      setStreams]       = useState([]);
+  const [currentIdx,   setCurrentIdx]   = useState(0);
+
+  // playback state
+  const [playing,      setPlaying]      = useState(false);
+  const [currentTime,  setCurrentTime]  = useState(0);
+  const [duration,     setDuration]     = useState(0);
+  const [buffered,     setBuffered]     = useState(0);
+  const [buffering,    setBuffering]    = useState(false);
+  const [volume,       setVolume]       = useState(1);
+  const [muted,        setMuted]        = useState(false);
+  const [prevVol,      setPrevVol]      = useState(1);
+  const [autoMuted,    setAutoMuted]    = useState(false);
+
+  // audio/subtitle tracks — only populated for HLS streams
+  const [audioTracks,  setAudioTracks]  = useState([]); // [{id, name}]
+  const [activeAudio,  setActiveAudio]  = useState(0);
+  const [subTracks,    setSubTracks]    = useState([]); // [{id, name}]
+  const [activeSub,    setActiveSub]    = useState(-1);
+
+  // ui
+  const [showCtrl,     setShowCtrl]     = useState(true);
+  const [isFS,         setIsFS]         = useState(false);
+  const [seeking,      setSeeking]      = useState(false);
+  const [draggingVol,  setDraggingVol]  = useState(false);
+  const [panel,        setPanel]        = useState(null);
+  const [skipFX,       setSkipFX]       = useState(null);
+  const [hoverT,       setHoverT]       = useState(null);
+  const [hoverX,       setHoverX]       = useState(0);
+  const [movieTitle,   setMovieTitle]   = useState(title);
+  const [episodeTitle, setEpisodeTitle] = useState('');
+  const [nextEpData,   setNextEpData]   = useState(null);
+
+  const chapters = duration > 0 ? [0.16,0.33,0.5,0.66,0.83].map(p => p * duration) : [];
+
+  // ── TV episode metadata ────────────────────────────────────────────────────
+  useEffect(() => {
+    if (mediaType !== 'tv') return;
+    fetch(`https://api.themoviedb.org/3/tv/${tmdbId}/season/${season}?api_key=${TMDB_KEY}`)
+      .then(r => r.json()).then(d => {
+        const ep = (d.episodes || []).find(e => e.episode_number == episode);
+        if (ep) setEpisodeTitle(ep.name);
+        const next = (d.episodes || []).find(e => e.episode_number == Number(episode) + 1);
+        if (next) { setNextEpData({ season, episode: Number(episode) + 1 }); }
+        else {
+          fetch(`https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${TMDB_KEY}`)
+            .then(r => r.json()).then(tv => {
+              const ns = (tv.seasons || []).find(s => s.season_number == Number(season) + 1);
+              setNextEpData(ns && ns.episode_count > 0 ? { season: Number(season) + 1, episode: 1 } : null);
+            });
+        }
+      }).catch(() => {});
+  }, [tmdbId, mediaType, season, episode]);
+
+  // ── Progress save/restore ──────────────────────────────────────────────────
+  useEffect(() => { resumedRef.current = false; }, [tmdbId, season, episode]);
+
+  const saveProgress = useCallback((time, dur) => {
+    if (!tmdbId || !dur || time < 5) return;
+    const key = `${mediaType === 'tv' ? 't' : 'm'}${tmdbId}`;
+    const all = JSON.parse(localStorage.getItem('vidFastProgress') || '{}');
+    all[key] = { ...(all[key] || {}), id:tmdbId, type:mediaType,
+      progress:{watched:time,duration:dur}, last_season_watched:season,
+      last_episode_watched:episode, last_updated:Date.now(),
+      ...(movieTitle ? {title:movieTitle} : {}) };
+    localStorage.setItem('vidFastProgress', JSON.stringify(all));
+  }, [tmdbId, mediaType, season, episode, movieTitle]);
+
+  useEffect(() => {
+    const iv = setInterval(() => {
+      if (playing && vidRef.current && duration > 0)
+        saveProgress(vidRef.current.currentTime, duration);
+    }, 5000);
+    return () => clearInterval(iv);
+  }, [playing, duration, saveProgress]);
+
+  const attemptResume = useCallback((vid) => {
+    if (resumedRef.current) return;
+    const key  = `${mediaType === 'tv' ? 't' : 'm'}${tmdbId}`;
+    const prog = (JSON.parse(localStorage.getItem('vidFastProgress') || '{}'))[key];
+    const sameEp = mediaType === 'tv'
+      ? prog?.last_season_watched == season && prog?.last_episode_watched == episode
+      : true;
+    if (prog?.progress?.watched > 0 && sameEp && prog.progress.watched < prog.progress.duration * 0.95)
+      vid.currentTime = prog.progress.watched;
+    resumedRef.current = true;
+  }, [tmdbId, mediaType, season, episode]);
+
+  // ── Volume sync from DOM ───────────────────────────────────────────────────
+  useEffect(() => {
+    const v = vidRef.current; if (!v) return;
+    const fn = () => { setMuted(v.muted); setVolume(v.volume); if (!v.muted && v.volume > 0) setAutoMuted(false); };
+    v.addEventListener('volumechange', fn);
+    return () => v.removeEventListener('volumechange', fn);
+  }, []);
+
+  // ── Core: load a specific stream from the chain ────────────────────────────
+  const loadStreamAt = useCallback((idx) => {
+    const list = streamsRef.current;
+    if (!list || idx >= list.length) {
+      // Chain exhausted — show error UI
+      setLoadState('error');
+      setErrorMsg('No playable streams found for this title.');
+      return;
     }
-    
-    const vid = videoRef.current;
-    if (!vid) return;
 
+    const stream = list[idx];
+    streamIdxRef.current = idx;
+    setCurrentIdx(idx);
+    setBuffering(true);
+    setPlaying(false);
+    setCurrentTime(0);
+    setDuration(0);
+    setBuffered(0);
+    setAudioTracks([]);
+    setActiveAudio(0);
+    setSubTracks([]);
+    setActiveSub(-1);
+
+    // Destroy existing HLS instance
+    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+    const vid = vidRef.current;
+    if (!vid) return;
     vid.pause();
     vid.removeAttribute('src');
     vid.load();
 
-    if (srcObj.type === 'hls') {
+    const tryNext = (reason) => {
+      console.warn(`[Player] stream ${idx} failed (${reason}), trying next`);
+      loadStreamAt(idx + 1);
+    };
+
+    if (stream.type === 'hls') {
+      // ── HLS via HLS.js ────────────────────────────────────────────────────
+      if (!Hls.isSupported() && !vid.canPlayType('application/vnd.apple.mpegurl')) {
+        return tryNext('HLS not supported');
+      }
+
       if (Hls.isSupported()) {
-        const hls = new Hls({ maxBufferLength: 30 });
+        const hls = new Hls({
+          enableWorker: true,
+          backBufferLength: 60,
+          maxBufferLength: 30,
+          fragLoadingTimeOut: 30000,
+          manifestLoadingTimeOut: 20000,
+          levelLoadingTimeOut: 20000,
+          fragLoadingMaxRetry: 3,
+          manifestLoadingMaxRetry: 2,
+          xhrSetup: (xhr) => { xhr.withCredentials = false; },
+        });
         hlsRef.current = hls;
-        hls.loadSource(srcObj.url);
+        hls.loadSource(stream.url);
         hls.attachMedia(vid);
-        
+
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           setBuffering(false);
-          // Multi-audio track extraction
+          setLoadState('playing');
+
+          // Cap ABR at 1080p (avoids AC3 in 4K)
+          const cap = hls.levels.map((l,i) => ({h:l.height||0,i}))
+            .filter(x => x.h > 0 && x.h <= 1080).sort((a,b) => b.h - a.h)[0];
+          if (cap) hls.autoLevelCapping = cap.i;
+
+          // ── MULTI-AUDIO from manifest (EXT-X-MEDIA tags rewritten by proxy) ──
+          // Because the proxy rewrote URI="..." in EXT-X-MEDIA tags,
+          // HLS.js can fetch audio playlists without CORS errors.
           if (hls.audioTracks && hls.audioTracks.length > 0) {
-            const tracks = hls.audioTracks.map((t, i) => ({ 
-                id: i, 
-                name: friendlyLang(t.name || t.lang || t.language) 
+            const tracks = hls.audioTracks.map((t, i) => ({
+              id:   i,
+              name: normLang(t.name) || normLang(t.lang) || normLang(t.language) || `Track ${i+1}`,
             }));
             setAudioTracks(tracks);
-            const englishIdx = tracks.findIndex(t => t.name === 'English');
-            const defIdx = englishIdx >= 0 ? englishIdx : 0;
-            hls.audioTrack = defIdx;
-            setActiveAudioIdx(defIdx);
+            // Prefer Hindi track if present
+            const hindiIdx = tracks.findIndex(t => t.name === 'Hindi');
+            const def = hindiIdx >= 0 ? hindiIdx : 0;
+            hls.audioTrack = def;
+            setActiveAudio(def);
           }
-          vid.play().catch(()=>{});
+
+          // Subtitle tracks
+          if (hls.subtitleTracks && hls.subtitleTracks.length > 0) {
+            setSubTracks(hls.subtitleTracks.map((t, i) => ({
+              id:   i,
+              name: normLang(t.name || t.lang) || `Sub ${i+1}`,
+            })));
+            hls.subtitleTrack = -1;
+            setActiveSub(-1);
+          }
+
+          vid.volume = 1; vid.muted = false;
+          attemptResume(vid);
+          vid.play()
+            .then(() => setPlaying(true))
+            .catch(() => {
+              vid.muted = true;
+              vid.play().then(() => { setPlaying(true); setAutoMuted(true); })
+                .catch(() => { setBuffering(false); });
+            });
         });
 
-        // HLS Error Handling (Auto-Fallback Chain)
-        hls.on(Hls.Events.ERROR, (e, data) => {
-          if (data.fatal) {
-            console.warn("HLS failed, falling back...", data);
+        // Auto-fallback on fatal HLS error
+        let netR = 0, medR = 0;
+        hls.on(Hls.Events.ERROR, (_, d) => {
+          if (!d.fatal) return;
+          if (d.type === Hls.ErrorTypes.NETWORK_ERROR && netR < 2) {
+            netR++;
+            setTimeout(() => hls.startLoad(), 1500 * netR);
+          } else if (d.type === Hls.ErrorTypes.MEDIA_ERROR && medR < 2) {
+            medR++;
+            hls.recoverMediaError();
+          } else {
             hls.destroy();
-            tryNextSource();
+            tryNext('fatal HLS error: ' + d.details);
           }
         });
-      } else if (vid.canPlayType('application/vnd.apple.mpegurl')) {
-        vid.src = srcObj.url;
-        vid.play().catch(()=>{});
+
+      } else {
+        // Safari native HLS
+        vid.src = stream.url;
+        vid.volume = 1; vid.muted = false;
+        vid.addEventListener('loadedmetadata', () => {
+          setBuffering(false); setLoadState('playing');
+          attemptResume(vid);
+          vid.play().then(() => setPlaying(true))
+            .catch(() => { vid.muted = true; vid.play().then(() => { setPlaying(true); setAutoMuted(true); }); });
+        }, { once: true });
+        vid.addEventListener('error', () => tryNext('native HLS error'), { once: true });
       }
+
     } else {
-      // Direct MP4 / MKV playback via Proxy
-      vid.src = srcObj.url;
-      vid.play().catch(()=>{});
+      // ── Direct MP4 / MKV ─────────────────────────────────────────────────
+      // The proxy forwards Range headers so seeking works.
+      // MKV: browser plays default audio track; no multi-audio switching UI shown.
+      // MP4: same — audio tracks inside MP4 not switchable in browser.
+      const loadTimer = setTimeout(() => {
+        if (!vidRef.current) return;
+        vid.volume = 1; vid.muted = false;
+        vid.src = stream.url;
+        vid.load();
+      }, 50);
+
+      let stallTimer = null;
+      const onCanPlay = () => {
+        clearTimeout(stallTimer);
+        setBuffering(false); setLoadState('playing');
+        attemptResume(vid);
+        vid.play().then(() => setPlaying(true))
+          .catch(() => { vid.muted = true; vid.play().then(() => { setPlaying(true); setAutoMuted(true); }); });
+      };
+      const onError = () => { clearTimeout(stallTimer); tryNext('video error code=' + vid.error?.code); };
+      stallTimer = setTimeout(() => tryNext('stall timeout'), 12000);
+      const onProgress = () => {
+        clearTimeout(stallTimer);
+        stallTimer = setTimeout(() => { if (vid.readyState < 3 && !vid.paused) tryNext('stall after progress'); }, 12000);
+      };
+
+      vid.addEventListener('canplay',  onCanPlay,  { once: true });
+      vid.addEventListener('error',    onError,    { once: true });
+      vid.addEventListener('progress', onProgress);
+
+      // Clean up listeners when next stream loads (loadStreamAt called again)
+      const cleanup = () => {
+        clearTimeout(loadTimer); clearTimeout(stallTimer);
+        vid.removeEventListener('canplay',  onCanPlay);
+        vid.removeEventListener('error',    onError);
+        vid.removeEventListener('progress', onProgress);
+      };
+      // Store cleanup so we can call it on next load
+      vidRef._cleanup = cleanup;
     }
-    setMode('playing');
+  }, [attemptResume]);
+
+  // ── MAIN INIT ──────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!tmdbId) return;
+
+    // Reset
+    setLoadState('loading'); setErrorMsg('');
+    setStreams([]); setCurrentIdx(0);
+    setPlaying(false); setBuffering(false); setAutoMuted(false);
+    setCurrentTime(0); setDuration(0); setBuffered(0);
+    setAudioTracks([]); setSubTracks([]);
+    streamsRef.current = []; streamIdxRef.current = 0;
+    resumedRef.current = false;
+    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+
+    let cancelled = false;
+
+    // Fetch movie title for display + progress saving
+    fetch(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_KEY}`)
+      .then(r => r.json())
+      .then(d => { if (!cancelled) setMovieTitle(d.title || d.name || title); })
+      .catch(() => {});
+
+    // Fetch MoviessMod streams from our backend
+    fetch(`/api/multi-stream?${new URLSearchParams({ tmdbId, type: mediaType, season, episode })}`)
+      .then(r => r.json())
+      .then(data => {
+        if (cancelled) return;
+        if (!data.success || !Array.isArray(data.streams) || data.streams.length === 0) {
+          setLoadState('error');
+          setErrorMsg(data.error || 'No MoviessMod streams found for this title.');
+          return;
+        }
+        // Build the fallback chain: for each stream, add direct + proxied variant
+        const chain = [];
+        data.streams.forEach(s => {
+          chain.push(s); // already proxied by backend
+        });
+        streamsRef.current = chain;
+        setStreams(chain);
+        loadStreamAt(0);
+      })
+      .catch(err => {
+        if (cancelled) return;
+        setLoadState('error');
+        setErrorMsg('Failed to fetch streams: ' + err.message);
+      });
+
+    return () => {
+      cancelled = true;
+      if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+    };
+  }, [tmdbId, mediaType, season, episode, loadStreamAt]);
+
+  // ── VIDEO DOM EVENTS ───────────────────────────────────────────────────────
+  useEffect(() => {
+    const v = vidRef.current; if (!v) return;
+    const h = [
+      ['play',           () => { setPlaying(true);  setBuffering(false); }],
+      ['pause',          () => setPlaying(false)],
+      ['timeupdate',     () => setCurrentTime(v.currentTime)],
+      ['durationchange', () => { if (v.duration && isFinite(v.duration)) setDuration(v.duration); }],
+      ['progress',       () => { if (v.buffered.length) setBuffered(v.buffered.end(v.buffered.length - 1)); }],
+      ['waiting',        () => setBuffering(true)],
+      ['playing',        () => setBuffering(false)],
+      ['canplay',        () => setBuffering(false)],
+      ['stalled',        () => setBuffering(true)],
+    ];
+    h.forEach(([ev, fn]) => v.addEventListener(ev, fn));
+    return () => h.forEach(([ev, fn]) => v.removeEventListener(ev, fn));
   }, []);
 
-  const tryNextSource = useCallback(() => {
-    const idx = allSourcesRef.current.findIndex(s => s.value === selQRef.current);
-    if (idx !== -1 && idx < allSourcesRef.current.length - 1) {
-      const nextSrc = allSourcesRef.current[idx + 1];
-      setSelQuality(nextSrc.value);
-      selQRef.current = nextSrc.value;
-      loadSource(nextSrc);
-    } else {
-      setMode('error');
-    }
-  }, [loadSource]);
+  // ── Controls auto-hide ─────────────────────────────────────────────────────
+  const resetCtrl = useCallback(() => {
+    setShowCtrl(true);
+    clearTimeout(ctrlTimerRef.current);
+    ctrlTimerRef.current = setTimeout(() => { if (!panel) setShowCtrl(false); }, 3500);
+  }, [panel]);
+  useEffect(() => { resetCtrl(); return () => clearTimeout(ctrlTimerRef.current); }, [resetCtrl]);
+  useEffect(() => { if (panel) { setShowCtrl(true); clearTimeout(ctrlTimerRef.current); } else resetCtrl(); }, [panel, resetCtrl]);
 
-  // ── Main Init Fetch ──
+  // ── Keyboard ───────────────────────────────────────────────────────────────
   useEffect(() => {
-    setMode('loading');
-    fetch(`/api/multi-stream?tmdbId=${tmdbId}&type=${isMovie ? 'movie' : 'tv'}&season=${season}&episode=${episode}`)
-     .then(res => res.json())
-     .then(data => {
-        if (data.success && data.streams && data.streams.length > 0) {
-          const files = data.streams;
-          
-          // Build Quality Menu
-          const menu = files.map((f, i) => ({
-            label: f.quality || 'Auto',
-            value: i,
-            url: f.url,
-            type: f.type
-          }));
-          
-          allSourcesRef.current = menu;
-          setQualities(menu);
-          setSelQuality(0);
-          selQRef.current = 0;
-          loadSource(menu[0]);
-        } else {
-          setMode('error');
-        }
-      })
-     .catch(() => setMode('error'));
-
-    return () => { if (hlsRef.current) hlsRef.current.destroy(); };
-  }, [tmdbId, isMovie, season, episode, loadSource]);
-
-  // ── Native Video Error Handling (Auto-Fallback for MKV/MP4 failures) ──
-  const handleVideoError = () => {
-    console.warn("Native video decode/network error. Initiating fallback.");
-    tryNextSource();
-  };
-
-  // ── UI Controls ──
-  const togglePlay = () => { videoRef.current?.paused ? videoRef.current.play() : videoRef.current.pause(); };
-  const skip = (amt) => { if (videoRef.current) videoRef.current.currentTime += amt; };
-  const toggleFullscreen = () => {
-    if (!document.fullscreenElement) { containerRef.current?.requestFullscreen(); setIsFullscreen(true); } 
-    else { document.exitFullscreen(); setIsFullscreen(false); }
-  };
-  
-  const handleSeek = (e) => {
-    if (!videoRef.current || !duration) return;
-    const rect = progressBarRef.current.getBoundingClientRect();
-    const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    videoRef.current.currentTime = pos * duration;
-  };
-
-  useEffect(() => {
-    const vid = videoRef.current;
-    if (!vid) return;
-    const updateTime = () => { setCurrentTime(vid.currentTime); if(vid.buffered.length > 0) setBuffered(vid.buffered.end(vid.buffered.length-1)); };
-    
-    vid.addEventListener('timeupdate', updateTime);
-    vid.addEventListener('durationchange', () => setDuration(vid.duration));
-    vid.addEventListener('play', () => setPlaying(true));
-    vid.addEventListener('pause', () => setPlaying(false));
-    vid.addEventListener('waiting', () => setBuffering(true));
-    vid.addEventListener('playing', () => setBuffering(false));
-    return () => {
-      vid.removeEventListener('timeupdate', updateTime);
+    const fn = e => {
+      if (e.target.tagName === 'INPUT') return;
+      if (e.key === ' ' || e.key === 'k') { e.preventDefault(); togglePlay(); }
+      else if (e.key === 'ArrowLeft')  { e.preventDefault(); skip(-10); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); skip(10); }
+      else if (e.key === 'f') toggleFS();
+      else if (e.key === 'm') toggleMute();
+      else if (e.key === 'Escape') setPanel(null);
     };
-  }, [mode]);
+    window.addEventListener('keydown', fn);
+    return () => window.removeEventListener('keydown', fn);
+  }, [playing, muted, volume]);
 
   useEffect(() => {
-    const wakeControls = () => {
-      setShowControls(true);
-      clearTimeout(controlsTimeoutRef.current);
-      if (playing && !panel) controlsTimeoutRef.current = setTimeout(() => setShowControls(false), 3000);
-    };
-    const el = containerRef.current;
-    if (el) { el.addEventListener('mousemove', wakeControls); el.addEventListener('click', wakeControls); }
-    return () => clearTimeout(controlsTimeoutRef.current);
-  }, [playing, panel]);
+    const fn = () => setIsFS(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', fn);
+    return () => document.removeEventListener('fullscreenchange', fn);
+  }, []);
 
-  // ── Render Error State ──
-  if (mode === 'error') {
-    return (
-      <div style={styles.fullscreenBase}>
-        <button onClick={onClose} style={styles.closeBtn}><CloseIcon/></button>
-        <div style={{color:'#f87171', fontSize:20, fontWeight:600, marginBottom:12}}>No Playable Streams Found</div>
-        <div style={{color:'#AAA', fontSize:14, maxWidth:450, textAlign:'center'}}>
-          All connections to MoviesMod failed. The stream might be geoblocked or the format is unsupported by your browser.
-        </div>
-      </div>
-    );
-  }
+  // ── Actions ────────────────────────────────────────────────────────────────
+  const togglePlay = () => {
+    const v = vidRef.current; if (!v) return;
+    if (playing) v.pause();
+    else v.play().then(() => setPlaying(true))
+      .catch(() => { v.muted = true; v.play().then(() => { setPlaying(true); setAutoMuted(true); }); });
+  };
+  const skip = sec => {
+    const v = vidRef.current; if (!v) return;
+    v.currentTime = Math.max(0, Math.min(duration, v.currentTime + sec));
+    setSkipFX(sec < 0 ? 'b' : 'f'); setTimeout(() => setSkipFX(null), 600);
+  };
+  const toggleMute = () => {
+    const v = vidRef.current; if (!v) return;
+    if (v.muted || v.volume === 0) { v.muted = false; v.volume = prevVol > 0 ? prevVol : 1; setAutoMuted(false); }
+    else { setPrevVol(v.volume); v.muted = true; }
+  };
+  const changeVol = val => {
+    const v = vidRef.current; if (!v) return;
+    if (val > 0) { setPrevVol(val); v.muted = false; v.volume = val; setAutoMuted(false); }
+    else { v.muted = true; v.volume = 0; }
+  };
+  const toggleFS = () => {
+    if (!document.fullscreenElement) containerRef.current?.requestFullscreen();
+    else document.exitFullscreen();
+  };
+  const togglePiP = async () => {
+    const v = vidRef.current; if (!v) return;
+    try { if (document.pictureInPictureElement) await document.exitPictureInPicture(); else await v.requestPictureInPicture(); } catch (_) {}
+  };
 
-  // ── Main Render ──
+  // ── Progress bar ───────────────────────────────────────────────────────────
+  const seekTime = e => {
+    const b = progressRef.current; if (!b || !duration) return 0;
+    return Math.max(0, Math.min(1, (e.clientX - b.getBoundingClientRect().left) / b.offsetWidth)) * duration;
+  };
+  const onBarDown  = e => { setSeeking(true); const t = seekTime(e); if (vidRef.current) { vidRef.current.currentTime = t; setCurrentTime(t); } };
+  const onBarMove  = e => {
+    const t = seekTime(e); setHoverT(t);
+    if (progressRef.current) setHoverX(e.clientX - progressRef.current.getBoundingClientRect().left);
+    if (seeking && vidRef.current) { vidRef.current.currentTime = t; setCurrentTime(t); }
+  };
+  const onBarUp    = () => setSeeking(false);
+  const onBarLeave = () => { setHoverT(null); if (seeking) setSeeking(false); };
+
+  const volFromY = e => {
+    const s = volSliderRef.current; if (!s) return volume;
+    return 1 - Math.max(0, Math.min(1, (e.clientY - s.getBoundingClientRect().top) / s.offsetHeight));
+  };
+  useEffect(() => {
+    if (!draggingVol) return;
+    const mv = e => changeVol(volFromY(e));
+    const up = () => { setDraggingVol(false); setPanel(null); };
+    window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up);
+    return () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); };
+  }, [draggingVol]);
+
+  const pPct = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const bPct = duration > 0 ? (buffered   / duration) * 100 : 0;
+  const VolI = (muted || volume === 0) ? IC.VolX : volume < 0.5 ? IC.VolMid : IC.VolHi;
+
+  const curStream = streams[currentIdx] || null;
+
+  // ── RENDER ────────────────────────────────────────────────────────────────
   return (
-    <div ref={containerRef} style={styles.fullscreenBase}>
-      
-      {/* Native Browser Video Element (No iFrame) */}
-      <video
-        ref={videoRef}
-        style={{width:'100%', height:'100%', objectFit:'contain', display: mode === 'playing' ? 'block' : 'none'}}
-        playsInline
-        onError={handleVideoError}
-      />
+    <div ref={containerRef}
+      onMouseMove={resetCtrl}
+      onClick={() => setPanel(null)}
+      style={{ position:'fixed', inset:0, background:'#000',
+               fontFamily:"'Amazon Ember','Segoe UI',system-ui,sans-serif",
+               userSelect:'none', cursor: showCtrl ? 'default' : 'none', zIndex:9999 }}>
 
-      {(mode === 'loading' || buffering) && (
-        <div style={{position:'absolute', zIndex: 8}}>
-          <LoadingSpinner />
+      <style>{`
+        :root { --c: #B3B3B3; --ct: rgba(179,179,179,0.28); }
+        .pb * { box-sizing: border-box; }
+        .pbtn { background:none; border:none; cursor:pointer; color:var(--c); padding:0;
+                display:flex; align-items:center; justify-content:center; transition:color .15s; }
+        .pbtn:hover { color:#FFF; }
+        .pbar  { position:relative; height:4px; background:var(--ct); cursor:pointer; transition:height .1s; }
+        .pbar:hover { height:6px; }
+        .pbuf  { position:absolute; top:0; left:0; height:100%; background:rgba(179,179,179,.35); pointer-events:none; }
+        .ppld  { position:absolute; top:0; left:0; height:100%; background:#FFF; pointer-events:none; }
+        .pthumb { position:absolute; top:50%; width:14px; height:14px; background:#FFF;
+                  border-radius:50%; transform:translate(-50%,-50%) scale(0); pointer-events:none; transition:transform .1s; }
+        .pbar:hover .pthumb { transform:translate(-50%,-50%) scale(1); }
+        .cdot  { position:absolute; top:0; width:2px; height:100%; background:#000; pointer-events:none; z-index:2; }
+        .panel { position:absolute; top:46px; right:0; background:#111;
+                 border-radius:3px 0 0 3px; min-width:240px; overflow:hidden;
+                 box-shadow:0 6px 24px rgba(0,0,0,.9); animation:pi .1s ease-out; }
+        @keyframes pi { from{opacity:0;transform:translateY(-5px)} to{opacity:1;transform:translateY(0)} }
+        .volpop { position:absolute; top:100%; margin-top:8px; left:50%; transform:translateX(-50%);
+                  background:#111; border-radius:4px; padding:14px 11px; width:38px;
+                  display:flex; flex-direction:column; align-items:center; gap:10px;
+                  box-shadow:0 6px 20px rgba(0,0,0,.9); animation:pi .1s ease-out; z-index:50; }
+        .voltr  { width:3px; height:110px; background:var(--ct); border-radius:2px; position:relative; cursor:pointer; }
+        .volfil { position:absolute; bottom:0; left:0; width:100%; background:var(--c); border-radius:2px; pointer-events:none; }
+        .volknob{ position:absolute; left:50%; width:11px; height:11px; background:var(--c);
+                  border-radius:50%; transform:translate(-50%,50%); pointer-events:none; }
+        .qi:hover { background:rgba(255,255,255,.08); }
+        .skfx  { position:absolute; top:50%; transform:translateY(-50%); pointer-events:none;
+                 animation:sf .4s ease-out forwards; }
+        @keyframes sf { 0%{opacity:.8} 100%{opacity:0} }
+        .spin  { width:48px; height:48px; border-radius:50%;
+                 border:2px solid rgba(170,170,170,.2); border-top-color:#AAA;
+                 animation:sp .85s linear infinite; }
+        @keyframes sp { to{transform:rotate(360deg)} }
+        .unmute { position:absolute; bottom:90px; left:50%; transform:translateX(-50%);
+                  background:rgba(0,0,0,.88); border:1px solid rgba(255,255,255,.3); color:#fff;
+                  padding:10px 24px; border-radius:999px; display:flex; align-items:center;
+                  gap:10px; cursor:pointer; z-index:30; backdrop-filter:blur(10px);
+                  animation:pi .25s ease-out; white-space:nowrap; font-size:14px; font-weight:600; }
+        .unmute:hover { background:rgba(20,20,20,.95); }
+      `}</style>
+
+      {/* ── TAP TO UNMUTE ── */}
+      {autoMuted && (
+        <div className="unmute" onClick={e => { e.stopPropagation(); const v=vidRef.current; if(v){v.muted=false;v.volume=prevVol>0?prevVol:1;setAutoMuted(false);} }}>
+          <IC.VolX /><span>Tap to unmute</span>
         </div>
       )}
 
-      {/* Controls Overlay */}
-      <div style={{...styles.controlsOverlay, opacity: showControls ? 1 : 0, pointerEvents: showControls ? 'auto' : 'none'}}>
-        
-        {/* Top Bar */}
-        <div style={styles.topGradient}>
-          <button onClick={onClose} style={styles.iconBtn}><BackIcon/></button>
-          <div style={{color:'#fff', fontSize:18, fontWeight:600}}>{title} {season && !isMovie ? `— S${season} E${episode}` : ''}</div>
-        </div>
+      {/* ── VIDEO ELEMENT ── */}
+      <video ref={vidRef} playsInline preload="metadata"
+        style={{ width:'100%', height:'100%', objectFit:'contain', display:'block' }}
+        onClick={e => {
+          e.stopPropagation();
+          if (autoMuted) { const v=vidRef.current; if(v){v.muted=false;v.volume=prevVol>0?prevVol:1;setAutoMuted(false);} return; }
+          togglePlay();
+        }}
+      />
 
-        {/* Center Controls */}
-        <div style={styles.centerControls}>
-          <button onClick={(e)=>{e.stopPropagation();skip(-10)}} style={styles.bigBtn}><Replay10Icon/></button>
-          <button onClick={(e)=>{e.stopPropagation();togglePlay()}} style={{...styles.bigBtn, transform:'scale(1.2)'}}>
-            {playing ? <PauseIcon/> : <PlayIcon/>}
+      {/* ── LOADING SPINNER ── */}
+      {(loadState === 'loading' || buffering) && loadState !== 'error' && (
+        <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center',
+                      background: loadState==='loading' ? '#000' : 'transparent', zIndex:8, pointerEvents:'none' }}>
+          <div className="spin" />
+        </div>
+      )}
+
+      {/* ── ERROR STATE — no iframes, native UI only ── */}
+      {loadState === 'error' && (
+        <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column',
+                      alignItems:'center', justifyContent:'center', background:'#000', zIndex:9 }}>
+          <div style={{ fontSize:28, marginBottom:16 }}>⚠️</div>
+          <div style={{ color:'#f87171', fontSize:17, fontWeight:700, marginBottom:8 }}>No Playable Streams Found</div>
+          <div style={{ color:'#888', fontSize:13, marginBottom:24, textAlign:'center', maxWidth:360, lineHeight:1.6 }}>
+            {errorMsg || 'MoviessMod streams are not available for this title right now.'}
+          </div>
+          <button onClick={onClose}
+            style={{ background:'none', border:'1px solid rgba(255,255,255,.3)', color:'#fff',
+                     padding:'10px 28px', borderRadius:6, cursor:'pointer', fontWeight:700, fontSize:14 }}>
+            ← Go Back
           </button>
-          <button onClick={(e)=>{e.stopPropagation();skip(10)}} style={styles.bigBtn}><Forward10Icon/></button>
         </div>
+      )}
 
-        {/* Bottom Bar */}
-        <div style={styles.bottomBar}>
-          <div ref={progressBarRef} onClick={handleSeek} style={styles.progressContainer}>
-            <div style={styles.progressBg}>
-              <div style={{...styles.progressBuffer, width: `${(buffered/duration)*100}%`}}/>
-              <div style={{...styles.progressFill, width: `${(currentTime/duration)*100}%`}}/>
-              <div style={{...styles.progressThumb, left: `${(currentTime/duration)*100}%`}}/>
-            </div>
-          </div>
+      {/* ── CONTROLS ── */}
+      {loadState !== 'error' && (
+        <div className="pb" style={{ position:'absolute', inset:0,
+                                      opacity: showCtrl ? 1 : 0, transition:'opacity .3s',
+                                      pointerEvents: showCtrl ? 'auto' : 'none', zIndex:5 }}>
+          {/* Gradients */}
+          <div style={{ position:'absolute',top:0,left:0,right:0,height:140,
+                        background:'linear-gradient(to bottom,rgba(0,0,0,.8),transparent)',pointerEvents:'none'}} />
+          <div style={{ position:'absolute',bottom:0,left:0,right:0,height:140,
+                        background:'linear-gradient(to top,rgba(0,0,0,.8),transparent)',pointerEvents:'none'}} />
 
-          <div style={styles.controlsRow}>
-            <div style={{display:'flex', alignItems:'center', gap:12}}>
-              <button onClick={togglePlay} style={styles.iconBtn}>{playing ? <PauseIcon/> : <PlayIcon/>}</button>
-              <div style={{color:'#fff', fontSize:14}}>{formatTime(currentTime)} / {formatTime(duration)}</div>
-            </div>
+          {/* TOP BAR */}
+          <div style={{ position:'absolute',top:0,left:0,right:0,
+                        display:'flex',alignItems:'center',justifyContent:'space-between',
+                        padding:'28px 36px',zIndex:10,pointerEvents:'auto' }}>
 
-            <div style={{display:'flex', alignItems:'center', gap:12}}>
-              <button onClick={()=>setPanel(panel==='settings'?'':'settings')} style={styles.iconBtn}><SettingsIcon/></button>
-              <button onClick={toggleFullscreen} style={styles.iconBtn}>{isFullscreen ? <ExitFullscreenIcon/> : <FullscreenIcon/>}</button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Settings Panel */}
-      {panel === 'settings' && (
-        <div style={styles.settingsPanel}>
-          <div style={styles.panelHeader}>
-            <span>Settings</span>
-            <button onClick={()=>setPanel(null)} style={styles.iconBtn}><CloseIcon/></button>
-          </div>
-          <div style={{display:'flex', flexDirection:'row'}}>
-            
-            <div style={{flex:1, borderRight:'1px solid rgba(255,255,255,0.1)', padding:'20px 16px'}}>
-              <div style={{color:'#fff', fontSize:16, fontWeight:700, marginBottom:16}}>Quality</div>
-              {qualities.map(q => (
-                <div key={q.value} style={styles.menuItem} onClick={()=>{
-                  setSelQuality(q.value); selQRef.current = q.value;
-                  loadSource(qualities.find(s => s.value === q.value)); 
-                  setPanel(null);
-                }}>
-                  <div style={{width:20}}>{selQuality===q.value && <CheckIcon/>}</div>
-                  <span style={{color:selQuality===q.value ? '#fff' : 'rgba(255,255,255,.7)'}}>{q.label}</span>
-                </div>
-              ))}
-            </div>
-
-            <div style={{flex:1, padding:'20px 16px'}}>
-              <div style={{color:'#fff', fontSize:16, fontWeight:700, marginBottom:16}}>Audio</div>
-              {audioTracks.length > 0 ? (
-                audioTracks.map(t => (
-                  <div key={t.id} style={styles.menuItem} onClick={()=>{
-                    if(hlsRef.current) hlsRef.current.audioTrack = t.id;
-                    setActiveAudioIdx(t.id);
-                  }}>
-                    <div style={{width:20}}>{activeAudioIdx===t.id && <CheckIcon/>}</div>
-                    <span style={{color:activeAudioIdx===t.id ? '#fff':'rgba(255,255,255,.7)'}}>{t.name}</span>
-                  </div>
-                ))
-              ) : (
-                <div style={{color:'rgba(255,255,255,.5)', fontSize:13, fontStyle:'italic'}}>Default Audio</div>
+            {/* Title */}
+            <div style={{ display:'flex', flexDirection:'column', gap:2 }}>
+              <span style={{ color:'#FFF', fontSize:20, fontWeight:600, textShadow:'0 1px 3px rgba(0,0,0,.8)' }}>
+                {movieTitle}
+              </span>
+              {mediaType === 'tv' && (
+                <span style={{ color:'#CCC', fontSize:14 }}>
+                  Season {season}, Ep. {episode}{episodeTitle ? ` — ${episodeTitle}` : ''}
+                </span>
+              )}
+              {curStream && (
+                <span style={{ color:'#888', fontSize:11, marginTop:2 }}>
+                  {curStream.provider} · {curStream.quality} · {curStream.language}
+                  {streams.length > 1 && ` · Source ${currentIdx+1}/${streams.length}`}
+                </span>
               )}
             </div>
 
+            {/* Right controls */}
+            <div style={{ display:'flex', alignItems:'center', gap:20 }}>
+
+              {/* Subtitles & Audio */}
+              <div style={{ position:'relative' }}>
+                <button className="pbtn" title="Audio & Subtitles"
+                  onClick={e=>{e.stopPropagation();setPanel(panel==='sub'?null:'sub');}}>
+                  <IC.Sub />
+                </button>
+                {panel === 'sub' && (
+                  <div className="panel" style={{ width:400 }} onClick={e=>e.stopPropagation()}>
+                    <div style={{ display:'flex' }}>
+                      {/* Subtitles */}
+                      <div style={{ flex:1, borderRight:'1px solid rgba(255,255,255,.12)', padding:'18px 14px' }}>
+                        <div style={{ color:'#fff', fontSize:15, fontWeight:700, marginBottom:14 }}>Subtitles</div>
+                        <div className="qi" style={{ display:'flex',alignItems:'center',gap:10,padding:'7px 4px',cursor:'pointer',borderRadius:4 }}
+                          onClick={()=>{setActiveSub(-1);if(hlsRef.current)hlsRef.current.subtitleTrack=-1;}}>
+                          <div style={{width:18}}>{activeSub===-1&&<IC.Check/>}</div>
+                          <span style={{color:activeSub===-1?'#fff':'rgba(255,255,255,.6)',fontSize:14}}>Off</span>
+                        </div>
+                        {subTracks.map(t=>(
+                          <div key={t.id} className="qi" style={{display:'flex',alignItems:'center',gap:10,padding:'7px 4px',cursor:'pointer',borderRadius:4}}
+                            onClick={()=>{setActiveSub(t.id);if(hlsRef.current)hlsRef.current.subtitleTrack=t.id;}}>
+                            <div style={{width:18}}>{activeSub===t.id&&<IC.Check/>}</div>
+                            <span style={{color:activeSub===t.id?'#fff':'rgba(255,255,255,.6)',fontSize:14}}>{t.name}</span>
+                          </div>
+                        ))}
+                        {subTracks.length===0&&<div style={{color:'rgba(255,255,255,.3)',fontSize:12,fontStyle:'italic'}}>None available</div>}
+                      </div>
+
+                      {/* Audio — HLS tracks only; MKV/MP4 hides this */}
+                      <div style={{ flex:1, padding:'18px 14px' }}>
+                        <div style={{ color:'#fff', fontSize:15, fontWeight:700, marginBottom:14 }}>Audio</div>
+                        {audioTracks.length > 0 ? audioTracks.map(t=>(
+                          <div key={t.id} className="qi" style={{display:'flex',alignItems:'center',gap:10,padding:'7px 4px',cursor:'pointer',borderRadius:4}}
+                            onClick={()=>{
+                              // This is the actual switch — sets HLS.js audio track index
+                              if(hlsRef.current) hlsRef.current.audioTrack = t.id;
+                              setActiveAudio(t.id);
+                            }}>
+                            <div style={{width:18}}>{activeAudio===t.id&&<IC.Check/>}</div>
+                            <span style={{color:activeAudio===t.id?'#fff':'rgba(255,255,255,.6)',fontSize:14}}>{t.name}</span>
+                          </div>
+                        )) : (
+                          <div style={{color:'rgba(255,255,255,.3)',fontSize:12,fontStyle:'italic'}}>
+                            {curStream?.type === 'mkv' || curStream?.type === 'mp4'
+                              ? 'Default audio (MKV/MP4)'
+                              : 'Loading…'}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Quality / source */}
+              <div style={{ position:'relative' }}>
+                <button className="pbtn" title="Quality / Source"
+                  onClick={e=>{e.stopPropagation();setPanel(panel==='q'?null:'q');}}>
+                  <IC.Settings />
+                </button>
+                {panel === 'q' && (
+                  <div className="panel" style={{ width:260, maxHeight:'60vh', overflowY:'auto' }} onClick={e=>e.stopPropagation()}>
+                    <div style={{ padding:'18px 18px 12px' }}>
+                      <div style={{ color:'#fff', fontSize:16, fontWeight:700, marginBottom:12 }}>Quality / Source</div>
+                      {streams.map((s,i)=>(
+                        <div key={i} className="qi" style={{display:'flex',alignItems:'center',gap:12,padding:'10px 4px',cursor:'pointer',borderRadius:4}}
+                          onClick={()=>{ setPanel(null); loadStreamAt(i); }}>
+                          <div style={{width:20,flexShrink:0}}>{currentIdx===i&&<IC.Check/>}</div>
+                          <div>
+                            <div style={{color:currentIdx===i?'#fff':'rgba(255,255,255,.8)',fontSize:14,fontWeight:currentIdx===i?700:400}}>
+                              {s.quality}
+                            </div>
+                            <div style={{color:'rgba(255,255,255,.4)',fontSize:11,marginTop:1}}>
+                              {s.language} · {s.type?.toUpperCase()}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Volume */}
+              <div style={{ position:'relative' }}
+                onMouseEnter={()=>setPanel('vol')} onMouseLeave={()=>{if(!draggingVol)setPanel(null);}}>
+                <button className="pbtn" onClick={e=>{e.stopPropagation();toggleMute();}}><VolI/></button>
+                {panel==='vol'&&(
+                  <div className="volpop" onClick={e=>e.stopPropagation()}>
+                    <div ref={volSliderRef} className="voltr"
+                      onMouseDown={e=>{e.stopPropagation();setDraggingVol(true);changeVol(volFromY(e));}}>
+                      <div className="volfil" style={{height:`${(muted?0:volume)*100}%`}}/>
+                      <div className="volknob" style={{bottom:`${(muted?0:volume)*100}%`}}/>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <button className="pbtn" title="PiP" onClick={e=>{e.stopPropagation();togglePiP();}}><IC.PiP/></button>
+              <button className="pbtn" title="Fullscreen" onClick={e=>{e.stopPropagation();toggleFS();}}>
+                {isFS ? <IC.ExitFS/> : <IC.FS/>}
+              </button>
+              <div style={{width:1,height:22,background:'#B3B3B3',opacity:.4}}/>
+              <button className="pbtn" title="Close" onClick={e=>{e.stopPropagation();onClose?.();}}><IC.Close/></button>
+            </div>
+          </div>
+
+          {/* CENTER CONTROLS */}
+          <div style={{ position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',
+                        display:'flex',alignItems:'center',gap:100,zIndex:8 }} onClick={e=>e.stopPropagation()}>
+            <button className="pbtn" style={{position:'relative'}} onClick={()=>skip(-10)}>
+              <IC.Rw10/>
+              {skipFX==='b'&&<div className="skfx" style={{left:'50%',transform:'translate(-50%,-50%)',color:'#FFF',fontSize:22}}>-10</div>}
+            </button>
+            <button className="pbtn" onClick={togglePlay}>{playing?<IC.Pause/>:<IC.Play/>}</button>
+            <button className="pbtn" style={{position:'relative'}} onClick={()=>skip(10)}>
+              <IC.Fw10/>
+              {skipFX==='f'&&<div className="skfx" style={{left:'50%',transform:'translate(-50%,-50%)',color:'#FFF',fontSize:22}}>+10</div>}
+            </button>
+          </div>
+
+          {/* BOTTOM BAR */}
+          <div style={{ position:'absolute',bottom:0,left:0,right:0,padding:'0 36px 28px',zIndex:10 }}>
+            <div ref={progressRef} className="pbar" style={{marginBottom:12}}
+              onMouseDown={onBarDown} onMouseMove={onBarMove} onMouseUp={onBarUp} onMouseLeave={onBarLeave}
+              onClick={e=>e.stopPropagation()}>
+              <div className="pbuf" style={{width:`${bPct}%`}}/>
+              <div className="ppld" style={{width:`${pPct}%`}}/>
+              {chapters.map((t,i)=><div key={i} className="cdot" style={{left:`${(t/duration)*100}%`}}/>)}
+              <div className="pthumb" style={{left:`${pPct}%`}}/>
+              {hoverT!==null&&(
+                <div style={{position:'absolute',bottom:16,
+                             left:Math.max(24,Math.min(hoverX,(progressRef.current?.offsetWidth||0)-24)),
+                             transform:'translateX(-50%)',background:'rgba(0,0,0,.85)',
+                             color:'#CCC',fontSize:11,padding:'3px 8px',borderRadius:4,
+                             whiteSpace:'nowrap',pointerEvents:'none'}}>
+                  {fmt(hoverT)}
+                </div>
+              )}
+            </div>
+
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:10}}>
+              <div style={{fontSize:14,fontWeight:500}}>
+                <span style={{color:'#FFF'}}>{fmt(currentTime)}</span>
+                <span style={{color:'#888'}}> / {fmt(duration)}</span>
+              </div>
+              {mediaType==='tv'&&nextEpData&&(
+                <button onClick={e=>{e.stopPropagation();navigate(`/watch/tv/${tmdbId}?season=${nextEpData.season}&episode=${nextEpData.episode}`,{replace:true});}}
+                  style={{color:'#FFF',fontSize:14,fontWeight:600,background:'none',border:'none',cursor:'pointer',
+                          display:'flex',alignItems:'center',gap:4,padding:0}}
+                  onMouseEnter={e=>e.currentTarget.style.color='#00A8E1'}
+                  onMouseLeave={e=>e.currentTarget.style.color='#FFF'}>
+                  Next Episode <IC.ChevR/>
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
     </div>
   );
 }
-
-// Inline Styles
-const styles = {
-  fullscreenBase: { position:'fixed', top:0, left:0, width:'100vw', height:'100vh', backgroundColor:'#000', zIndex:99999, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'sans-serif' },
-  closeBtn: { position:'absolute', top:20, left:20, background:'rgba(0,0,0,0.5)', border:'none', borderRadius:'50%', padding:10, cursor:'pointer' },
-  iconBtn: { background:'transparent', border:'none', cursor:'pointer', padding:8, opacity:0.8 },
-  bigBtn: { background:'rgba(0,0,0,0.4)', border:'none', borderRadius:'50%', cursor:'pointer', padding:16, color:'#fff', backdropFilter:'blur(4px)' },
-  topGradient: { position:'absolute', top:0, width:'100%', padding:'20px 30px', background:'linear-gradient(to bottom, rgba(0,0,0,0.8), transparent)', display:'flex', alignItems:'center', gap:20 },
-  controlsOverlay: { position:'absolute', inset:0, display:'flex', flexDirection:'column', justifyContent:'flex-end', transition:'opacity 0.3s ease' },
-  centerControls: { position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', display:'flex', alignItems:'center', gap:40 },
-  bottomBar: { width:'100%', padding:'0 30px 20px 30px', background:'linear-gradient(to top, rgba(0,0,0,0.9), transparent)' },
-  progressContainer: { width:'100%', height:20, display:'flex', alignItems:'center', cursor:'pointer', marginBottom:10 },
-  progressBg: { position:'relative', width:'100%', height:5, backgroundColor:'rgba(255,255,255,0.2)', borderRadius:3 },
-  progressBuffer: { position:'absolute', height:'100%', backgroundColor:'rgba(255,255,255,0.4)', borderRadius:3 },
-  progressFill: { position:'absolute', height:'100%', backgroundColor:'#00a8e1', borderRadius:3 },
-  progressThumb: { position:'absolute', top:'50%', width:14, height:14, backgroundColor:'#00a8e1', borderRadius:'50%', transform:'translate(-50%, -50%)' },
-  controlsRow: { display:'flex', justifyContent:'space-between', alignItems:'center' },
-  settingsPanel: { position:'absolute', bottom:80, right:30, minWidth:400, backgroundColor:'rgba(15,15,15,0.95)', backdropFilter:'blur(10px)', borderRadius:12, border:'1px solid rgba(255,255,255,0.1)', display:'flex', flexDirection:'column' },
-  panelHeader: { display:'flex', justifyContent:'space-between', alignItems:'center', padding:'16px 20px', borderBottom:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontWeight:600 },
-  menuItem: { display:'flex', alignItems:'center', gap:10, padding:'8px 4px', cursor:'pointer' }
-};
