@@ -341,55 +341,52 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   // ── MAIN INIT ──────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!tmdbId) return;
-
-    // Reset
-    setLoadState('loading'); setErrorMsg('');
-    setStreams([]); setCurrentIdx(0);
-    setPlaying(false); setBuffering(false); setAutoMuted(false);
-    setCurrentTime(0); setDuration(0); setBuffered(0);
-    setAudioTracks([]); setSubTracks([]);
-    streamsRef.current = []; streamIdxRef.current = 0;
-    resumedRef.current = false;
-    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
-
+    
     let cancelled = false;
 
-    // Fetch movie title for display + progress saving
+    // First: Fetch metadata (title, year) needed by the extractor
     fetch(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_KEY}`)
       .then(r => r.json())
-      .then(d => { if (!cancelled) setMovieTitle(d.title || d.name || title); })
-      .catch(() => {});
+      .then(d => {
+        if (cancelled) return;
+        const title = d.title || d.name;
+        const year = (d.release_date || d.first_air_date || '').slice(0, 4);
+        setMovieTitle(title);
 
-    // Fetch MoviessMod streams from our backend
-    fetch(`/api/multi-stream?${new URLSearchParams({ tmdbId, type: mediaType, season, episode })}`)
+        // Next: Call our new extraction layer
+        const extractUrl = `/api/extract?tmdbId=${tmdbId}&title=${encodeURIComponent(title)}&releaseYear=${year}&type=${mediaType}&season=${season}&episode=${episode}`;
+        
+        return fetch(extractUrl);
+      })
       .then(r => r.json())
       .then(data => {
         if (cancelled) return;
-        if (!data.success || !Array.isArray(data.streams) || data.streams.length === 0) {
+        if (!data.success || !data.streamUrl) {
           setLoadState('error');
-          setErrorMsg(data.error || 'No MoviessMod streams found for this title.');
+          setErrorMsg('Extraction failed.');
           return;
         }
-        // Build the fallback chain: for each stream, add direct + proxied variant
-        const chain = [];
-        data.streams.forEach(s => {
-          chain.push(s); // already proxied by backend
-        });
-        streamsRef.current = chain;
-        setStreams(chain);
-        loadStreamAt(0);
+
+        // Pass the raw master manifest to our proxy
+        const refererParam = data.headers?.Referer ? `&referer=${encodeURIComponent(data.headers.Referer)}` : '';
+        const proxiedStreamUrl = `/api/proxy?url=${encodeURIComponent(data.streamUrl)}${refererParam}`;
+
+        // Create a single stream object for your player's existing logic
+        const stream = { url: proxiedStreamUrl, type: 'hls', quality: 'Auto', provider: 'Aggregator' };
+        
+        streamsRef.current = [stream];
+        setStreams([stream]);
+        loadStreamAt(0); // This calls your existing HLS.js instantiation
       })
       .catch(err => {
-        if (cancelled) return;
-        setLoadState('error');
-        setErrorMsg('Failed to fetch streams: ' + err.message);
+        if (!cancelled) {
+          setLoadState('error');
+          setErrorMsg('Failed to fetch streams.');
+        }
       });
 
-    return () => {
-      cancelled = true;
-      if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
-    };
-  }, [tmdbId, mediaType, season, episode, loadStreamAt]);
+    return () => { cancelled = true; };
+  }, [tmdbId, mediaType, season, episode]);
 
   // ── VIDEO DOM EVENTS ───────────────────────────────────────────────────────
   useEffect(() => {
