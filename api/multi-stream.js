@@ -57,7 +57,13 @@ function parseQuality(str) {
 
 function sortStreams(streams) {
   const rank = { '1080p': 5, '720p': 4, '4K': 3, '480p': 2, 'Auto': 1 };
-  return [...streams].sort((a, b) => (rank[b.quality] || 0) - (rank[a.quality] || 0));
+  return [...streams].sort((a, b) => {
+    // Force MoviesMod to always be at the absolute top
+    if (a._isMoviesMod && !b._isMoviesMod) return -1;
+    if (!a._isMoviesMod && b._isMoviesMod) return 1;
+    // Then sort by quality
+    return (rank[b.quality] || 0) - (rank[a.quality] || 0);
+  });
 }
 
 async function fetchMoviesModFromNuvio(imdbId, mediaType, season, episode) {
@@ -70,20 +76,35 @@ async function fetchMoviesModFromNuvio(imdbId, mediaType, season, episode) {
     const raw  = await get(path, { 'Referer': 'https://nuviostreams.hayd.uk/' }, 12000);
     const data = JSON.parse(raw);
     
-    // Filter strictly for "MoviesMod" streams
+    // Process all Nuvio streams to prevent the frontend iframe fallback
     const streams = (data.streams || []).filter(s => {
       if (!s.url) return false;
-      const nameStr = (s.name || s.title || '').toLowerCase();
-      if (!nameStr.includes('moviesmod')) return false;
       return s.url.includes('.mp4') || s.url.includes('.m3u8') || s.url.includes('.mkv');
+    }).map(s => {
+      const rawName = s.name || s.title || '';
+      // Strip emojis, spaces, and casing to perfectly match "MoviesMod"
+      const normalizedName = rawName.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const isMoviesMod = normalizedName.includes('moviesmod');
+
+      // Clean up the provider name for your custom UI
+      let providerName = 'NuvioStream';
+      if (isMoviesMod) {
+        providerName = 'MoviesMod';
+      } else {
+        const firstLine = rawName.split('\n')[0];
+        providerName = firstLine.replace(/[^\x00-\x7F]/g, "").trim() || 'NuvioStream';
+      }
+
+      return {
+        url: s.url,
+        quality: parseQuality(rawName),
+        provider: providerName,
+        type: s.url.includes('.m3u8') ? 'hls' : 'mp4',
+        _isMoviesMod: isMoviesMod // internal flag for sorting
+      };
     });
 
-    return streams.map(s => ({
-      url:      s.url,
-      quality:  parseQuality(s.name || s.title || ''),
-      provider: 'MoviesMod',
-      type:     s.url.includes('.m3u8') ? 'hls' : 'mp4',
-    }));
+    return streams;
   } catch (e) {
     console.warn('[nuvio-proxy] fetch error:', e.message);
     return [];
@@ -107,14 +128,20 @@ module.exports = async function handler(req, res) {
   const streams = await fetchMoviesModFromNuvio(imdbId, mediaType, season, episode);
 
   if (streams.length > 0) {
+    // Sort streams and remove the internal flag before sending to frontend
+    const sortedStreams = sortStreams(streams).map(s => {
+      delete s._isMoviesMod;
+      return s;
+    });
+
     res.statusCode = 200;
     return res.end(JSON.stringify({
       success: true,
       imdbId,
-      streams: sortStreams(streams),
+      streams: sortedStreams,
     }));
   }
 
   res.statusCode = 200;
-  return res.end(JSON.stringify({ success: false, imdbId, error: 'No MoviesMod streams found' }));
+  return res.end(JSON.stringify({ success: false, imdbId, error: 'No Nuvio streams found' }));
 };
