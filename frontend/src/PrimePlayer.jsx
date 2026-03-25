@@ -50,24 +50,15 @@ function parseLanguage(str) {
 function friendlyLang(raw) {
   if (!raw) return raw;
   const map = {
-    hin:'Hindi', hi:'Hindi', hindi:'Hindi',
-    eng:'English', en:'English', english:'English',
-    tam:'Tamil', ta:'Tamil', tamil:'Tamil',
-    tel:'Telugu', te:'Telugu', telugu:'Telugu',
-    mal:'Malayalam', ml:'Malayalam', malayalam:'Malayalam',
-    kan:'Kannada', kn:'Kannada', kannada:'Kannada',
-    ben:'Bengali', bn:'Bengali', bengali:'Bengali',
-    mar:'Marathi', mr:'Marathi', marathi:'Marathi',
-    pun:'Punjabi', pa:'Punjabi', punjabi:'Punjabi',
-    jpn:'Japanese', ja:'Japanese', japanese:'Japanese',
-    kor:'Korean', ko:'Korean', korean:'Korean',
-    fra:'French', fr:'French', french:'French',
-    deu:'German', de:'German', german:'German',
-    spa:'Spanish', es:'Spanish', spanish:'Spanish',
-    zho:'Chinese', zh:'Chinese', chinese:'Chinese',
-    ara:'Arabic', ar:'Arabic', arabic:'Arabic',
-    mul:'Multi', multi:'Multi',
-    und:'Unknown', unknown:'Unknown',
+    hin:'Hindi', hi:'Hindi', hindi:'Hindi', eng:'English', en:'English', english:'English',
+    tam:'Tamil', ta:'Tamil', tamil:'Tamil', tel:'Telugu', te:'Telugu', telugu:'Telugu',
+    mal:'Malayalam', ml:'Malayalam', malayalam:'Malayalam', kan:'Kannada', kn:'Kannada', kannada:'Kannada',
+    ben:'Bengali', bn:'Bengali', bengali:'Bengali', mar:'Marathi', mr:'Marathi', marathi:'Marathi',
+    pun:'Punjabi', pa:'Punjabi', punjabi:'Punjabi', jpn:'Japanese', ja:'Japanese', japanese:'Japanese',
+    kor:'Korean', ko:'Korean', korean:'Korean', fra:'French', fr:'French', french:'French',
+    deu:'German', de:'German', german:'German', spa:'Spanish', es:'Spanish', spanish:'Spanish',
+    zho:'Chinese', zh:'Chinese', chinese:'Chinese', ara:'Arabic', ar:'Arabic', arabic:'Arabic',
+    mul:'Multi', multi:'Multi', und:'Unknown', unknown:'Unknown',
   };
   const key = raw.toLowerCase().trim();
   return map[key] || (raw.charAt(0).toUpperCase() + raw.slice(1));
@@ -79,18 +70,16 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const containerRef   = useRef(null);
   const videoRef       = useRef(null);
   const hlsRef         = useRef(null);
-  const iframeRef      = useRef(null);
   const progressBarRef = useRef(null);
   const ctrlTimer      = useRef(null);
   const volSliderRef   = useRef(null);
-  const iframeTimer    = useRef(null);
 
   const rawFilesRef   = useRef([]);
   const allSourcesRef = useRef([]);
   const selQRef       = useRef(-1);
   const hasResumed    = useRef(false);
 
-  // COMPLETELY RESTORED AND FIXED STATE VARIABLES
+  // STATE VARIABLES
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -101,16 +90,14 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const [prevVol, setPrevVol] = useState(1);
   const [autoMuted, setAutoMuted] = useState(false);
 
+  // mode: 'loading' | 'hls' | 'direct' | 'error'
   const [mode, setMode] = useState('loading');
   const [hlsUrl, setHlsUrl] = useState(null);
   const [hlsKey, setHlsKey] = useState(0); 
   const [directFiles, setDirectFiles] = useState([]);
-  const [directIdx, setDirectIdx] = useState(0);
+  
   const [qualities, setQualities] = useState([]);
   const [selQuality, setSelQuality] = useState(-1);
-  const [embeds, setEmbeds] = useState([]);
-  const [embedIdx, setEmbedIdx] = useState(0);
-  const [embedPhase, setEmbedPhase] = useState('loading');
 
   const [audioTracks, setAudioTracks] = useState([]); 
   const [activeAudioIdx, setActiveAudioIdx] = useState(0);
@@ -204,24 +191,24 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     return () => v.removeEventListener('volumechange', fn);
   }, []);
 
-  // ── Embed list (Removed embed.su, using reliable fallbacks) ────────────────
-  const buildEmbeds = (tid, iid, mt, s, e) => {
-    const tv = mt==='tv'; const list=[];
-    if(iid){
-      list.push({name:'VidSrc',    url:tv?`https://vidsrc.xyz/embed/tv?imdb=${iid}&season=${s}&episode=${e}`:`https://vidsrc.xyz/embed/movie?imdb=${iid}`});
-      list.push({name:'VidSrc.me', url:tv?`https://vidsrc.me/embed/tv?imdb=${iid}&season=${s}&episode=${e}`:`https://vidsrc.me/embed/movie?imdb=${iid}`});
+  // ── Auto Fallback Logic ───────────────────────────────────────────────────
+  const tryNextSource = useCallback(() => {
+    const idx = allSourcesRef.current.findIndex(s=>s.value===selQRef.current);
+    if (idx !== -1 && idx < allSourcesRef.current.length - 1) {
+      console.log("Source failed, auto-advancing to next quality/proxy...");
+      handleQuality(allSourcesRef.current[idx+1].value);
+    } else {
+      console.warn("All direct Nuvio sources failed.");
+      setMode('error'); 
     }
-    list.push({name:'VidSrc',    url:tv?`https://vidsrc.xyz/embed/tv?tmdb=${tid}&season=${s}&episode=${e}`:`https://vidsrc.xyz/embed/movie?tmdb=${tid}`});
-    list.push({name:'VidSrc.in', url:tv?`https://vidsrc.in/embed/tv?tmdb=${tid}&season=${s}&episode=${e}`:`https://vidsrc.in/embed/movie?tmdb=${tid}`});
-    list.push({name:'AutoEmbed', url:tv?`https://autoembed.cc/tv/tmdb/${tid}-${s}-${e}`:`https://autoembed.cc/movie/tmdb/${tid}`});
-    return list;
-  };
+  }, []);
 
   // ── loadSource ─────────────────────────────────────────────────────────────
   const loadSource = useCallback(src => {
     setBuffering(true); setPlaying(false); setCurrentTime(0); setBuffered(0);
     setAudioTracks([]); setActiveAudioIdx(0);
     setSubTracks([]); setActiveSubIdx(-1);
+    
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
     if (videoRef.current) { videoRef.current.pause(); videoRef.current.removeAttribute('src'); videoRef.current.load(); }
 
@@ -231,7 +218,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       setMode('hls');
     } else {
       setDirectFiles([src]);
-      setDirectIdx(0);
+      setHlsKey(k => k+1);
       setMode('direct');
     }
   }, []);
@@ -269,11 +256,10 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       setSelQuality(menu[0].value); selQRef.current=menu[0].value;
       loadSource(menu[0]);
     } else if(files.length > 0) {
-      // Fallback
       setSelQuality(0); selQRef.current=0;
       loadSource(files[0]);
     } else {
-      setMode('iframe');
+      setMode('error');
     }
   }, [loadSource]);
 
@@ -292,18 +278,11 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     setPanel(null);
   }, [buildAndLoad, duration, saveProgress]);
 
-  const tryNextSource = useCallback(() => {
-    const idx = allSourcesRef.current.findIndex(s=>s.value===selQRef.current);
-    if (idx!==-1 && idx<allSourcesRef.current.length-1) handleQuality(allSourcesRef.current[idx+1].value);
-    else { setMode('iframe'); setEmbedIdx(0); setEmbedPhase('loading'); }
-  }, [handleQuality]);
-
   // ── MAIN INIT ──────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!tmdbId) return;
     setMode('loading'); setHlsUrl(null);
-    setDirectFiles([]); setDirectIdx(0); setQualities([]); setSelQuality(-1);
-    setEmbeds([]); setEmbedIdx(0); setEmbedPhase('loading');
+    setDirectFiles([]); setQualities([]); setSelQuality(-1);
     setPlaying(false); setBuffering(false); setAutoMuted(false);
     setCurrentTime(0); setDuration(0); setBuffered(0);
     setAudioTracks([]); setSubTracks([]);
@@ -313,49 +292,56 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     let cancelled = false;
     const ac = new AbortController();
 
-    fetch(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_KEY}&append_to_response=external_ids,credits`,{signal:ac.signal})
-     .then(r=>r.json()).then(d=>{
-        if(cancelled) return;
-        const iid = d.imdb_id||d.external_ids?.imdb_id||null;
-        setMovieTitle(d.title||d.name||title);
+    // Fetch Details & Subtitles & Streams 
+    Promise.allSettled([
+      fetch(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_KEY}&append_to_response=credits`, {signal:ac.signal}).then(r=>r.json()),
+      fetch(`https://vidsrc.pro/api/subtitles/${tmdbId}${mediaType==='tv'?`/${season}/${episode}`:''}`, {signal:ac.signal}).then(r=>r.json()),
+      fetch(`/api/multi-stream?${new URLSearchParams({tmdbId,type:mediaType,season,episode})}`, {signal:ac.signal}).then(r=>r.json())
+    ]).then(results => {
+      if (cancelled) return;
+
+      // 1. Details Processing
+      if (results[0].status === 'fulfilled' && results[0].value) {
+        const d = results[0].value;
+        setMovieTitle(d.title || d.name || title);
         setXrayCast((d.credits?.cast||[]).slice(0,12).map(p=>({
           id:p.id,name:p.name,character:p.character,
           profile:p.profile_path?`https://image.tmdb.org/t/p/w185${p.profile_path}`:null,
         })));
-        if(!cancelled) setEmbeds(buildEmbeds(tmdbId,iid,mediaType,season,episode));
-      }).catch(()=>{});
-
-    setEmbeds(buildEmbeds(tmdbId,null,mediaType,season,episode));
-
-    (async()=>{
-      let streams=[];
-      try {
-        const r = await fetch(`/api/multi-stream?${new URLSearchParams({tmdbId,type:mediaType,season,episode})}`);
-        if(r.ok){
-          const d=await r.json();
-          if(d?.success&&Array.isArray(d.streams))
-            streams=d.streams.filter(s=>s?.url&&s.url.startsWith('http'));
-        }
-      } catch(e){ console.warn('[Player]',e.message); }
-
-      if(cancelled) return;
-
-      if(streams.length>0){
-        const files=[];
-        streams.forEach(s=>{
-          const lang = s.language || parseLanguage(s.url);
-          files.push({url:s.url, quality:s.quality||'Auto', language: lang, type: s.type || (s.url.includes('.m3u8')?'hls':'direct')});
-          
-          if (s.url.includes('.m3u8')) {
-            files.push({url:`/api/proxy?url=${encodeURIComponent(s.url)}`, quality:(s.quality||'Auto')+' ↑', language: lang, type: 'hls'});
-          }
-        });
-        rawFilesRef.current=files;
-        buildAndLoad(files);
-        return;
       }
-      if(!cancelled) setMode('iframe');
-    })();
+
+      // 2. Subtitles Processing (convert to safe Blobs to avoid crossOrigin issues)
+      if (results[1].status === 'fulfilled' && results[1].value?.subtitles) {
+        Promise.all(results[1].value.subtitles.map(async (s, i) => {
+          try {
+            const txt = await fetch(s.file).then(r=>r.text());
+            const blob = new Blob([txt], { type: 'text/vtt' });
+            return { ...s, id: i, file: URL.createObjectURL(blob) };
+          } catch(e) { return { ...s, id: i }; }
+        })).then(safeSubs => setSubTracks(safeSubs));
+      }
+
+      // 3. Streams Processing (Nuvio Direct Only)
+      if (results[2].status === 'fulfilled' && results[2].value?.success) {
+        const streams = results[2].value.streams || [];
+        if (streams.length > 0) {
+          const files = [];
+          streams.forEach(s => {
+            const lang = s.language || parseLanguage(s.url);
+            const type = s.type || (s.url.includes('.m3u8')?'hls':'direct');
+            files.push({url:s.url, quality:s.quality||'Auto', language: lang, type: type});
+            // We push proxy variants for everything just in case strict CORS is enforced on direct links
+            files.push({url:`/api/proxy?url=${encodeURIComponent(s.url)}`, quality:(s.quality||'Auto')+' (Proxy)', language: lang, type: type});
+          });
+          rawFilesRef.current = files;
+          buildAndLoad(files);
+          return;
+        }
+      }
+      
+      // If we reach here, we found zero streams.
+      setMode('error');
+    });
 
     return ()=>{ cancelled=true; ac.abort(); if(hlsRef.current){hlsRef.current.destroy();hlsRef.current=null;} };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -386,28 +372,13 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
 
         if(hls.audioTracks && hls.audioTracks.length>0){
           const tracks = hls.audioTracks.map((t,i)=>({
-            id:i,
-            name: friendlyLang(t.name) || friendlyLang(t.lang) || friendlyLang(t.language) || `Track ${i+1}`,
+            id:i, name: friendlyLang(t.name) || friendlyLang(t.lang) || friendlyLang(t.language) || `Track ${i+1}`
           }));
           setAudioTracks(tracks);
-          
           const englishIdx = tracks.findIndex(t=>t.name==='English');
           const defaultIdx = englishIdx>=0? englishIdx : 0;
-          hls.audioTrack=defaultIdx;
-          setActiveAudioIdx(defaultIdx);
-        } else {
-          setAudioTracks([]);
-        }
-
-        if(hls.subtitleTracks && hls.subtitleTracks.length>0){
-          setSubTracks(hls.subtitleTracks.map((t,i)=>({
-            id:i, name:friendlyLang(t.name||t.lang)||`Sub ${i+1}`,
-          })));
-          hls.subtitleTrack=-1;
-          setActiveSubIdx(-1);
-        } else {
-          setSubTracks([]);
-        }
+          hls.audioTrack=defaultIdx; setActiveAudioIdx(defaultIdx);
+        } else { setAudioTracks([]); }
 
         vid.volume=1; vid.muted=false;
         attemptResume(vid);
@@ -430,12 +401,10 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         }
         if(!d.fatal) return;
         if(d.type===Hls.ErrorTypes.NETWORK_ERROR){
-          if(netR<2){netR++;setTimeout(()=>hls.startLoad(),1000*netR);}
-          else{hls.destroy();tryNextSource();}
+          if(netR<2){netR++;setTimeout(()=>hls.startLoad(),1000*netR);} else{hls.destroy();tryNextSource();}
         } else if(d.type===Hls.ErrorTypes.MEDIA_ERROR){
-          if(medR<2){medR++;hls.recoverMediaError();}
-          else{hls.destroy();tryNextSource();}
-        } else{hls.destroy();tryNextSource();}
+          if(medR<2){medR++;hls.recoverMediaError();} else{hls.destroy();tryNextSource();}
+        } else {hls.destroy();tryNextSource();}
       });
 
     } else if(vid.canPlayType('application/vnd.apple.mpegurl')){
@@ -443,9 +412,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       vid.addEventListener('loadedmetadata',()=>{
         setBuffering(false);
         if(vid.audioTracks&&vid.audioTracks.length>0){
-          setAudioTracks(Array.from(vid.audioTracks).map((t,i)=>({
-            id:i, name:friendlyLang(t.language||t.label)||`Track ${i+1}`,
-          })));
+          setAudioTracks(Array.from(vid.audioTracks).map((t,i)=>({id:i, name:friendlyLang(t.language||t.label)||`Track ${i+1}`})));
         }
         attemptResume(vid);
         vid.play().then(()=>setPlaying(true)).catch(()=>{vid.muted=true;vid.play().then(()=>{setPlaying(true);setAutoMuted(true);}).catch(()=>setPlaying(false));});
@@ -457,34 +424,50 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hlsUrl, hlsKey, mode]);
 
-  // ── DIRECT MODE ────────────────────────────────────────────────────────────
+  // ── DIRECT MODE (MKV / MP4) ────────────────────────────────────────────────
   useEffect(()=>{
     if(mode!=='direct'||!videoRef.current||!directFiles.length) return;
-    const file=directFiles[directIdx]; if(!file?.url) return;
+    const file=directFiles[0]; if(!file?.url) return;
+    
+    let isSubscribed = true;
     const vid=videoRef.current;
+    
+    setBuffering(true);
     vid.pause(); vid.removeAttribute('src'); vid.load();
-    const lt=setTimeout(()=>{if(!videoRef.current)return;vid.volume=1;vid.muted=false;vid.src=file.url;vid.load();},80);
-    let done=false,st=null;
-    const tryNext=()=>{if(done)return;done=true;clearTimeout(st);tryNextSource();};
-    const onCanPlay=()=>{if(done)return;setBuffering(false);clearTimeout(st);vid.volume=1;vid.muted=false;attemptResume(vid);
-      vid.play().then(()=>{if(!done)setPlaying(true);}).catch(()=>{vid.muted=true;vid.play().then(()=>{if(!done){setPlaying(true);setAutoMuted(true);}}).catch(()=>{if(!done){setPlaying(false);setBuffering(false);}});});};
-    const onError=()=>{const e=vid.error;if(!e||e.code===1)return;tryNext();};
-    st=setTimeout(()=>tryNext(),10000);
-    const onProg=()=>{clearTimeout(st);st=setTimeout(()=>{if(vid.readyState<3&&!vid.paused)tryNext();},10000);};
-    vid.addEventListener('canplay',onCanPlay,{once:true});
-    vid.addEventListener('error',onError,{once:true});
-    vid.addEventListener('progress',onProg);
-    return()=>{done=true;clearTimeout(lt);clearTimeout(st);vid.removeEventListener('canplay',onCanPlay);vid.removeEventListener('error',onError);vid.removeEventListener('progress',onProg);};
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, directIdx]);
+    vid.src = file.url; vid.load();
 
-  // ── IFRAME TIMEOUT ─────────────────────────────────────────────────────────
-  useEffect(()=>{
-    if(mode!=='iframe'||embedPhase!=='loading') return;
-    clearTimeout(iframeTimer.current);
-    iframeTimer.current=setTimeout(()=>{if(embedIdx<embeds.length-1)setEmbedIdx(i=>i+1);else setEmbedPhase('failed');},15000);
-    return()=>clearTimeout(iframeTimer.current);
-  },[mode,embedPhase,embedIdx,embeds.length]);
+    const onLoaded = () => {
+      if(!isSubscribed) return;
+      setBuffering(false);
+      vid.volume=1; vid.muted=false;
+      attemptResume(vid);
+      vid.play()
+         .then(()=>{ setPlaying(true); })
+         .catch(()=>{
+            vid.muted=true;
+            vid.play()
+               .then(()=>{ setPlaying(true); setAutoMuted(true); })
+               .catch(()=>{ setPlaying(false); setBuffering(false); });
+         });
+    };
+
+    const onError = () => {
+      if(!isSubscribed) return;
+      // Triggers if CORS blocks it, or if the file format is utterly unsupported.
+      console.warn("Direct stream failed to load/play natively. Falling back in chain...");
+      tryNextSource();
+    };
+
+    vid.addEventListener('loadedmetadata', onLoaded, {once:true});
+    vid.addEventListener('error', onError, {once:true});
+
+    return () => {
+      isSubscribed = false;
+      vid.removeEventListener('loadedmetadata', onLoaded);
+      vid.removeEventListener('error', onError);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, directFiles, hlsKey]);
 
   // ── VIDEO DOM EVENTS ───────────────────────────────────────────────────────
   useEffect(()=>{
@@ -557,7 +540,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const pPct  = duration>0?(currentTime/duration)*100:0;
   const bPct  = duration>0?(buffered/duration)*100:0;
   const VolIco=(muted||volume===0)?VolumeMuteIcon:volume<0.5?VolumeMidIcon:VolumeHighIcon;
-  const curEmbed=embeds[embedIdx];
 
   const displayMovieTitle = typeof movieTitle === 'string' ? movieTitle : 'Video';
 
@@ -600,33 +582,25 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       <video ref={videoRef} playsInline preload="metadata"
         style={{width:'100%',height:'100%',objectFit:'contain',display:isVideo?'block':'none'}}
         onClick={e=>{e.stopPropagation();if(autoMuted){unmuteBanner();return;}if(isVideo)togglePlay();}}
-      />
+      >
+         {/* Render blob-based subtitle tracks to bypass missing crossOrigin tags */}
+         {subTracks.map(s => (
+           <track key={s.id} kind="subtitles" src={s.file} srcLang={s.lang} label={s.name} default={s.id === activeSubIdx}/>
+         ))}
+      </video>
 
-      {mode === 'iframe' ? (
-        <div style={{position:'absolute',inset:0,zIndex:1,background:'#000'}}>
-          {embedPhase === 'loading' ? <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',background:'#000',zIndex:6,pointerEvents:'none'}}><div className="spin"/></div> : null}
-          {embedPhase === 'failed' ? (
-            <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:'#000',zIndex:6}}>
-              <div style={{color:'#f87171',fontSize:16,fontWeight:600,marginBottom:8}}>All sources failed</div>
-              <div style={{color:'#AAA',fontSize:13,marginBottom:20}}>This title may not be available right now.</div>
-              <button onClick={()=>{setEmbedIdx(0);setEmbedPhase('loading');}} style={{background:'none',border:'1px solid rgba(170,170,170,.4)',color:'#AAA',padding:'8px 24px',borderRadius:6,cursor:'pointer',fontWeight:700}}>Retry</button>
-            </div>
-          ) : null}
-          {curEmbed && embedPhase !== 'failed' ? (
-            <iframe ref={iframeRef} key={`${embedIdx}-${tmdbId}-${season}-${episode}`} src={String(curEmbed.url || '')}
-              style={{width:'100%',height:'100%',border:'none',display:'block',opacity:embedPhase==='playing'?1:0,transition:'opacity.4s'}}
-              allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowFullScreen referrerPolicy="no-referrer" title={String(displayMovieTitle)}
-              onLoad={()=>{clearTimeout(iframeTimer.current);iframeTimer.current=setTimeout(()=>setEmbedPhase('playing'),1500);}}
-            />
-          ) : null}
-          {embedPhase === 'playing' && embedIdx < embeds.length - 1 && showCtrl ? (
-            <div style={{position:'absolute',bottom:72,right:16,zIndex:20}}>
-              <button onClick={e=>{e.stopPropagation();clearTimeout(iframeTimer.current);setEmbedIdx(i=>i+1);setEmbedPhase('loading');}}
-                style={{background:'rgba(0,0,0,.7)',border:'1px solid rgba(170,170,170,.2)',color:'#AAA',padding:'5px 14px',borderRadius:6,cursor:'pointer',fontSize:12,fontWeight:600,backdropFilter:'blur(8px)'}}>
-                Not playing? Try next source →
-              </button>
-            </div>
-          ) : null}
+      {/* DEDICATED NATIVE ERROR STATE */}
+      {mode === 'error' ? (
+        <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:'#000',zIndex:6}}>
+          <button onClick={onClose} style={{position:'absolute',top:20,left:20,background:'rgba(0,0,0,0.5)',border:'none',borderRadius:'50%',padding:10,cursor:'pointer'}}><CloseIcon/></button>
+          <div style={{color:'#f87171',fontSize:20,fontWeight:600,marginBottom:12}}>No Playable Streams Found</div>
+          <div style={{color:'#AAA',fontSize:14,marginBottom:30,maxWidth:450,textAlign:'center',lineHeight:1.6}}>
+            All direct connections to the media provider failed. The stream might be geoblocked, your browser may be blocking cross-origin requests, or the backend is currently unreachable.
+          </div>
+          <div style={{display:'flex',gap:16}}>
+            <button onClick={onClose} style={{background:'none',border:'1px solid rgba(170,170,170,.4)',color:'#AAA',padding:'10px 24px',borderRadius:6,cursor:'pointer',fontWeight:700}}>Go Back</button>
+            <button onClick={() => window.location.reload()} style={{background:'#FFF',border:'none',color:'#000',padding:'10px 24px',borderRadius:6,cursor:'pointer',fontWeight:700}}>Reload Player</button>
+          </div>
         </div>
       ) : null}
 
@@ -636,7 +610,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         </div>
       ) : null}
 
-      <div className="pb" style={{position:'absolute',inset:0,opacity:showCtrl?1:0,transition:'opacity.3s',pointerEvents:mode==='iframe'?'none':(showCtrl?'auto':'none'),zIndex:5}}>
+      <div className="pb" style={{position:'absolute',inset:0,opacity:showCtrl?1:0,transition:'opacity.3s',pointerEvents:mode==='error'?'none':(showCtrl?'auto':'none'),zIndex:5}}>
         <div style={{position:'absolute',top:0,left:0,right:0,height:140,background:'linear-gradient(to bottom,rgba(0,0,0,.8),transparent)',pointerEvents:'none'}}/>
         <div style={{position:'absolute',bottom:0,left:0,right:0,height:140,background:'linear-gradient(to top,rgba(0,0,0,.8),transparent)',pointerEvents:'none'}}/>
 
