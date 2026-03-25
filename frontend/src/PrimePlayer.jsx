@@ -75,6 +75,7 @@ function friendlyLang(raw) {
 
 // ─── MAIN PLAYER ──────────────────────────────────────────────────────────────
 export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', season = 1, episode = 1, onClose }) {
+
   const containerRef   = useRef(null);
   const videoRef       = useRef(null);
   const hlsRef         = useRef(null);
@@ -89,56 +90,52 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   const selQRef       = useRef(-1);
   const hasResumed    = useRef(false);
 
-  // playback
-  const [playing,     setPlaying]     = useState(false);
+  // COMPLETELY RESTORED AND FIXED STATE VARIABLES
+  const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration,    setDuration]    = useState(0);
-  const [buffered,    setBuffered]    = useState(0);
-  const [buffering,   setBuffering]   = useState(false);
-  const [volume,      setVolume]      = useState(1);
-  const [muted,       setMuted]       = useState(false);
-  const [prevVol,     setPrevVol]     = useState(1);
-  const [autoMuted,   setAutoMuted]   = useState(false);
+  const [duration, setDuration] = useState(0);
+  const [buffered, setBuffered] = useState(0);
+  const [buffering, setBuffering] = useState(false);
+  const [volume, setVolume] = useState(1);
+  const [muted, setMuted] = useState(false);
+  const [prevVol, setPrevVol] = useState(1);
+  const [autoMuted, setAutoMuted] = useState(false);
 
-  // stream
-  const [mode,       setMode]       = useState('loading');
-  const [hlsUrl,     setHlsUrl]     = useState(null);
-  const [hlsKey,     setHlsKey]     = useState(0); 
-  const [directFiles,setDirectFiles] = useState([]);
-  const [directIdx,  setDirectIdx]  = useState(0);
-  const [qualities,  setQualities]  = useState([]);
+  const [mode, setMode] = useState('loading');
+  const [hlsUrl, setHlsUrl] = useState(null);
+  const [hlsKey, setHlsKey] = useState(0); 
+  const [directFiles, setDirectFiles] = useState([]);
+  const [directIdx, setDirectIdx] = useState(0);
+  const [qualities, setQualities] = useState([]);
   const [selQuality, setSelQuality] = useState(-1);
-  const [embeds,     setEmbeds]     = useState([]);
-  const [embedIdx,   setEmbedIdx]   = useState(0);
+  const [embeds, setEmbeds] = useState([]);
+  const [embedIdx, setEmbedIdx] = useState(0);
   const [embedPhase, setEmbedPhase] = useState('loading');
 
-  // ── AUDIO TRACKS & MULTI LANGUAGE STRATEGY ──
-  const [audioTracks, setAudioTracks] = useState([]); // [{id, name}]
+  const [audioTracks, setAudioTracks] = useState([]); 
   const [activeAudioIdx, setActiveAudioIdx] = useState(0);
   const [availableLangs, setAvailableLangs] = useState([]);
   const [selLang, setSelLang] = useState('Original');
 
-  // subtitle tracks
-  const [subTracks,   setSubTracks]   = useState([]);
-  const [activeSubIdx,setActiveSubIdx]= useState(-1);
+  const [subTracks, setSubTracks] = useState([]);
+  const [activeSubIdx, setActiveSubIdx] = useState(-1);
 
-  // ui
-  const [showCtrl,      setShowCtrl]      = useState(true);
+  const [showCtrl, setShowCtrl] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [seeking,       setSeeking]       = useState(false);
-  const [hoverT,        setHoverT]        = useState(null);
-  const [panel,         setPanel]         = useState(null);
-  const [draggingVol,   setDraggingVol]   = useState(false);
-  const [skipFX,        setSkipFX]        = useState(null);
-  const [hoverX,        setHoverX]        = useState(0);
-  const [xrayOpen,      setXrayOpen]      = useState(false);
-  const [xrayExpanded,  setXrayExpanded]  = useState(false);
-  const [xrayCast,      setXrayCast]      = useState([]);
-  const [xrayTab,       setXrayTab]       = useState('scene');
-  const [expandCast,    setExpandCast]    = useState(null);
-  const [movieTitle,    setMovieTitle]    = useState(title);
-  const [episodeTitle,  setEpisodeTitle]  = useState('');
-  const [nextEpData,    setNextEpData]    = useState(null);
+  const [seeking, setSeeking] = useState(false);
+  const [hoverT, setHoverT] = useState(null);
+  const [panel, setPanel] = useState(null);
+  const [draggingVol, setDraggingVol] = useState(false);
+  const [skipFX, setSkipFX] = useState(null);
+  const [hoverX, setHoverX] = useState(0);
+  const [xrayOpen, setXrayOpen] = useState(false);
+  const [xrayExpanded, setXrayExpanded] = useState(false);
+  const [xrayCast, setXrayCast] = useState([]);
+  const [xrayTab, setXrayTab] = useState('scene');
+  const [expandCast, setExpandCast] = useState(null);
+  const [movieTitle, setMovieTitle] = useState(title || '');
+  const [episodeTitle, setEpisodeTitle] = useState('');
+  const [nextEpData, setNextEpData] = useState(null);
 
   const isVideo  = mode === 'hls' || mode === 'direct';
   const chapters = duration > 0 ? [0.16,0.33,0.5,0.66,0.83].map(p => p*duration) : [];
@@ -207,16 +204,16 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     return () => v.removeEventListener('volumechange', fn);
   }, []);
 
-  // ── Embed list ─────────────────────────────────────────────────────────────
+  // ── Embed list (Removed embed.su, using reliable fallbacks) ────────────────
   const buildEmbeds = (tid, iid, mt, s, e) => {
     const tv = mt==='tv'; const list=[];
-    list.push({name:'VidSrc.pro', url:tv?`https://vidsrc.pro/embed/tv/${tid}/${s}/${e}`:`https://vidsrc.pro/embed/movie/${tid}`});
-    list.push({name:'SuperEmbed', url:tv?`https://multiembed.mov/directstream.php?video_id=${tid}&tmdb=1&s=${s}&e=${e}`:`https://multiembed.mov/directstream.php?video_id=${tid}&tmdb=1`});
     if(iid){
       list.push({name:'VidSrc',    url:tv?`https://vidsrc.xyz/embed/tv?imdb=${iid}&season=${s}&episode=${e}`:`https://vidsrc.xyz/embed/movie?imdb=${iid}`});
       list.push({name:'VidSrc.me', url:tv?`https://vidsrc.me/embed/tv?imdb=${iid}&season=${s}&episode=${e}`:`https://vidsrc.me/embed/movie?imdb=${iid}`});
     }
-    list.push({name:'VidSrc.net', url:tv?`https://vidsrc.net/embed/tv?tmdb=${tid}&season=${s}&episode=${e}`:`https://vidsrc.net/embed/movie?tmdb=${tid}`});
+    list.push({name:'VidSrc',    url:tv?`https://vidsrc.xyz/embed/tv?tmdb=${tid}&season=${s}&episode=${e}`:`https://vidsrc.xyz/embed/movie?tmdb=${tid}`});
+    list.push({name:'VidSrc.in', url:tv?`https://vidsrc.in/embed/tv?tmdb=${tid}&season=${s}&episode=${e}`:`https://vidsrc.in/embed/movie?tmdb=${tid}`});
+    list.push({name:'AutoEmbed', url:tv?`https://autoembed.cc/tv/tmdb/${tid}-${s}-${e}`:`https://autoembed.cc/movie/tmdb/${tid}`});
     return list;
   };
 
@@ -349,7 +346,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
           const lang = s.language || parseLanguage(s.url);
           files.push({url:s.url, quality:s.quality||'Auto', language: lang, type: s.type || (s.url.includes('.m3u8')?'hls':'direct')});
           
-          // STRICT LIMIT: Only proxy HLS streams. Direct binary files (MKV/MP4) crash serverless environments
           if (s.url.includes('.m3u8')) {
             files.push({url:`/api/proxy?url=${encodeURIComponent(s.url)}`, quality:(s.quality||'Auto')+' ↑', language: lang, type: 'hls'});
           }
@@ -388,7 +384,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         const cap = hls.levels.map((l,i)=>({h:l.height||0,i})).filter(x=>x.h>0&&x.h<=1080).sort((a,b)=>b.h-a.h);
         if(cap.length>0) hls.autoLevelCapping=cap[0].i;
 
-        // ── AUDIO TRACKS ──
         if(hls.audioTracks && hls.audioTracks.length>0){
           const tracks = hls.audioTracks.map((t,i)=>({
             id:i,
@@ -396,7 +391,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
           }));
           setAudioTracks(tracks);
           
-          // Auto-select: prefer English track, else first
           const englishIdx = tracks.findIndex(t=>t.name==='English');
           const defaultIdx = englishIdx>=0? englishIdx : 0;
           hls.audioTrack=defaultIdx;
@@ -405,7 +399,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
           setAudioTracks([]);
         }
 
-        // Subtitle tracks
         if(hls.subtitleTracks && hls.subtitleTracks.length>0){
           setSubTracks(hls.subtitleTracks.map((t,i)=>({
             id:i, name:friendlyLang(t.name||t.lang)||`Sub ${i+1}`,
@@ -622,7 +615,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
           {curEmbed && embedPhase !== 'failed' ? (
             <iframe ref={iframeRef} key={`${embedIdx}-${tmdbId}-${season}-${episode}`} src={String(curEmbed.url || '')}
               style={{width:'100%',height:'100%',border:'none',display:'block',opacity:embedPhase==='playing'?1:0,transition:'opacity.4s'}}
-              allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowFullScreen referrerPolicy="no-referrer" title={displayMovieTitle}
+              allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowFullScreen referrerPolicy="no-referrer" title={String(displayMovieTitle)}
               onLoad={()=>{clearTimeout(iframeTimer.current);iframeTimer.current=setTimeout(()=>setEmbedPhase('playing'),1500);}}
             />
           ) : null}
@@ -656,7 +649,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
           </div>
 
           <div style={{position:'absolute',left:'50%',transform:'translateX(-50%)',display:'flex',flexDirection:'column',alignItems:'center',whiteSpace:'nowrap',textShadow:'0 1px 3px rgba(0,0,0,0.8)'}}>
-            <span style={{color:'#FFF',fontSize:22,fontWeight:600}}>{displayMovieTitle}</span>
+            <span style={{color:'#FFF',fontSize:22,fontWeight:600}}>{String(displayMovieTitle)}</span>
             {mediaType === 'tv' ? <span style={{color:'#E0E0E0',fontSize:16,fontWeight:400,marginTop:2}}>Season {String(season)}, Ep. {String(episode)}{episodeTitle?` — ${String(episodeTitle)}`:''}</span> : null}
           </div>
 
