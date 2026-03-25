@@ -149,13 +149,25 @@ export default function PrimePlayer({
   // ── Fetch Sources ──────────────────────────────────────────────────────────
   useEffect(() => {
     const init = async () => {
-      // 1. Fetch Subtitles
+      // 1. Fetch Subtitles (Convert to blob to bypass crossOrigin constraints)
       try {
         const subUrl = `https://vidsrc.pro/api/subtitles/${tmdbId}${!isMovie?`/${season}/${episode}`:''}`;
         const sRes = await fetch(subUrl);
         if(sRes.ok){
-          const sData=await sRes.json();
-          if(sData.subtitles) setSubs(sData.subtitles.map((s,i)=>({...s, id:i})));
+          const sData = await sRes.json();
+          if(sData.subtitles) {
+            const blobSubs = await Promise.all(sData.subtitles.map(async (s, i) => {
+              try {
+                const subFetch = await fetch(s.file);
+                const text = await subFetch.text();
+                const blob = new Blob([text], { type: 'text/vtt' });
+                return { ...s, id: i, file: URL.createObjectURL(blob) };
+              } catch (e) {
+                return { ...s, id: i }; // fallback to original URL if blob fails
+              }
+            }));
+            setSubs(blobSubs);
+          }
         }
       } catch(e){}
 
@@ -169,11 +181,11 @@ export default function PrimePlayer({
         if(streams.length>0){
           const files=[];
           streams.forEach(s=>{
-            // Include language parsed from backend
+            // Prioritize raw direct links, then proxies
             files.push({url:s.url, quality:s.quality||'Auto', language: s.language || 'Original'});
-            files.push({url:`/api/proxy?url=${encodeURIComponent(s.url)}`, quality:(s.quality||'Auto')+' ↑', language: s.language || 'Original'});
+            files.push({url:`/api/proxy?url=${encodeURIComponent(s.url)}`, quality:(s.quality||'Auto')+' (Proxy)', language: s.language || 'Original'});
           });
-          rawFilesRef.current=files;
+          rawFilesRef.current = files;
           buildAndLoad(files);
           return;
         }
@@ -224,7 +236,12 @@ export default function PrimePlayer({
           }
           vid.play().catch(()=>{});
         });
-        hls.on(Hls.Events.ERROR, (e, data) => { if(data.fatal) setMode('iframe'); });
+        hls.on(Hls.Events.ERROR, (e, data) => { 
+          if(data.fatal) {
+            console.warn("HLS Error - Falling back", data);
+            setMode('iframe'); 
+          }
+        });
       } else if (vid.canPlayType('application/vnd.apple.mpegurl')) {
         vid.src = url;
         vid.play().catch(()=>{});
@@ -236,6 +253,16 @@ export default function PrimePlayer({
     }
     setMode('custom');
   }, []);
+
+  const handleVideoError = () => {
+    if (!videoRef.current) return;
+    const err = videoRef.current.error;
+    if (err) {
+      console.warn("Video Decode/Network Error:", err.message, "Code:", err.code);
+      // Auto fallback to the iframe player if the native player strictly fails 
+      setMode('iframe');
+    }
+  };
 
   // ── UI Interactions ────────────────────────────────────────────────────────
   const togglePlay = () => {
@@ -400,7 +427,8 @@ export default function PrimePlayer({
         ref={videoRef}
         style={{width:'100%',height:'100%',backgroundColor:'#000',objectFit:'contain'}}
         autoPlay playsInline
-        crossOrigin="anonymous"
+        onError={handleVideoError} // Auto-fallback if MKV direct link decoding fails
+        // crossOrigin="anonymous" is INTENTIONALLY OMITTED to allow raw stream playback.
       >
         {subs.map(s => (
           <track key={s.id} kind="subtitles" src={s.file} srcLang={s.lang} label={s.label} default={s.id===activeSubId}/>
