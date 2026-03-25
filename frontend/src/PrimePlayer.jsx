@@ -387,6 +387,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
 
     return () => { cancelled = true; };
   }, [tmdbId, mediaType, season, episode]);
+  
 
   // ── VIDEO DOM EVENTS ───────────────────────────────────────────────────────
   useEffect(() => {
