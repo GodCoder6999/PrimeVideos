@@ -1,6 +1,6 @@
 // api/multi-stream.js
-// Fetches ONLY MoviessMod streams via NuvioStreams, rewrites all URLs through /api/proxy.
-// No iframes. No other providers.
+// Fetches playable streams via NuvioStreams, rewrites all URLs through /api/proxy.
+// No iframes. Provider-agnostic (was MoviessMod-only).
 
 const https = require('https');
 const http  = require('http');
@@ -94,7 +94,7 @@ function proxyUrl(rawUrl, baseOrigin) {
   return `${baseOrigin}/api/proxy?url=${encodeURIComponent(rawUrl)}`;
 }
 
-// ── NuvioStreams fetch — returns all MoviessMod streams only ──────────────────
+// ── NuvioStreams fetch — returns all playable streams (provider-agnostic) ────
 async function fetchNuvioMoviesMod(imdbId, mediaType, season, episode, baseOrigin) {
   if (!imdbId) return [];
 
@@ -103,7 +103,7 @@ async function fetchNuvioMoviesMod(imdbId, mediaType, season, episode, baseOrigi
     : `https://nuviostreams.hayd.uk/stream/movie/${imdbId}.json`;
 
   let raw;
-  try { raw = await nodeGet(url, { 'Referer': 'https://nuviostreams.hayd.uk/' }, 15000); }
+  try { raw = await nodeGet(url, { Referer: 'https://nuviostreams.hayd.uk/' }, 15000); }
   catch (_) { return []; }
 
   let data;
@@ -114,25 +114,24 @@ async function fetchNuvioMoviesMod(imdbId, mediaType, season, episode, baseOrigi
   const results = [];
 
   for (const s of streams) {
-    // ── STRICT FILTER: only MoviessMod ──
-    const meta = [s.name, s.title, s.description, s.behaviorHints?.filename].filter(Boolean).join(' ').toLowerCase();
-    if (!meta.includes('moviesmod')) continue;
+    const meta = [s.name, s.title, s.description, s.behaviorHints?.filename]
+      .filter(Boolean).join(' ').toLowerCase();
 
     const rawUrl = s.url || s.file;
     if (!rawUrl || !rawUrl.startsWith('http')) continue;
 
-    // Skip torrents / infoHash streams
+    // Skip torrents / YouTube
     if (s.infoHash || s.ytId) continue;
+
+    const isHls = rawUrl.includes('.m3u8') || rawUrl.includes('m3u');
+    const isMkv = rawUrl.toLowerCase().includes('.mkv');
+    const isMp4 = rawUrl.toLowerCase().includes('.mp4');
+    if (!isHls && !isMp4 && !isMkv) continue; // only keep playable formats
 
     const quality  = extractQuality(meta);
     const language = extractLanguage(meta);
     const filename = s.behaviorHints?.filename || s.title || s.name || '';
-
-    // Determine stream type
-    const isHls = rawUrl.includes('.m3u8') || rawUrl.includes('m3u');
-    const isMkv = rawUrl.toLowerCase().includes('.mkv');
-    const isMp4 = rawUrl.toLowerCase().includes('.mp4');
-    const type   = isHls ? 'hls' : isMkv ? 'mkv' : isMp4 ? 'mp4' : 'unknown';
+    const type     = isHls ? 'hls' : isMkv ? 'mkv' : 'mp4';
 
     results.push({
       url:      proxyUrl(rawUrl, baseOrigin), // all URLs go through /api/proxy
@@ -141,7 +140,7 @@ async function fetchNuvioMoviesMod(imdbId, mediaType, season, episode, baseOrigi
       language,
       type,
       filename,
-      provider: 'MoviessMod',
+      provider: s.name || s.title || 'Nuvio',
     });
   }
 
@@ -175,7 +174,7 @@ module.exports = async function handler(req, res) {
     return res.end(JSON.stringify({ success: false, error: 'Could not resolve IMDb ID for this title.' }));
   }
 
-  // Step 2: Fetch and filter MoviessMod streams
+  // Step 2: Fetch playable streams from Nuvio
   const streams = await fetchNuvioMoviesMod(imdbId, mediaType, season, episode, baseOrigin);
 
   if (streams.length === 0) {
@@ -183,7 +182,7 @@ module.exports = async function handler(req, res) {
     return res.end(JSON.stringify({
       success: false,
       imdbId,
-      error: 'No MoviessMod streams found for this title.',
+      error: 'No playable streams found for this title.',
     }));
   }
 
