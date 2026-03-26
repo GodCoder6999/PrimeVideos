@@ -162,7 +162,7 @@ export default function PrimePlayer({
   // Stream state
   const [loadState,  setLoadState]  = useState('loading'); // loading | ready | error
   const [errorMsg,   setErrorMsg]   = useState('');
-  const [streams,    setStreams]     = useState([]);
+  const [streams,    setStreams]    = useState([]);
   const [curIdx,     setCurIdx]     = useState(0);
 
   // Playback
@@ -176,7 +176,8 @@ export default function PrimePlayer({
   const [prevVol,    setPrevVol]    = useState(1);
   const [autoMuted,  setAutoMuted]  = useState(false);
 
-  // Tracks
+  // Tracks & External Data (SuperStream specific)
+  const [extSubs, setExtSubs] = useState([]); // Added for API Subs
   const [audioTracks, setAudioTracks] = useState([]);
   const [activeAudio, setActiveAudio] = useState(0);
   const [subTracks,   setSubTracks]   = useState([]);
@@ -276,14 +277,12 @@ export default function PrimePlayer({
   const loadStreamAt = useCallback((idx) => {
     const list = streamsRef.current;
 
-    // Chain exhausted
     if (!list || idx >= list.length) {
       setLoadState('error');
       setErrorMsg('All available streams failed to load.');
       return;
     }
 
-    // Clean up previous attempt
     if (cleanupRef.current) { cleanupRef.current(); cleanupRef.current = null; }
     if (hlsRef.current)     { hlsRef.current.destroy(); hlsRef.current = null; }
 
@@ -323,7 +322,7 @@ export default function PrimePlayer({
           levelLoadingTimeOut: 20000,
           fragLoadingMaxRetry: 3,
           manifestLoadingMaxRetry: 2,
-          xhrSetup: xhr => { xhr.withCredentials = false; },
+          xhrSetup: xhr => { xhr.withCredentials = false; }, // Works perfectly with our Proxy
         });
         hlsRef.current = hls;
         hls.loadSource(stream.url);
@@ -333,14 +332,12 @@ export default function PrimePlayer({
           setBuffering(false);
           setLoadState('ready');
 
-          // Cap ABR at 1080p to avoid AC3 audio in 4K
           const cap = hls.levels
             .map((l, i) => ({ h: l.height || 0, i }))
             .filter(x => x.h > 0 && x.h <= 1080)
             .sort((a, b) => b.h - a.h)[0];
           if (cap) hls.autoLevelCapping = cap.i;
 
-          // Audio tracks — EXT-X-MEDIA URIs were rewritten by proxy so no CORS
           if (hls.audioTracks && hls.audioTracks.length > 0) {
             const tracks = hls.audioTracks.map((t, i) => ({
               id: i,
@@ -353,7 +350,6 @@ export default function PrimePlayer({
             setActiveAudio(def);
           }
 
-          // Subtitle tracks
           if (hls.subtitleTracks && hls.subtitleTracks.length > 0) {
             setSubTracks(hls.subtitleTracks.map((t, i) => ({
               id: i,
@@ -375,7 +371,6 @@ export default function PrimePlayer({
             });
         });
 
-        // Retry logic then fallback
         let netRetry = 0, medRetry = 0;
         hls.on(Hls.Events.ERROR, (_, d) => {
           if (!d.fatal) return;
@@ -393,7 +388,6 @@ export default function PrimePlayer({
         });
 
       } else if (vid.canPlayType('application/vnd.apple.mpegurl')) {
-        // Safari native HLS
         vid.src = stream.url;
         vid.volume = 1; vid.muted = false;
         const onMeta = () => {
@@ -417,8 +411,6 @@ export default function PrimePlayer({
     }
 
     // ── Direct MP4 / MKV / binary ────────────────────────────────────────────
-    // Proxy forwards Range header so seeking works perfectly.
-    // MKV: browser plays the default muxed audio track — no multi-audio switching possible.
     let stallTimer = null;
     const clearStall = () => clearTimeout(stallTimer);
     const resetStall = (ms) => { clearStall(); stallTimer = setTimeout(() => tryNext('stall timeout'), ms); };
@@ -454,6 +446,16 @@ export default function PrimePlayer({
     };
   }, [attemptResume]);
 
+  // ── EXTERNAL SUBTITLE BINDING FOR MP4 ────────────────────────────────────────
+  useEffect(() => {
+      const current = streams[curIdx];
+      if (current && current.type !== 'hls' && extSubs.length > 0) {
+          // If not HLS, bind the external proxy subtitles to the UI
+          setSubTracks(extSubs.map((s, i) => ({ id: i, name: normLang(s.lang) || `Sub ${i+1}`, isExt: true })));
+      }
+  }, [curIdx, streams, extSubs]);
+
+
   // ── Main init: fetch streams then start loading ──────────────────────────────
   useEffect(() => {
     if (!tmdbId) return;
@@ -463,20 +465,18 @@ export default function PrimePlayer({
     setStreams([]); setCurIdx(0); setPlaying(false);
     setBuffering(false); setAutoMuted(false);
     setCurTime(0); setDuration(0); setBuffered(0);
-    setAudioTracks([]); setSubTracks([]);
+    setAudioTracks([]); setSubTracks([]); setExtSubs([]);
     streamsRef.current = []; idxRef.current = 0;
     resumedRef.current = false;
 
     if (cleanupRef.current) { cleanupRef.current(); cleanupRef.current = null; }
     if (hlsRef.current)     { hlsRef.current.destroy(); hlsRef.current = null; }
 
-    // Fetch movie title
     fetch(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_KEY}`)
       .then(r => r.json())
       .then(d => { if (!cancelled) setMovieTitle(d.title || d.name || title); })
       .catch(() => {});
 
-    // Fetch stream list from backend
     const params = new URLSearchParams({ tmdbId, type: mediaType, season: String(season), episode: String(episode) });
     fetch(`/api/multi-stream?${params}`)
       .then(r => r.json())
@@ -484,10 +484,12 @@ export default function PrimePlayer({
         if (cancelled) return;
         if (!data.success || !Array.isArray(data.streams) || data.streams.length === 0) {
           setLoadState('error');
+          // Improved error output if backend returns SuperStream block debug info
           setErrorMsg(data.error || 'No streams found for this title.');
           return;
         }
         streamsRef.current = data.streams;
+        setExtSubs(data.subtitles || []); // Save external API subtitles
         setStreams(data.streams);
         loadStreamAt(0);
       })
@@ -502,7 +504,7 @@ export default function PrimePlayer({
       if (cleanupRef.current) { cleanupRef.current(); cleanupRef.current = null; }
       if (hlsRef.current)     { hlsRef.current.destroy(); hlsRef.current = null; }
     };
-  }, [tmdbId, mediaType, season, episode, loadStreamAt]);
+  }, [tmdbId, mediaType, season, episode, loadStreamAt, title]);
 
   // ── Video DOM events ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -622,13 +624,11 @@ export default function PrimePlayer({
     return () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); };
   }, [dragVol]);
 
-  // ── Derived ──────────────────────────────────────────────────────────────────
   const pPct    = duration > 0 ? (curTime / duration) * 100 : 0;
   const bPct    = duration > 0 ? (buffered / duration) * 100 : 0;
   const VolIcon = (muted || volume === 0) ? IC.VolX : volume < 0.5 ? IC.VolMid : IC.VolHi;
   const curStream = streams[curIdx] || null;
 
-  // ─── RENDER ─────────────────────────────────────────────────────────────────
   return (
     <div
       ref={containerRef}
@@ -696,7 +696,6 @@ export default function PrimePlayer({
                       background:rgba(255,255,255,.1);color:rgba(255,255,255,.6)}
       `}</style>
 
-      {/* ── TAP TO UNMUTE ─────────────────────────────────────────────────── */}
       {autoMuted && (
         <div className="pp-unmute" onClick={e => {
           e.stopPropagation();
@@ -707,7 +706,7 @@ export default function PrimePlayer({
         </div>
       )}
 
-      {/* ── VIDEO ─────────────────────────────────────────────────────────── */}
+      {/* Inject external subtitles safely into the video element for MP4s */}
       <video
         ref={vidRef}
         playsInline
@@ -722,9 +721,12 @@ export default function PrimePlayer({
           }
           togglePlay();
         }}
-      />
+      >
+          {curStream && curStream.type !== 'hls' && extSubs.map((sub, i) => (
+             <track key={i} kind="subtitles" srcLang={sub.lang} label={sub.lang} src={sub.url} />
+          ))}
+      </video>
 
-      {/* ── SPINNER ───────────────────────────────────────────────────────── */}
       {(loadState === 'loading' || buffering) && loadState !== 'error' && (
         <div style={{
           position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
@@ -740,7 +742,6 @@ export default function PrimePlayer({
         </div>
       )}
 
-      {/* ── ERROR STATE (no iframes ever) ────────────────────────────────── */}
       {loadState === 'error' && (
         <div style={{
           position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
@@ -767,7 +768,6 @@ export default function PrimePlayer({
         </div>
       )}
 
-      {/* ── CONTROLS ─────────────────────────────────────────────────────── */}
       {loadState !== 'error' && (
         <div
           className="pp"
@@ -779,22 +779,18 @@ export default function PrimePlayer({
             zIndex: 15,
           }}
         >
-          {/* Top gradient */}
           <div style={{ position:'absolute', top:0, left:0, right:0, height:160,
                         background:'linear-gradient(to bottom,rgba(0,0,0,.75),transparent)',
                         pointerEvents:'none' }} />
-          {/* Bottom gradient */}
           <div style={{ position:'absolute', bottom:0, left:0, right:0, height:160,
                         background:'linear-gradient(to top,rgba(0,0,0,.8),transparent)',
                         pointerEvents:'none' }} />
 
-          {/* ── TOP BAR ──────────────────────────────────────────────────── */}
           <div style={{
             position: 'absolute', top: 0, left: 0, right: 0,
             display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
             padding: '24px 32px', zIndex: 20, pointerEvents: 'auto',
           }}>
-            {/* Title + meta */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: '55%' }}>
               <span style={{ color: '#fff', fontSize: 19, fontWeight: 700,
                              textShadow: '0 1px 4px rgba(0,0,0,.9)', lineHeight: 1.2 }}>
@@ -816,10 +812,8 @@ export default function PrimePlayer({
               )}
             </div>
 
-            {/* Right icons */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
 
-              {/* Audio & Subtitles */}
               <div style={{ position: 'relative' }}>
                 <button className="pp-btn" title="Audio & Subtitles"
                   onClick={e => { e.stopPropagation(); setPanel(panel === 'sub' ? null : 'sub'); }}>
@@ -828,18 +822,33 @@ export default function PrimePlayer({
                 {panel === 'sub' && (
                   <div className="pp-panel" style={{ top: 42, width: 380 }} onClick={e => e.stopPropagation()}>
                     <div style={{ display: 'flex' }}>
-                      {/* Subtitles column */}
                       <div style={{ flex: 1, borderRight: '1px solid rgba(255,255,255,.08)', padding: '16px 12px' }}>
                         <div style={{ color: '#aaa', fontSize: 11, fontWeight: 700, letterSpacing: 1,
                                       textTransform: 'uppercase', marginBottom: 10 }}>Subtitles</div>
+                        
+                        {/* Upgraded Subtitle Click Event Handler to support MP4 TextTracks */}
                         <div className="pp-item"
-                          onClick={() => { setActiveSub(-1); if (hlsRef.current) hlsRef.current.subtitleTrack = -1; }}>
+                          onClick={() => { 
+                              setActiveSub(-1); 
+                              if (hlsRef.current) hlsRef.current.subtitleTrack = -1; 
+                              if (vidRef.current && curStream?.type !== 'hls') {
+                                  Array.from(vidRef.current.textTracks).forEach(t => t.mode = 'hidden');
+                              }
+                          }}>
                           <div style={{ width: 16 }}>{activeSub === -1 && <IC.Check />}</div>
                           <span style={{ color: activeSub === -1 ? '#fff' : 'rgba(255,255,255,.55)', fontSize: 14 }}>Off</span>
                         </div>
-                        {subTracks.map(t => (
-                          <div key={t.id} className="pp-item"
-                            onClick={() => { setActiveSub(t.id); if (hlsRef.current) hlsRef.current.subtitleTrack = t.id; }}>
+                        {subTracks.map((t, index) => (
+                          <div key={t.id || index} className="pp-item"
+                            onClick={() => { 
+                                setActiveSub(t.id); 
+                                if (hlsRef.current) hlsRef.current.subtitleTrack = t.id; 
+                                if (vidRef.current && curStream?.type !== 'hls') {
+                                    Array.from(vidRef.current.textTracks).forEach((trk, idx) => {
+                                        trk.mode = idx === t.id ? 'showing' : 'hidden';
+                                    });
+                                }
+                            }}>
                             <div style={{ width: 16 }}>{activeSub === t.id && <IC.Check />}</div>
                             <span style={{ color: activeSub === t.id ? '#fff' : 'rgba(255,255,255,.55)', fontSize: 14 }}>{t.name}</span>
                           </div>
@@ -851,7 +860,6 @@ export default function PrimePlayer({
                         )}
                       </div>
 
-                      {/* Audio column */}
                       <div style={{ flex: 1, padding: '16px 12px' }}>
                         <div style={{ color: '#aaa', fontSize: 11, fontWeight: 700, letterSpacing: 1,
                                       textTransform: 'uppercase', marginBottom: 10 }}>Audio</div>
@@ -879,7 +887,6 @@ export default function PrimePlayer({
                 )}
               </div>
 
-              {/* Quality / Source */}
               <div style={{ position: 'relative' }}>
                 <button className="pp-btn" title="Quality / Source"
                   onClick={e => { e.stopPropagation(); setPanel(panel === 'quality' ? null : 'quality'); }}>
@@ -914,7 +921,6 @@ export default function PrimePlayer({
                 )}
               </div>
 
-              {/* Volume */}
               <div style={{ position: 'relative' }}
                 onMouseEnter={() => setPanel('vol')}
                 onMouseLeave={() => { if (!dragVol) setPanel(null); }}>
@@ -951,7 +957,6 @@ export default function PrimePlayer({
             </div>
           </div>
 
-          {/* ── CENTER CONTROLS ───────────────────────────────────────────── */}
           <div style={{
             position: 'absolute', top: '50%', left: '50%',
             transform: 'translate(-50%, -50%)',
@@ -959,30 +964,25 @@ export default function PrimePlayer({
             pointerEvents: 'auto',
           }} onClick={e => e.stopPropagation()}>
 
-            {/* Rewind 10 */}
             <div style={{ position: 'relative' }}>
               <button className="pp-btn" onClick={() => skip(-10)}><IC.Rw10 /></button>
               {skipFX === 'b' && <div className="pp-skfx">−10s</div>}
             </div>
 
-            {/* Play / Pause */}
             <button className="pp-btn" onClick={togglePlay}>
               {playing ? <IC.Pause /> : <IC.Play />}
             </button>
 
-            {/* Forward 10 */}
             <div style={{ position: 'relative' }}>
               <button className="pp-btn" onClick={() => skip(10)}><IC.Fw10 /></button>
               {skipFX === 'f' && <div className="pp-skfx">+10s</div>}
             </div>
           </div>
 
-          {/* ── BOTTOM BAR ────────────────────────────────────────────────── */}
           <div style={{
             position: 'absolute', bottom: 0, left: 0, right: 0,
             padding: '0 32px 24px', zIndex: 20, pointerEvents: 'auto',
           }}>
-            {/* Progress bar */}
             <div
               ref={progressRef}
               className="pp-bar"
@@ -1014,7 +1014,6 @@ export default function PrimePlayer({
               )}
             </div>
 
-            {/* Time + Next Episode */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ fontSize: 13, fontWeight: 500 }}>
                 <span style={{ color: '#fff' }}>{fmt(curTime)}</span>
