@@ -1,110 +1,168 @@
-const axios = require('axios');
-const { URL } = require('url');
+const crypto = require('crypto');
 
-function resolveUri(uri, baseUrl) {
-    if (!uri || !uri.trim()) return null;
-    uri = uri.trim();
-    if (uri.startsWith('http://') || uri.startsWith('https://')) return uri;
-    try { return new URL(uri, baseUrl).toString(); } 
-    catch (_) {
-        const base = baseUrl.substring(0, baseUrl.lastIndexOf('/') + 1);
-        return base + uri;
-    }
+const TMDB_KEY = process.env.TMDB_API_KEY || process.env.VITE_TMDB_API_KEY || 'cb1dc311039e6ae85db0aa200345cbc5';
+// Added fallbacks just in case Vercel's IP gets temporarily blocked on the main domain
+const DOMAINS = ['https://showbox.shegu.net', 'https://mbpapi.shegu.net', 'https://api.mbxdz.com'];
+const APP_KEY = 'moviebox';
+const APP_VERSION = '11.5'; 
+const USER_AGENT = `moviebox/${APP_VERSION} (Linux; U; Android 11)`;
+
+function generateToken(params) {
+    const sortedKeys = Object.keys(params).sort();
+    const paramString = sortedKeys.map(key => `${key}=${params[key]}`).join('&');
+    return crypto.createHash('md5').update(`${paramString}${APP_KEY}`).digest('hex');
 }
 
-function rewriteManifest(text, originalUrl, proxyBase) {
-    const lines = text.split('\n');
-    const out = [];
+// Custom query builder to ensure spaces are %20, not + (Prevents MD5 signature mismatch)
+function buildQuery(params) {
+    return Object.keys(params).map(k => `${k}=${encodeURIComponent(params[k])}`).join('&');
+}
 
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const trimmed = line.trim();
-
-        if (!trimmed) { out.push(line); continue; }
-
-        if (trimmed.startsWith('#')) {
-            const rewritten = line.replace(/URI="([^"]+)"/g, (match, uri) => {
-                const abs = resolveUri(uri, originalUrl);
-                if (!abs) return match;
-                return `URI="${proxyBase}${encodeURIComponent(abs)}"`;
+async function fetchSuperStream(params) {
+    params.token = generateToken(params);
+    const query = buildQuery(params);
+    
+    let lastError;
+    
+    // Try multiple SuperStream endpoints to bypass strict IP blocks
+    for (const domain of DOMAINS) {
+        try {
+            const url = `${domain}/api/api_client/index/?${query}`;
+            const response = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    'User-Agent': USER_AGENT,
+                    'Platform': 'android',
+                    'Accept': 'application/json, text/plain, */*',
+                    'Accept-Encoding': 'gzip, deflate',
+                    'Connection': 'keep-alive',
+                    'Cache-Control': 'no-cache',
+                    'X-Requested-With': 'com.tdo.showbox', // CRITICAL: Bypasses Cloudflare App Check
+                    'Origin': domain
+                }
             });
-            out.push(rewritten);
-            continue;
-        }
 
-        const abs = resolveUri(trimmed, originalUrl);
-        if (abs) {
-            out.push(`${proxyBase}${encodeURIComponent(abs)}`);
-        } else {
-            out.push(line);
+            if (response.ok) {
+                return await response.json();
+            } else {
+                lastError = `Status ${response.status}`;
+            }
+        } catch (err) {
+            lastError = err.message;
         }
     }
-    return out.join('\n');
+    throw new Error(`All SuperStream endpoints blocked the request. Last WAF Error: ${lastError}`);
 }
 
 module.exports = async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Range');
+    if (req.method === 'OPTIONS') { res.statusCode = 200; return res.end('{}'); }
 
-    if (req.method === 'OPTIONS') {
-        res.status(200).end();
-        return;
-    }
+    const { tmdbId, type = 'movie', season = '1', episode = '1' } = req.query;
 
-    const targetUrl = req.query.url;
-    if (!targetUrl) return res.status(400).send('Target URL is required');
+    if (!tmdbId) return res.status(400).json({ success: false, error: 'tmdbId required' });
+
+    const proto = (req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
+    const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
+    const origin = `${proto}://${host}`;
+    const px = (url) => `${origin}/api/proxy?url=${encodeURIComponent(url)}`;
+
+    let title = '';
+    let matchId = '';
+    const randomDeviceId = crypto.randomBytes(8).toString('hex');
+
+    const baseParams = {
+        api_key: 'moviebox',
+        appid: 'com.tdo.showbox',
+        app_version: APP_VERSION,
+        os: 'android',
+        device_id: randomDeviceId,
+        childmode: '0',
+        lang: 'en',
+        uid: '',
+        sys_valid: '11',
+        brand: 'samsung',
+        model: 'SM-G998B'
+    };
 
     try {
-        // CRITICAL FIX: Headers perfectly matched with multi-stream.js so Cloudflare doesn't block the video
-        const headers = {
-            'User-Agent': 'moviebox/11.5 (Linux; U; Android 11)',
-            'Referer': 'https://showbox.shegu.net/',
-            'Origin': 'https://showbox.shegu.net/',
-            'X-Requested-With': 'com.tdo.showbox',
-            'Accept': '*/*'
+        const tmdbRes = await fetch(`https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_KEY}`);
+        const tmdbData = await tmdbRes.json();
+        title = tmdbData.title || tmdbData.name;
+    } catch (error) {
+        return res.status(500).json({ success: false, error: `TMDB Failed: ${error.message}` });
+    }
+
+    try {
+        const searchParams = { ...baseParams, module: 'Search4', keyword: title, page: '1', type: 'all' };
+        const searchData = await fetchSuperStream(searchParams);
+        const results = searchData?.data || [];
+        
+        const match = results.find(r => r.title === title || r.name === title) || results[0];
+        if (!match) return res.json({ success: false, error: `Title not found on SuperStream` });
+        matchId = match.id;
+    } catch (error) {
+        return res.status(500).json({ success: false, error: `Search Failed: ${error.message}` });
+    }
+
+    try {
+        const streamParams = {
+            ...baseParams,
+            module: type === 'movie' ? 'Movie_downloadurl_v3' : 'TV_downloadurl_v3',
+            mid: matchId
         };
 
-        if (req.headers.range) {
-            headers['Range'] = req.headers.range;
+        if (type === 'tv') {
+             streamParams.season = String(season);
+             streamParams.episode = String(episode);
         }
+        
+        const streamData = await fetchSuperStream(streamParams);
 
-        const isM3u8 = targetUrl.includes('.m3u8');
+        let rawStreams = streamData?.data?.list || streamData?.data || [];
+        if (!Array.isArray(rawStreams)) rawStreams = [rawStreams];
 
-        const response = await axios({
-            method: 'get',
-            url: targetUrl,
-            headers: headers,
-            responseType: isM3u8 ? 'text' : 'stream',
-            validateStatus: status => status >= 200 && status < 400,
-            timeout: 15000 
-        });
+        const formattedStreams = rawStreams
+            .filter(s => s.path || s.url)
+            .map(s => {
+                const rawUrl = s.path || s.url;
+                return {
+                    url: px(rawUrl),
+                    quality: s.quality || s.real_quality || '1080p',
+                    source: 'SuperStream',
+                    type: rawUrl.includes('.m3u8') ? 'hls' : 'mp4'
+                };
+            });
 
-        const headersToForward = ['content-type', 'content-length', 'accept-ranges', 'content-range'];
-        headersToForward.forEach(header => {
-            if (response.headers[header]) {
-                res.setHeader(header, response.headers[header]);
+        let subtitles = [], audioTracks = [];
+        if (rawStreams[0]) {
+            if (rawStreams[0].subtitle_tracks) {
+                subtitles = rawStreams[0].subtitle_tracks.map(sub => ({
+                    lang: sub.lang,
+                    url: px(sub.url || sub.path)
+                }));
             }
-        });
-
-        res.status(response.status);
-
-        if (isM3u8) {
-            const proto = (req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
-            const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
-            const proxyBase = `${proto}://${host}/api/proxy?url=`;
-
-            res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-            res.setHeader('Cache-Control', 'no-cache');
-
-            const rewrittenManifest = rewriteManifest(response.data, targetUrl, proxyBase);
-            return res.send(rewrittenManifest);
-        } else {
-            return response.data.pipe(res);
+            if (rawStreams[0].audio_tracks) {
+                audioTracks = rawStreams[0].audio_tracks.map(audio => ({
+                    lang: audio.lang,
+                    label: audio.name
+                }));
+            }
         }
 
+        if (!formattedStreams.length) {
+            return res.json({ success: false, error: 'No streams available' });
+        }
+
+        res.json({
+            success: true,
+            count: formattedStreams.length,
+            streams: formattedStreams,
+            subtitles,
+            audioTracks
+        });
     } catch (error) {
-        console.error('Proxy Error on Target:', targetUrl, '| Detail:', error.message);
-        res.status(500).send('Failed to proxy content');
+        return res.status(500).json({ success: false, error: `Stream Extract Failed: ${error.message}` });
     }
 };
