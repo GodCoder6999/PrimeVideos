@@ -1,11 +1,9 @@
-const axios = require('axios');
 const crypto = require('crypto');
 
 const TMDB_KEY = process.env.TMDB_API_KEY || process.env.VITE_TMDB_API_KEY || 'cb1dc311039e6ae85db0aa200345cbc5';
 const BASE_URL = 'https://showbox.shegu.net/api/api_client/index/';
 const APP_KEY = 'moviebox';
 
-// Bumping app version to bypass deprecation blocks (empty streams)
 const APP_VERSION = '11.5'; 
 const USER_AGENT = `moviebox/${APP_VERSION} (Linux; U; Android 11)`;
 
@@ -14,6 +12,31 @@ function generateToken(params) {
     const sortedKeys = Object.keys(params).sort();
     const paramString = sortedKeys.map(key => `${key}=${params[key]}`).join('&');
     return crypto.createHash('md5').update(`${paramString}${APP_KEY}`).digest('hex');
+}
+
+// Helper to bypass WAF blocks using native fetch (instead of axios)
+async function fetchSuperStream(params) {
+    params.token = generateToken(params);
+    const query = new URLSearchParams(params).toString();
+    const url = `${BASE_URL}?${query}`;
+    
+    const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+            'User-Agent': USER_AGENT,
+            'Platform': 'android',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+            'Cache-Control': 'no-cache'
+        }
+    });
+
+    if (!response.ok) {
+        throw new Error(`Request failed with status code ${response.status} (${response.statusText})`);
+    }
+
+    return await response.json();
 }
 
 module.exports = async function handler(req, res) {
@@ -37,23 +60,31 @@ module.exports = async function handler(req, res) {
     let title = '';
     let matchId = '';
 
-    // Standard device params required by newer SuperStream API versions
+    // Generate a random device ID per request to prevent IP/Device bans (403s)
+    const randomDeviceId = crypto.randomBytes(8).toString('hex');
+
+    // Fully spoofed device parameters to bypass Cloudflare/WAF
     const baseParams = {
         api_key: 'moviebox',
+        appid: 'com.tdo.showbox',
         app_version: APP_VERSION,
         os: 'android',
-        device_id: 'ab12c34d56e7890f', // Use a static hex device ID instead of "test-device"
+        device_id: randomDeviceId,
         childmode: '0',
         lang: 'en',
-        uid: ''
+        uid: '',
+        sys_valid: '11',
+        brand: 'samsung',
+        model: 'SM-G998B'
     };
 
     // ==========================================
-    // STEP 1: Fetch TMDB Title
+    // STEP 1: Fetch TMDB Title (Using native fetch)
     // ==========================================
     try {
-        const tmdbRes = await axios.get(`https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_KEY}`);
-        title = tmdbRes.data.title || tmdbRes.data.name;
+        const tmdbRes = await fetch(`https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_KEY}`);
+        const tmdbData = await tmdbRes.json();
+        title = tmdbData.title || tmdbData.name;
     } catch (error) {
         console.error('[TMDB Error]', error.message);
         return res.status(500).json({ success: false, error: `TMDB API Failed: ${error.message}` });
@@ -70,19 +101,10 @@ module.exports = async function handler(req, res) {
             page: '1',
             type: 'all'
         };
-        searchParams.token = generateToken(searchParams);
         
-        const searchRes = await axios.get(BASE_URL, { 
-            params: searchParams, 
-            headers: { 
-                'User-Agent': USER_AGENT,
-                'Platform': 'android',
-                'Accept': '*/*'
-            },
-            timeout: 15000 
-        });
-
-        const results = searchRes.data?.data || [];
+        const searchData = await fetchSuperStream(searchParams);
+        const results = searchData?.data || [];
+        
         const match = results.find(r => r.title === title || r.name === title) || results[0];
         
         if (!match) {
@@ -110,26 +132,16 @@ module.exports = async function handler(req, res) {
              streamParams.episode = String(episode);
         }
         
-        streamParams.token = generateToken(streamParams);
-
-        const streamRes = await axios.get(BASE_URL, { 
-            params: streamParams, 
-            headers: { 
-                'User-Agent': USER_AGENT,
-                'Platform': 'android',
-                'Accept': '*/*'
-            },
-            timeout: 15000
-        });
+        const streamData = await fetchSuperStream(streamParams);
 
         // Gracefully handle different array structures returned by the API
         let rawStreams = [];
-        if (streamRes.data?.data?.list) {
-            rawStreams = streamRes.data.data.list;
-        } else if (Array.isArray(streamRes.data?.data)) {
-            rawStreams = streamRes.data.data;
-        } else if (streamRes.data?.data) {
-            rawStreams = [streamRes.data.data];
+        if (streamData?.data?.list) {
+            rawStreams = streamData.data.list;
+        } else if (Array.isArray(streamData?.data)) {
+            rawStreams = streamData.data;
+        } else if (streamData?.data) {
+            rawStreams = [streamData.data];
         }
 
         const formattedStreams = rawStreams
@@ -163,14 +175,13 @@ module.exports = async function handler(req, res) {
         }
 
         if (!formattedStreams.length) {
-            // Include a debug dump so we know exactly why it's failing
             return res.json({ 
                 success: false, 
                 error: 'No streams available from SuperStream for this item.',
                 debug: {
                     searchedTitle: title,
                     matchedId: matchId,
-                    serverResponse: streamRes.data // This will output their exact error code/message
+                    serverResponse: streamData 
                 }
             });
         }
