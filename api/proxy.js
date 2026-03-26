@@ -1,20 +1,17 @@
 const axios = require('axios');
 const { URL } = require('url');
 
-// Helper to resolve relative URIs in HLS manifests
 function resolveUri(uri, baseUrl) {
     if (!uri || !uri.trim()) return null;
     uri = uri.trim();
     if (uri.startsWith('http://') || uri.startsWith('https://')) return uri;
-    try {
-        return new URL(uri, baseUrl).toString();
-    } catch (_) {
+    try { return new URL(uri, baseUrl).toString(); } 
+    catch (_) {
         const base = baseUrl.substring(0, baseUrl.lastIndexOf('/') + 1);
         return base + uri;
     }
 }
 
-// Intercepts the .m3u8 playlist and forces all video chunks to route through this proxy
 function rewriteManifest(text, originalUrl, proxyBase) {
     const lines = text.split('\n');
     const out = [];
@@ -25,7 +22,6 @@ function rewriteManifest(text, originalUrl, proxyBase) {
 
         if (!trimmed) { out.push(line); continue; }
 
-        // Rewrite encryption keys, subtitles, or multi-audio tracks
         if (trimmed.startsWith('#')) {
             const rewritten = line.replace(/URI="([^"]+)"/g, (match, uri) => {
                 const abs = resolveUri(uri, originalUrl);
@@ -36,7 +32,6 @@ function rewriteManifest(text, originalUrl, proxyBase) {
             continue;
         }
 
-        // Rewrite actual .ts or .m3u8 segment lines
         const abs = resolveUri(trimmed, originalUrl);
         if (abs) {
             out.push(`${proxyBase}${encodeURIComponent(abs)}`);
@@ -48,7 +43,6 @@ function rewriteManifest(text, originalUrl, proxyBase) {
 }
 
 module.exports = async function handler(req, res) {
-    // Standard CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Range');
@@ -59,39 +53,33 @@ module.exports = async function handler(req, res) {
     }
 
     const targetUrl = req.query.url;
-
-    if (!targetUrl) {
-        return res.status(400).send('Target URL is required');
-    }
+    if (!targetUrl) return res.status(400).send('Target URL is required');
 
     try {
-        // Important: SuperStream bypass headers
+        // CRITICAL FIX: Headers perfectly matched with multi-stream.js so Cloudflare doesn't block the video
         const headers = {
-            'User-Agent': 'moviebox/2.6.8 (Linux; U; Android 11)',
+            'User-Agent': 'moviebox/11.5 (Linux; U; Android 11)',
             'Referer': 'https://showbox.shegu.net/',
             'Origin': 'https://showbox.shegu.net/',
+            'X-Requested-With': 'com.tdo.showbox',
             'Accept': '*/*'
         };
 
-        // Forward Range headers for seeking/scrubbing in the video player
         if (req.headers.range) {
             headers['Range'] = req.headers.range;
         }
 
-        // Detect if we are fetching a playlist (.m3u8) or a video chunk (.ts/.mp4)
         const isM3u8 = targetUrl.includes('.m3u8');
 
         const response = await axios({
             method: 'get',
             url: targetUrl,
             headers: headers,
-            // Playlists need to be parsed as text. Video chunks are streamed directly as binary.
             responseType: isM3u8 ? 'text' : 'stream',
-            validateStatus: status => status >= 200 && status < 400, // Handle 206 Partial Content safely
-            timeout: 15000 // 15-second safeguard to prevent serverless function hangs
+            validateStatus: status => status >= 200 && status < 400,
+            timeout: 15000 
         });
 
-        // Copy critical headers back to the frontend player
         const headersToForward = ['content-type', 'content-length', 'accept-ranges', 'content-range'];
         headersToForward.forEach(header => {
             if (response.headers[header]) {
@@ -102,19 +90,16 @@ module.exports = async function handler(req, res) {
         res.status(response.status);
 
         if (isM3u8) {
-            // Reconstruct your proxy path for Vercel
             const proto = (req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
             const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
             const proxyBase = `${proto}://${host}/api/proxy?url=`;
 
-            // Enforce correct HLS MIME types
             res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
             res.setHeader('Cache-Control', 'no-cache');
 
             const rewrittenManifest = rewriteManifest(response.data, targetUrl, proxyBase);
             return res.send(rewrittenManifest);
         } else {
-            // Pipe the binary video stream chunk directly to Vercel response
             return response.data.pipe(res);
         }
 
