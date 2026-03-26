@@ -7,7 +7,7 @@ const BASE_URL = 'https://showbox.shegu.net/api/api_client/index/';
 const APP_KEY = 'moviebox';
 const USER_AGENT = 'moviebox/2.6.8 (Linux; U; Android 11)';
 
-// SuperStream Token Generator
+// SuperStream Token Generato
 function generateToken(params) {
     const sortedKeys = Object.keys(params).sort();
     const paramString = sortedKeys.map(key => `${key}=${params[key]}`).join('&');
