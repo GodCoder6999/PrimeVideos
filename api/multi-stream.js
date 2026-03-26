@@ -1,13 +1,13 @@
 const axios = require('axios');
 const crypto = require('crypto');
 
-// Use your TMDB key or a fallback public one
-const TMDB_KEY = process.env.VITE_TMDB_API_KEY || 'cb1dc311039e6ae85db0aa200345cbc5';
+// Falls back to multiple environment variables just in case
+const TMDB_KEY = process.env.TMDB_API_KEY || process.env.VITE_TMDB_API_KEY || 'cb1dc311039e6ae85db0aa200345cbc5';
 const BASE_URL = 'https://showbox.shegu.net/api/api_client/index/';
 const APP_KEY = 'moviebox';
 const USER_AGENT = 'moviebox/2.6.8 (Linux; U; Android 11)';
 
-// SuperStream Token Generato
+// SuperStream Token Generator
 function generateToken(params) {
     const sortedKeys = Object.keys(params).sort();
     const paramString = sortedKeys.map(key => `${key}=${params[key]}`).join('&');
@@ -32,12 +32,24 @@ module.exports = async function handler(req, res) {
     const origin = `${proto}://${host}`;
     const px = (url) => `${origin}/api/proxy?url=${encodeURIComponent(url)}`;
 
-    try {
-        // 1. Fetch Title from TMDB (SuperStream searches by title)
-        const tmdbRes = await axios.get(`https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_KEY}`);
-        const title = tmdbRes.data.title || tmdbRes.data.name;
+    let title = '';
+    let matchId = '';
 
-        // 2. Search SuperStream for the internal 'mid'
+    // ==========================================
+    // STEP 1: Fetch TMDB Title
+    // ==========================================
+    try {
+        const tmdbRes = await axios.get(`https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_KEY}`);
+        title = tmdbRes.data.title || tmdbRes.data.name;
+    } catch (error) {
+        console.error('[TMDB Error]', error.message);
+        return res.status(500).json({ success: false, error: `TMDB API Failed: ${error.message}` });
+    }
+
+    // ==========================================
+    // STEP 2: SuperStream Search
+    // ==========================================
+    try {
         const searchParams = {
             module: 'Search4',
             keyword: title,
@@ -52,19 +64,34 @@ module.exports = async function handler(req, res) {
         
         const searchRes = await axios.get(BASE_URL, { 
             params: searchParams, 
-            headers: { 'User-Agent': USER_AGENT } 
+            headers: { 
+                'User-Agent': USER_AGENT,
+                'Platform': 'android',
+                'Accept': '*/*'
+            },
+            timeout: 15000 // 15-second timeout to prevent serverless hang
         });
 
         const results = searchRes.data?.data || [];
-        
-        // Find the most accurate match
         const match = results.find(r => r.title === title || r.name === title) || results[0];
-        if (!match) return res.json({ success: false, error: 'Title not found on SuperStream' });
+        
+        if (!match) {
+            return res.json({ success: false, error: `Title '${title}' not found on SuperStream` });
+        }
+        matchId = match.id;
 
-        // 3. Fetch Streams from SuperStream
+    } catch (error) {
+        console.error('[SuperStream Search Error]', error.message);
+        return res.status(500).json({ success: false, error: `SuperStream Search Failed: ${error.message}` });
+    }
+
+    // ==========================================
+    // STEP 3: Fetch Streams
+    // ==========================================
+    try {
         const streamParams = {
             module: type === 'movie' ? 'Movie_downloadurl_v3' : 'TV_downloadurl_v3',
-            mid: match.id,
+            mid: matchId,
             api_key: 'moviebox',
             app_version: '2.6.8',
             os: 'android',
@@ -80,13 +107,17 @@ module.exports = async function handler(req, res) {
 
         const streamRes = await axios.get(BASE_URL, { 
             params: streamParams, 
-            headers: { 'User-Agent': USER_AGENT } 
+            headers: { 
+                'User-Agent': USER_AGENT,
+                'Platform': 'android',
+                'Accept': '*/*'
+            },
+            timeout: 15000
         });
 
         let rawStreams = streamRes.data?.data?.list || streamRes.data?.data || [];
         if (!Array.isArray(rawStreams)) rawStreams = [rawStreams];
 
-        // 4. Format streams for PrimePlayer (Proxying all URLs)
         const formattedStreams = rawStreams
             .filter(s => s.path || s.url)
             .map(s => {
@@ -99,7 +130,6 @@ module.exports = async function handler(req, res) {
                 };
             });
 
-        // 5. Extract multi-audio and subtitles if available
         let subtitles = [];
         let audioTracks = [];
         
@@ -119,7 +149,7 @@ module.exports = async function handler(req, res) {
         }
 
         if (!formattedStreams.length) {
-            return res.json({ success: false, error: 'No streams available from SuperStream' });
+            return res.json({ success: false, error: 'No streams available from SuperStream for this item' });
         }
 
         res.json({
@@ -131,7 +161,7 @@ module.exports = async function handler(req, res) {
         });
 
     } catch (error) {
-        console.error('[SuperStream Error]', error.message);
-        res.status(500).json({ success: false, error: 'SuperStream extraction failed.' });
+        console.error('[SuperStream Extract Error]', error.message);
+        return res.status(500).json({ success: false, error: `SuperStream Extract Failed: ${error.message}` });
     }
 };
