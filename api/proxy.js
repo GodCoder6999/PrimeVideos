@@ -11,6 +11,7 @@ module.exports = async function handler(req, res) {
         return;
     }
 
+    
     const targetUrl = req.query.url;
 
     if (!targetUrl) {
