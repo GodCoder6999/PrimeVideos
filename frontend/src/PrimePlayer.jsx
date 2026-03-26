@@ -230,8 +230,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
           if (cap) hls.autoLevelCapping = cap.i;
 
           // ── MULTI-AUDIO from manifest (EXT-X-MEDIA tags rewritten by proxy) ──
-          // Because the proxy rewrote URI="..." in EXT-X-MEDIA tags,
-          // HLS.js can fetch audio playlists without CORS errors.
           if (hls.audioTracks && hls.audioTracks.length > 0) {
             const tracks = hls.audioTracks.map((t, i) => ({
               id:   i,
@@ -297,9 +295,6 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
 
     } else {
       // ── Direct MP4 / MKV ─────────────────────────────────────────────────
-      // The proxy forwards Range headers so seeking works.
-      // MKV: browser plays default audio track; no multi-audio switching UI shown.
-      // MP4: same — audio tracks inside MP4 not switchable in browser.
       const loadTimer = setTimeout(() => {
         if (!vidRef.current) return;
         vid.volume = 1; vid.muted = false;
@@ -326,19 +321,17 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       vid.addEventListener('error',    onError,    { once: true });
       vid.addEventListener('progress', onProgress);
 
-      // Clean up listeners when next stream loads (loadStreamAt called again)
       const cleanup = () => {
         clearTimeout(loadTimer); clearTimeout(stallTimer);
         vid.removeEventListener('canplay',  onCanPlay);
         vid.removeEventListener('error',    onError);
         vid.removeEventListener('progress', onProgress);
       };
-      // Store cleanup so we can call it on next load
       vidRef._cleanup = cleanup;
     }
   }, [attemptResume]);
 
-  // ── MAIN INIT (UPDATED FOR @movie-web/providers + PROXY) ─────────────────
+  // ── MAIN INIT (UPDATED FOR /api/multi-stream) ─────────────────────────────
   useEffect(() => {
     if (!tmdbId) return;
 
@@ -354,56 +347,48 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
 
     let cancelled = false;
 
-    // 1. Fetch metadata (Title & Year) needed by the extractor
+    // 1. Fetch TMDB metadata (Title) in parallel
     fetch(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_KEY}`)
       .then(r => r.json())
       .then(d => {
-        if (cancelled) return;
-        const fetchedTitle = d.title || d.name || title;
-        const year = (d.release_date || d.first_air_date || '').slice(0, 4);
-        setMovieTitle(fetchedTitle);
-
-        // 2. Call the new extraction layer to find the stream
-        const extractUrl = `/api/extract?tmdbId=${tmdbId}&title=${encodeURIComponent(fetchedTitle)}&releaseYear=${year}&type=${mediaType}&season=${season}&episode=${episode}`;
-        
-        return fetch(extractUrl);
+        if (!cancelled) setMovieTitle(d.title || d.name || title);
       })
+      .catch(() => {});
+
+    // 2. Fetch from the new multi-stream aggregator
+    const fetchUrl = `/api/multi-stream?tmdbId=${tmdbId}&type=${mediaType}&season=${season}&episode=${episode}`;
+    
+    fetch(fetchUrl)
       .then(r => r.json())
       .then(data => {
         if (cancelled) return;
         
-        if (!data || !data.success || !data.streamUrl) {
+        if (!data || !data.success || !data.streams || data.streams.length === 0) {
           setLoadState('error');
           setErrorMsg(data?.error || 'Extraction failed. No playable streams found.');
           return;
         }
 
-        // 3. Format the URL to run through our Custom Proxy
-        const refererParam = data.headers?.Referer ? `&referer=${encodeURIComponent(data.headers.Referer)}` : '';
-        const proxiedStreamUrl = `/api/proxy?url=${encodeURIComponent(data.streamUrl)}${refererParam}`;
-
-        // Determine type based on extension
-        const streamType = (data.streamUrl.includes('.m3u8') || data.streamUrl.includes('.m3u')) ? 'hls' : 'mp4';
-
-        // 4. Create the Stream Object and feed it into the existing load logic
-        const stream = { 
-          url: proxiedStreamUrl, 
-          type: streamType, 
-          quality: 'Auto', 
-          provider: 'Aggregator',
-          language: 'Multi' 
-        };
+        // 3. Map the returned streams.
+        // Note: multi-stream.js handles wrapping the URL with our proxy automatically.
+        const mappedStreams = data.streams.map(s => ({
+          url: s.url,
+          type: s.type || (s.url.includes('.m3u8') ? 'hls' : 'mp4'),
+          quality: s.quality || 'Auto',
+          provider: s.source || 'Aggregator',
+          language: 'Multi'
+        }));
         
-        streamsRef.current = [stream];
-        setStreams([stream]);
+        streamsRef.current = mappedStreams;
+        setStreams(mappedStreams);
         
-        // Start playback
+        // Start playback with the highest ranked stream
         loadStreamAt(0); 
       })
       .catch(err => {
         if (cancelled) return;
         setLoadState('error');
-        setErrorMsg('Failed to fetch and extract stream.');
+        setErrorMsg('Failed to fetch and extract streams.');
       });
 
     return () => {
@@ -599,7 +584,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         </div>
       )}
 
-      {/* ── ERROR STATE — no iframes, native UI only ── */}
+      {/* ── ERROR STATE ── */}
       {loadState === 'error' && (
         <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column',
                       alignItems:'center', justifyContent:'center', background:'#000', zIndex:9 }}>
@@ -680,13 +665,12 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
                         {subTracks.length===0&&<div style={{color:'rgba(255,255,255,.3)',fontSize:12,fontStyle:'italic'}}>None available</div>}
                       </div>
 
-                      {/* Audio — HLS tracks only; MKV/MP4 hides this */}
+                      {/* Audio */}
                       <div style={{ flex:1, padding:'18px 14px' }}>
                         <div style={{ color:'#fff', fontSize:15, fontWeight:700, marginBottom:14 }}>Audio</div>
                         {audioTracks.length > 0 ? audioTracks.map(t=>(
                           <div key={t.id} className="qi" style={{display:'flex',alignItems:'center',gap:10,padding:'7px 4px',cursor:'pointer',borderRadius:4}}
                             onClick={()=>{
-                              // This is the actual switch — sets HLS.js audio track index
                               if(hlsRef.current) hlsRef.current.audioTrack = t.id;
                               setActiveAudio(t.id);
                             }}>
