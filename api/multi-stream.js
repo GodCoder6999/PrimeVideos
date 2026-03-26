@@ -1,11 +1,13 @@
 const axios = require('axios');
 const crypto = require('crypto');
 
-// Falls back to multiple environment variables just in case
 const TMDB_KEY = process.env.TMDB_API_KEY || process.env.VITE_TMDB_API_KEY || 'cb1dc311039e6ae85db0aa200345cbc5';
 const BASE_URL = 'https://showbox.shegu.net/api/api_client/index/';
 const APP_KEY = 'moviebox';
-const USER_AGENT = 'moviebox/2.6.8 (Linux; U; Android 11)';
+
+// Bumping app version to bypass deprecation blocks (empty streams)
+const APP_VERSION = '11.5'; 
+const USER_AGENT = `moviebox/${APP_VERSION} (Linux; U; Android 11)`;
 
 // SuperStream Token Generator
 function generateToken(params) {
@@ -35,6 +37,17 @@ module.exports = async function handler(req, res) {
     let title = '';
     let matchId = '';
 
+    // Standard device params required by newer SuperStream API versions
+    const baseParams = {
+        api_key: 'moviebox',
+        app_version: APP_VERSION,
+        os: 'android',
+        device_id: 'ab12c34d56e7890f', // Use a static hex device ID instead of "test-device"
+        childmode: '0',
+        lang: 'en',
+        uid: ''
+    };
+
     // ==========================================
     // STEP 1: Fetch TMDB Title
     // ==========================================
@@ -51,14 +64,11 @@ module.exports = async function handler(req, res) {
     // ==========================================
     try {
         const searchParams = {
+            ...baseParams,
             module: 'Search4',
             keyword: title,
             page: '1',
-            type: 'all',
-            api_key: 'moviebox',
-            app_version: '2.6.8',
-            os: 'android',
-            device_id: 'test-device'
+            type: 'all'
         };
         searchParams.token = generateToken(searchParams);
         
@@ -69,7 +79,7 @@ module.exports = async function handler(req, res) {
                 'Platform': 'android',
                 'Accept': '*/*'
             },
-            timeout: 15000 // 15-second timeout to prevent serverless hang
+            timeout: 15000 
         });
 
         const results = searchRes.data?.data || [];
@@ -90,17 +100,14 @@ module.exports = async function handler(req, res) {
     // ==========================================
     try {
         const streamParams = {
+            ...baseParams,
             module: type === 'movie' ? 'Movie_downloadurl_v3' : 'TV_downloadurl_v3',
-            mid: matchId,
-            api_key: 'moviebox',
-            app_version: '2.6.8',
-            os: 'android',
-            device_id: 'test-device'
+            mid: matchId
         };
 
         if (type === 'tv') {
-             streamParams.season = season;
-             streamParams.episode = episode;
+             streamParams.season = String(season);
+             streamParams.episode = String(episode);
         }
         
         streamParams.token = generateToken(streamParams);
@@ -115,8 +122,15 @@ module.exports = async function handler(req, res) {
             timeout: 15000
         });
 
-        let rawStreams = streamRes.data?.data?.list || streamRes.data?.data || [];
-        if (!Array.isArray(rawStreams)) rawStreams = [rawStreams];
+        // Gracefully handle different array structures returned by the API
+        let rawStreams = [];
+        if (streamRes.data?.data?.list) {
+            rawStreams = streamRes.data.data.list;
+        } else if (Array.isArray(streamRes.data?.data)) {
+            rawStreams = streamRes.data.data;
+        } else if (streamRes.data?.data) {
+            rawStreams = [streamRes.data.data];
+        }
 
         const formattedStreams = rawStreams
             .filter(s => s.path || s.url)
@@ -149,7 +163,16 @@ module.exports = async function handler(req, res) {
         }
 
         if (!formattedStreams.length) {
-            return res.json({ success: false, error: 'No streams available from SuperStream for this item' });
+            // Include a debug dump so we know exactly why it's failing
+            return res.json({ 
+                success: false, 
+                error: 'No streams available from SuperStream for this item.',
+                debug: {
+                    searchedTitle: title,
+                    matchedId: matchId,
+                    serverResponse: streamRes.data // This will output their exact error code/message
+                }
+            });
         }
 
         res.json({
