@@ -1,3 +1,4 @@
+// api/proxy.js
 const axios = require('axios');
 const { URL } = require('url');
 
@@ -53,10 +54,10 @@ module.exports = async function handler(req, res) {
     if (!targetUrl) return res.status(400).send('Target URL is required');
 
     try {
-        // EXACT HEADERS from Step 3.1 of your original post
+        // Standard Desktop Chrome Headers (Crucial for EmbedSU and VidSrc)
         const headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Referer': 'https://showbox.shegu.net/'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Referer': new URL(targetUrl).origin + '/'
         };
 
         if (req.headers.range) {
@@ -71,7 +72,7 @@ module.exports = async function handler(req, res) {
             headers: headers,
             responseType: isM3u8 ? 'text' : 'stream',
             validateStatus: status => status >= 200 && status < 400,
-            timeout: 30000 
+            timeout: 20000 
         });
 
         const headersToForward = ['content-type', 'content-length', 'accept-ranges', 'content-range'];
@@ -89,7 +90,7 @@ module.exports = async function handler(req, res) {
             const proxyBase = `${proto}://${host}/api/proxy?url=`;
 
             res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-            res.setHeader('Cache-Control', 'public, max-age=3600');
+            res.setHeader('Cache-Control', 'no-cache');
 
             const rewrittenManifest = rewriteManifest(response.data, targetUrl, proxyBase);
             return res.send(rewrittenManifest);
