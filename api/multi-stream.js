@@ -1,50 +1,30 @@
 // api/multi-stream.js
-const https = require('https');
-const http = require('http');
-const { URL } = require('url');
-
 const TMDB_KEY = process.env.TMDB_API_KEY || process.env.VITE_TMDB_API_KEY || 'cb1dc311039e6ae85db0aa200345cbc5';
 
-// Native HTTPS wrapper — highly reliable on Vercel (bypasses Node 18 fetch failures)
-function fetchUrl(targetUrl, extraHeaders = {}, timeoutMs = 12000) {
-    return new Promise((resolve, reject) => {
-        let parsed;
-        try { parsed = new URL(targetUrl); } catch (e) { return reject(e); }
-        
-        const lib = parsed.protocol === 'https:' ? https : http;
-        const options = {
-            hostname: parsed.hostname,
-            port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
-            path: parsed.pathname + parsed.search,
-            method: 'GET',
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                'Accept': '*/*',
-                ...extraHeaders
-            }
-        };
+// We use public proxies to completely bypass Vercel's DNS firewall and Cloudflare's SSL blocks.
+const PROXIES = [
+    (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+    (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
+];
 
-        const req = lib.request(options, (res) => {
-            // Handle redirects
-            if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
-                let loc = res.headers.location;
-                if (!loc.startsWith('http')) loc = `${parsed.protocol}//${parsed.host}${loc}`;
-                return fetchUrl(loc, extraHeaders, timeoutMs).then(resolve).catch(reject);
+// Helper that safely routes the fetch through the proxies
+async function fetchJsonSafely(targetUrl) {
+    let lastError = '';
+    for (const proxyGen of PROXIES) {
+        try {
+            const res = await fetch(proxyGen(targetUrl), {
+                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+            });
+            if (res.ok) {
+                const data = await res.text();
+                return JSON.parse(data); // Parse text to JSON manually to catch bad responses
             }
-            // Reject bad status codes
-            if (res.statusCode < 200 || res.statusCode >= 400) {
-                return reject(new Error(`HTTP ${res.statusCode}`));
-            }
-            
-            const chunks = [];
-            res.on('data', c => chunks.push(c));
-            res.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
-        });
-
-        req.on('error', reject);
-        req.setTimeout(timeoutMs, () => { req.destroy(); reject(new Error('timeout')); });
-        req.end();
-    });
+            lastError = `HTTP ${res.status}`;
+        } catch (e) {
+            lastError = e.message;
+        }
+    }
+    throw new Error(lastError);
 }
 
 module.exports = async function handler(req, res) {
@@ -56,6 +36,7 @@ module.exports = async function handler(req, res) {
     const { tmdbId, type = 'movie', season = '1', episode = '1' } = req.query;
     if (!tmdbId) return res.status(400).json({ success: false, error: 'tmdbId required' });
 
+    // Build your local proxy url
     const proto = (req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
     const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
     const origin = `${proto}://${host}`;
@@ -64,95 +45,91 @@ module.exports = async function handler(req, res) {
     let imdbId = null;
     const logs = [];
     const streams = [];
-    const subtitles = [];
 
-    // ─── STEP 1: Fetch IMDB ID ───
+    // 1. Fetch IMDB ID (TMDB is rarely blocked, but we'll try/catch it safely)
     try {
-        const imdbRes = await fetchUrl(`https://api.themoviedb.org/3/${type}/${tmdbId}/external_ids?api_key=${TMDB_KEY}`);
-        imdbId = JSON.parse(imdbRes).imdb_id;
+        const tmdbRes = await fetch(`https://api.themoviedb.org/3/${type}/${tmdbId}/external_ids?api_key=${TMDB_KEY}`);
+        const tmdbData = await tmdbRes.json();
+        imdbId = tmdbData.imdb_id;
     } catch (e) {
-        logs.push(`TMDB: ${e.message}`);
+        logs.push(`TMDB Error: ${e.message}`);
     }
 
-    // ─── STEP 2: Scrape Embed.su ───
-    try {
-        const esuUrl = type === 'tv' ? `https://embed.su/embed/tv/${tmdbId}/${season}/${episode}` : `https://embed.su/embed/movie/${tmdbId}`;
-        const esuHtml = await fetchUrl(esuUrl);
-        
-        const hashMatch = esuHtml.match(/\/api\/e\/([a-zA-Z0-9]+)/);
-        if (hashMatch) {
-            const apiDataRaw = await fetchUrl(`https://embed.su/api/e/${hashMatch[1]}`, { 'Referer': esuUrl });
-            const apiData = JSON.parse(apiDataRaw);
-            
-            if (apiData.source) streams.push({ url: px(apiData.source), quality: 'Auto', source: 'EmbedSU', type: 'hls' });
-            if (apiData.sources) apiData.sources.forEach(s => {
-                if (s.file) streams.push({ url: px(s.file), quality: s.label || 'Auto', source: 'EmbedSU', type: s.file.includes('.mp4') ? 'mp4' : 'hls' });
-            });
-            if (apiData.subtitles) apiData.subtitles.forEach(sub => {
-                if (sub.file) subtitles.push({ url: px(sub.file), lang: sub.label || 'Unknown' });
-            });
-        } else {
-            logs.push('EmbedSU: Hash not found');
-        }
-    } catch (e) {
-        logs.push(`EmbedSU: ${e.message}`);
+    if (!imdbId) {
+        return res.json({ success: false, error: `Debug Logs: [ No IMDB ID found | ${logs.join(' | ')} ]` });
     }
 
-    // ─── STEP 3: Scrape Superflix ───
-    if (imdbId) {
-        try {
-            const sfUrl = type === 'tv' 
+    // 2. Define our target streaming JSON Addons
+    const endpoints = [
+        {
+            name: 'Nuvio (MoviesMod)',
+            url: type === 'tv' 
+                ? `https://nuviostreams.hayd.uk/stream/series/${imdbId}:${season}:${episode}.json` 
+                : `https://nuviostreams.hayd.uk/stream/movie/${imdbId}.json`
+        },
+        {
+            name: 'Superflix',
+            url: type === 'tv' 
                 ? `https://stremio-addon.superflix.to/stream/series/${imdbId}:${season}:${episode}.json` 
-                : `https://stremio-addon.superflix.to/stream/movie/${imdbId}.json`;
-            
-            const sfData = JSON.parse(await fetchUrl(sfUrl));
-            if (sfData.streams) {
-                sfData.streams.forEach(s => {
+                : `https://stremio-addon.superflix.to/stream/movie/${imdbId}.json`
+        },
+        {
+            name: 'JaMovies',
+            url: type === 'tv' 
+                ? `https://jamovies.baby/stream/series/${imdbId}:${season}:${episode}.json` 
+                : `https://jamovies.baby/stream/movie/${imdbId}.json`
+        }
+    ];
+
+    // 3. Try each endpoint concurrently using the WAF-Bypass proxy
+    await Promise.all(endpoints.map(async (endpoint) => {
+        try {
+            const data = await fetchJsonSafely(endpoint.url);
+            if (data && data.streams) {
+                data.streams.forEach(s => {
+                    // Filter out torrents, we only want direct http mp4/m3u8 files
                     if (s.url && !s.url.includes('magnet')) {
                         let quality = 'Auto';
-                        if (s.name && s.name.includes('1080')) quality = '1080p';
-                        if (s.name && s.name.includes('720')) quality = '720p';
-                        streams.push({ url: px(s.url), quality, source: 'Superflix', type: s.url.includes('.m3u8') ? 'hls' : 'mp4' });
+                        const nameStr = (s.name || s.title || s.description || '').toLowerCase();
+                        
+                        // Parse quality
+                        if (nameStr.includes('2160') || nameStr.includes('4k')) quality = '4K';
+                        else if (nameStr.includes('1080')) quality = '1080p';
+                        else if (nameStr.includes('720')) quality = '720p';
+                        else if (nameStr.includes('480')) quality = '480p';
+
+                        streams.push({
+                            url: px(s.url),
+                            quality: quality,
+                            source: endpoint.name,
+                            type: s.url.includes('.m3u8') ? 'hls' : 'mp4'
+                        });
                     }
                 });
+            } else {
+                logs.push(`${endpoint.name}: No streams returned`);
             }
         } catch (e) {
-            logs.push(`Superflix: ${e.message}`);
+            logs.push(`${endpoint.name}: ${e.message}`);
         }
-    }
+    }));
 
-    // ─── STEP 4: Scrape JaMovies ───
-    if (imdbId) {
-        try {
-            const jmUrl = type === 'tv' 
-                ? `https://jamovies.baby/stream/series/${imdbId}:${season}:${episode}.json` 
-                : `https://jamovies.baby/stream/movie/${imdbId}.json`;
-            
-            const jmData = JSON.parse(await fetchUrl(jmUrl));
-            if (jmData.streams) {
-                jmData.streams.forEach(s => {
-                    if (s.url && !s.url.includes('magnet')) {
-                        streams.push({ url: px(s.url), quality: s.description || 'Auto', source: 'JaMovies', type: s.url.includes('.m3u8') ? 'hls' : 'mp4' });
-                    }
-                });
-            }
-        } catch (e) {
-            logs.push(`JaMovies: ${e.message}`);
-        }
-    }
+    // 4. Sort streams by quality (Highest first)
+    const rank = { '4K': 5, '1080p': 4, '720p': 3, 'Auto': 2, '480p': 1 };
+    streams.sort((a, b) => (rank[b.quality] || 0) - (rank[a.quality] || 0));
 
-    // ─── STEP 5: Return Payload ───
+    // 5. Return success if any stream survived
     if (streams.length > 0) {
         return res.json({
             success: true,
             count: streams.length,
             streams: streams,
-            subtitles: subtitles,
+            subtitles: [], // These APIs embed subtitles inside the MKV/MP4 files natively
             audioTracks: []
         });
     }
 
-    // Output debug logs if all fail
+    // Return the specific proxy errors if they still fail
     return res.json({
         success: false,
         error: `Debug Logs: [ ${logs.join(' | ')} ]`
