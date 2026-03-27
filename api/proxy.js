@@ -47,22 +47,16 @@ module.exports = async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Range');
 
-    if (req.method === 'OPTIONS') {
-        res.status(200).end();
-        return;
-    }
+    if (req.method === 'OPTIONS') { res.status(200).end(); return; }
 
     const targetUrl = req.query.url;
     if (!targetUrl) return res.status(400).send('Target URL is required');
 
     try {
-        // CRITICAL FIX: Headers perfectly matched with multi-stream.js so Cloudflare doesn't block the video
+        // EXACT HEADERS from Step 3.1 of your original post
         const headers = {
-            'User-Agent': 'moviebox/11.5 (Linux; U; Android 11)',
-            'Referer': 'https://showbox.shegu.net/',
-            'Origin': 'https://showbox.shegu.net/',
-            'X-Requested-With': 'com.tdo.showbox',
-            'Accept': '*/*'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://showbox.shegu.net/'
         };
 
         if (req.headers.range) {
@@ -77,7 +71,7 @@ module.exports = async function handler(req, res) {
             headers: headers,
             responseType: isM3u8 ? 'text' : 'stream',
             validateStatus: status => status >= 200 && status < 400,
-            timeout: 15000 
+            timeout: 30000 
         });
 
         const headersToForward = ['content-type', 'content-length', 'accept-ranges', 'content-range'];
@@ -95,7 +89,7 @@ module.exports = async function handler(req, res) {
             const proxyBase = `${proto}://${host}/api/proxy?url=`;
 
             res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-            res.setHeader('Cache-Control', 'no-cache');
+            res.setHeader('Cache-Control', 'public, max-age=3600');
 
             const rewrittenManifest = rewriteManifest(response.data, targetUrl, proxyBase);
             return res.send(rewrittenManifest);
