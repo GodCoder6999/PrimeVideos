@@ -57,13 +57,28 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 const data = await res.json();
 
                 if (data.success && data.streams && data.streams.length > 0) {
+                    // No quality filtering! Load everything available.
                     setSources(data.streams);
                     
-                    // Force English to load first if it exists
-                    let defaultSource = data.streams.find(s => s.language && s.language.toLowerCase().includes('english'));
+                    // Priority 1: Force PURE English to load first if it exists
+                    let defaultSource = data.streams.find(s => s.language.trim().toLowerCase() === 'english');
+                    // Priority 2: Fallback to Dual Audio (Hindi + English)
+                    if (!defaultSource) defaultSource = data.streams.find(s => s.language && s.language.toLowerCase().includes('english'));
+                    // Priority 3: Absolute Fallback
                     if (!defaultSource) defaultSource = data.streams[0]; 
 
-                    setCurrentUrlLanguage(defaultSource.language);
+                    const initialLangs = parseLanguages(defaultSource.language);
+                    
+                    // The "Dual Audio Fix": Standard MP4s play Track 1 (Hindi) by default.
+                    // If we load a Dual Audio stream, we MUST set the UI to Hindi to reflect reality.
+                    let defaultUiLang = initialLangs[0];
+                    if (defaultSource.language.toLowerCase().includes('hindi + english') || defaultSource.language.toLowerCase().includes('dual audio')) {
+                        defaultUiLang = 'Hindi'; 
+                    } else if (initialLangs.includes('English')) {
+                        defaultUiLang = 'English';
+                    }
+
+                    setCurrentUrlLanguage(defaultUiLang);
                     setCurrentUrlQuality(defaultSource.quality);
                     loadStream(defaultSource.url);
                     return;
@@ -109,18 +124,18 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             hls.on(Hls.Events.MANIFEST_PARSED, (e, data) => {
                 setLoading(false);
                 
-                // Read all available qualities dynamically
+                // Read all available qualities dynamically without caps
                 const availableLevels = hls.levels.map((l, idx) => ({ 
                     id: idx, 
                     height: l.height 
                 })).sort((a, b) => b.height - a.height); 
 
                 setNativeQualities(availableLevels);
-                setCurrentNativeQuality(-1); 
+                setCurrentNativeQuality(-1); // -1 is Auto
                 
                 if (hls.audioTracks && hls.audioTracks.length > 0) {
                     setNativeAudioTracks(hls.audioTracks);
-                    setCurrentNativeAudio(hls.audioTrack); 
+                    setCurrentNativeAudio(hls.audioTrack); // Use actual exact Track ID
                 }
                 
                 if (currentTime > 0) video.currentTime = currentTime;
@@ -160,7 +175,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     }, [sources]);
 
     let displayAudioOptions = hasNativeAudio 
-        ? nativeAudioTracks.map((t, index) => ({ id: t.id, label: t.name || t.language || `Track ${index + 1}`, isNative: true })) 
+        ? nativeAudioTracks.map(t => ({ id: t.id, label: t.name || t.language || `Track ${t.id}`, isNative: true })) 
         : urlLanguages.map(l => ({ id: l, label: l, isNative: false }));
 
     const currentAudioLabel = hasNativeAudio 
@@ -175,7 +190,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         : urlQualities.map(q => ({ id: q, label: q === 'Auto' ? 'Best' : q }));
         
     const currentQualityLabel = hasNativeQuality
-        ? (currentNativeQuality === -1 ? 'Auto' : `${nativeQualities.find(q => q.id === currentNativeQuality)?.height || 'Unknown'}p`)
+        ? (currentNativeQuality === -1 ? 'Auto' : `${nativeQualities.find(q => q.id === currentNativeQuality)?.height || 'Unknown '}p`)
         : currentUrlQuality;
 
     const selectAudio = (opt) => {
@@ -185,12 +200,15 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         } else {
             setCurrentUrlLanguage(opt.id);
             
+            // PRIORITY 1: Force purely single-language streams to guarantee the audio switch
             let match = sources.find(s => s.language.trim().toLowerCase() === opt.id.toLowerCase() && s.quality === currentUrlQuality);
             if (!match) match = sources.find(s => s.language.trim().toLowerCase() === opt.id.toLowerCase());
-            if (!match) match = sources.find(s => parseLanguages(s.language).includes(opt.id) && s.quality === currentUrlQuality);
-            if (!match) match = sources.find(s => parseLanguages(s.language).includes(opt.id));
             
-            if (match && match.url !== currentUrl) {
+            // PRIORITY 2: If we are stuck with Dual Audio, hunt for a DIFFERENT server
+            if (!match) match = sources.find(s => parseLanguages(s.language).includes(opt.id) && s.url !== currentUrl && s.quality === currentUrlQuality);
+            if (!match) match = sources.find(s => parseLanguages(s.language).includes(opt.id) && s.url !== currentUrl);
+            
+            if (match) {
                 setLoading(true);
                 setCurrentUrlQuality(match.quality);
                 loadStream(match.url);
