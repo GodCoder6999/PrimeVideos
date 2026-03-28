@@ -1,6 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
-import { Play, Pause, Volume2, VolumeX, Maximize, Settings, ArrowLeft, Loader, SkipBack, SkipForward } from 'lucide-react';
+import { 
+    Play, Pause, Volume2, VolumeX, Maximize, 
+    ArrowLeft, Loader, SkipBack, SkipForward, 
+    Server, AudioLines, Settings 
+} from 'lucide-react';
 
 const formatTime = (seconds) => {
     if (isNaN(seconds)) return '00:00';
@@ -32,7 +36,9 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     const [isMuted, setIsMuted] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [showControls, setShowControls] = useState(true);
-    const [showSettings, setShowSettings] = useState(false);
+    
+    // Menu States
+    const [activeMenu, setActiveMenu] = useState(null); // 'audio', 'quality', 'server', or null
 
     // HLS native tracks
     const [qualities, setQualities] = useState([]);
@@ -45,7 +51,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             setLoading(true);
             setError(null);
             try {
-                // Try to get multiple streams (gives different languages/qualities from MoviesMod, etc.)
                 let url = `/api/multi-stream?tmdbId=${tmdbId}&type=${mediaType}&season=${season}&episode=${episode}`;
                 const res = await fetch(url);
                 const data = await res.json();
@@ -54,7 +59,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                     setSources(data.streams);
                     loadStream(data.streams[0].url);
                 } else {
-                    // Fallback to get-stream if multi-stream fails or returns nothing
                     let fallbackUrl = `/api/get-stream?tmdbId=${tmdbId}&mediaType=${mediaType}&season=${season}&episode=${episode}`;
                     const fRes = await fetch(fallbackUrl);
                     const fData = await fRes.json();
@@ -91,9 +95,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         }
 
         if (url.includes('.m3u8') && Hls.isSupported()) {
-            const hls = new Hls({
-                maxMaxBufferLength: 60,
-            });
+            const hls = new Hls({ maxMaxBufferLength: 60 });
             hlsRef.current = hls;
             hls.loadSource(url);
             hls.attachMedia(video);
@@ -115,15 +117,22 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 video.play().catch(() => console.log("Autoplay blocked. User interaction required."));
             });
 
+            // Listen for dynamic audio track updates
+            hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (event, data) => {
+                if (data.audioTracks) setAudioTracks(data.audioTracks);
+            });
+
+            hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (event, data) => {
+                setCurrentAudioTrack(data.id);
+            });
+
             hls.on(Hls.Events.ERROR, (event, data) => {
                 if (data.fatal) {
                     switch (data.type) {
                         case Hls.ErrorTypes.NETWORK_ERROR:
-                            console.error("Network error, trying to recover...");
                             hls.startLoad();
                             break;
                         case Hls.ErrorTypes.MEDIA_ERROR:
-                            console.error("Media error, trying to recover...");
                             hls.recoverMediaError();
                             break;
                         default:
@@ -134,7 +143,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 }
             });
         } else if (video.canPlayType('application/vnd.apple.mpegurl') || url.includes('.mp4')) {
-            // Native Safari HLS support or standard MP4
             video.src = url;
             video.addEventListener('loadedmetadata', () => {
                 setLoading(false);
@@ -148,11 +156,8 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
 
     // --- Controls ---
     const togglePlay = () => {
-        if (videoRef.current.paused) {
-            videoRef.current.play();
-        } else {
-            videoRef.current.pause();
-        }
+        if (videoRef.current.paused) videoRef.current.play();
+        else videoRef.current.pause();
     };
 
     const handleVolumeChange = (e) => {
@@ -182,9 +187,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         }
     };
 
-    const seek = (seconds) => {
-        videoRef.current.currentTime += seconds;
-    };
+    const seek = (seconds) => { videoRef.current.currentTime += seconds; };
 
     const handleSeek = (e) => {
         const newTime = parseFloat(e.target.value);
@@ -197,7 +200,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         setShowControls(true);
         clearTimeout(controlsTimeoutRef.current);
         controlsTimeoutRef.current = setTimeout(() => {
-            if (isPlaying && !showSettings) {
+            if (isPlaying && !activeMenu) {
                 setShowControls(false);
             }
         }, 3000);
@@ -218,6 +221,10 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         setCurrentSourceIndex(index);
         setLoading(true);
         loadStream(sources[index].url);
+    };
+
+    const toggleMenu = (menuName) => {
+        setActiveMenu(activeMenu === menuName ? null : menuName);
     };
 
     return (
@@ -254,7 +261,10 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             <video
                 ref={videoRef}
                 className="w-full h-full object-contain cursor-pointer"
-                onClick={togglePlay}
+                onClick={() => {
+                    if (activeMenu) setActiveMenu(null);
+                    else togglePlay();
+                }}
                 onPlay={() => setIsPlaying(true)}
                 onPause={() => setIsPlaying(false)}
                 onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime || 0)}
@@ -307,56 +317,70 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                     </div>
 
                     <div className="flex items-center gap-6 text-white relative">
-                        {/* Settings Button & Dropdown */}
-                        <div className="relative">
-                            <button onClick={() => setShowSettings(!showSettings)} className={`transition hover:scale-110 ${showSettings ? 'text-[#00A8E1]' : 'hover:text-[#00A8E1]'}`}>
-                                <Settings size={24} />
-                            </button>
-                            
-                            {showSettings && (
-                                <div className="absolute bottom-12 right-0 bg-[#19222b]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl w-64 p-2 z-[100] flex flex-col gap-1 max-h-[60vh] overflow-y-auto">
-                                    
-                                    {/* HLS Video Quality */}
-                                    {qualities.length > 0 && (
-                                        <div className="mb-2">
-                                            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-3 py-1.5">Video Quality</div>
-                                            <button onClick={() => {changeQuality(-1); setShowSettings(false)}} className={`w-full text-left px-3 py-2 rounded text-sm font-medium transition ${currentQuality === -1 ? 'bg-[#00A8E1] text-white' : 'text-gray-200 hover:bg-white/10'}`}>Auto</button>
-                                            {qualities.map((q, idx) => (
-                                                <button key={idx} onClick={() => {changeQuality(idx); setShowSettings(false)}} className={`w-full text-left px-3 py-2 rounded text-sm font-medium transition ${currentQuality === idx ? 'bg-[#00A8E1] text-white' : 'text-gray-200 hover:bg-white/10'}`}>
-                                                    {q}p
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
+                        
+                        {/* Audio Button (Only show if multiple tracks exist) */}
+                        {audioTracks.length > 1 && (
+                            <div className="relative">
+                                <button onClick={() => toggleMenu('audio')} className={`transition hover:scale-110 flex items-center gap-2 ${activeMenu === 'audio' ? 'text-[#00A8E1]' : 'hover:text-[#00A8E1]'}`}>
+                                    <AudioLines size={24} />
+                                </button>
+                                
+                                {activeMenu === 'audio' && (
+                                    <div className="absolute bottom-12 right-0 bg-[#19222b]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl w-48 p-2 z-[100] flex flex-col gap-1">
+                                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-3 py-1.5 border-b border-white/10 mb-1">Audio Language</div>
+                                        {audioTracks.map((track, idx) => (
+                                            <button key={idx} onClick={() => {changeAudioTrack(idx); setActiveMenu(null)}} className={`w-full text-left px-3 py-2 rounded text-sm font-medium transition ${currentAudioTrack === idx ? 'bg-[#00A8E1] text-white' : 'text-gray-200 hover:bg-white/10'}`}>
+                                                {track.name || track.language || `Track ${idx + 1}`}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
-                                    {/* HLS Audio Tracks */}
-                                    {audioTracks.length > 1 && (
-                                        <div className="mb-2 border-t border-white/10 pt-2">
-                                            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-3 py-1.5">Audio Language</div>
-                                            {audioTracks.map((track, idx) => (
-                                                <button key={idx} onClick={() => {changeAudioTrack(idx); setShowSettings(false)}} className={`w-full text-left px-3 py-2 rounded text-sm font-medium transition ${currentAudioTrack === idx ? 'bg-[#00A8E1] text-white' : 'text-gray-200 hover:bg-white/10'}`}>
-                                                    {track.name || `Track ${idx + 1}`}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
+                        {/* Video Quality Button */}
+                        {qualities.length > 0 && (
+                            <div className="relative">
+                                <button onClick={() => toggleMenu('quality')} className={`transition hover:scale-110 flex items-center gap-2 ${activeMenu === 'quality' ? 'text-[#00A8E1]' : 'hover:text-[#00A8E1]'}`}>
+                                    <Settings size={24} />
+                                </button>
+                                
+                                {activeMenu === 'quality' && (
+                                    <div className="absolute bottom-12 right-0 bg-[#19222b]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl w-40 p-2 z-[100] flex flex-col gap-1">
+                                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-3 py-1.5 border-b border-white/10 mb-1">Video Quality</div>
+                                        <button onClick={() => {changeQuality(-1); setActiveMenu(null)}} className={`w-full text-left px-3 py-2 rounded text-sm font-medium transition ${currentQuality === -1 ? 'bg-[#00A8E1] text-white' : 'text-gray-200 hover:bg-white/10'}`}>Auto</button>
+                                        {qualities.map((q, idx) => (
+                                            <button key={idx} onClick={() => {changeQuality(idx); setActiveMenu(null)}} className={`w-full text-left px-3 py-2 rounded text-sm font-medium transition ${currentQuality === idx ? 'bg-[#00A8E1] text-white' : 'text-gray-200 hover:bg-white/10'}`}>
+                                                {q}p
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
-                                    {/* Server Sources (From API) */}
-                                    {sources.length > 1 && (
-                                        <div className="border-t border-white/10 pt-2">
-                                            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-3 py-1.5">Servers / Mirrors</div>
-                                            {sources.map((src, idx) => (
-                                                <button key={idx} onClick={() => {changeSource(idx); setShowSettings(false)}} className={`w-full text-left px-3 py-2 rounded text-sm font-medium transition flex flex-col ${currentSourceIndex === idx ? 'bg-[#00A8E1] text-white' : 'text-gray-200 hover:bg-white/10'}`}>
-                                                    <span>{src.source || 'Server'} {idx + 1}</span>
-                                                    <span className="text-[10px] opacity-70">{src.language} • {src.quality}</span>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                        </div>
+                        {/* Servers / Mirrors Button */}
+                        {sources.length > 1 && (
+                            <div className="relative">
+                                <button onClick={() => toggleMenu('server')} className={`transition hover:scale-110 flex items-center gap-2 ${activeMenu === 'server' ? 'text-[#00A8E1]' : 'hover:text-[#00A8E1]'}`}>
+                                    <Server size={24} />
+                                </button>
 
+                                {activeMenu === 'server' && (
+                                    <div className="absolute bottom-12 right-0 bg-[#19222b]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl w-64 p-2 z-[100] flex flex-col gap-1 max-h-[50vh] overflow-y-auto">
+                                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-3 py-1.5 border-b border-white/10 mb-1">Servers / Mirrors</div>
+                                        {sources.map((src, idx) => (
+                                            <button key={idx} onClick={() => {changeSource(idx); setActiveMenu(null)}} className={`w-full text-left px-3 py-2 rounded text-sm font-medium transition flex flex-col ${currentSourceIndex === idx ? 'bg-[#00A8E1] text-white' : 'text-gray-200 hover:bg-white/10'}`}>
+                                                <span>{src.source || 'Server'} {idx + 1}</span>
+                                                <span className="text-[10px] opacity-70 mt-0.5">{src.language} • {src.quality}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Fullscreen Toggle */}
                         <button onClick={toggleFullscreen} className="hover:text-[#00A8E1] transition hover:scale-110">
                             <Maximize size={24} />
                         </button>
