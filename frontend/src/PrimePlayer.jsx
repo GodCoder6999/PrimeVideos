@@ -3,7 +3,7 @@ import Hls from 'hls.js';
 import { 
     Play, Pause, Volume2, VolumeX, Maximize, 
     ArrowLeft, Loader, SkipBack, SkipForward, 
-    Server, AudioLines, Settings 
+    Settings, MessageSquare, ChevronRight, ChevronLeft, Monitor
 } from 'lucide-react';
 
 const formatTime = (seconds) => {
@@ -22,34 +22,36 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     const hlsRef = useRef(null);
     const controlsTimeoutRef = useRef(null);
 
-    // Stream state
+    // Core Stream State
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [sources, setSources] = useState([]);
-    const [currentSourceIndex, setCurrentSourceIndex] = useState(0);
+    
+    // Active Source Identifiers
+    const [currentUrl, setCurrentUrl] = useState('');
+    const [currentUrlLanguage, setCurrentUrlLanguage] = useState('Auto');
+    const [currentUrlQuality, setCurrentUrlQuality] = useState('Auto');
 
-    // Player state
+    // Native HLS Tracks (If the m3u8 has embedded options)
+    const [nativeQualities, setNativeQualities] = useState([]);
+    const [currentNativeQuality, setCurrentNativeQuality] = useState(-1);
+    const [nativeAudioTracks, setNativeAudioTracks] = useState([]);
+    const [currentNativeAudio, setCurrentNativeAudio] = useState(0);
+
+    // Player UI State
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
     const [volume, setVolume] = useState(1);
     const [isMuted, setIsMuted] = useState(false);
-    const [isFullscreen, setIsFullscreen] = useState(false);
     const [showControls, setShowControls] = useState(true);
     
-    // Menu States
-    const [activeMenu, setActiveMenu] = useState(null); // 'audio', 'quality', 'server', or null
-
-    // HLS native tracks
-    const [qualities, setQualities] = useState([]);
-    const [currentQuality, setCurrentQuality] = useState(-1); // -1 is Auto
-    const [audioTracks, setAudioTracks] = useState([]);
-    const [currentAudioTrack, setCurrentAudioTrack] = useState(0);
+    // Settings Menu State ('main', 'audio', 'quality', null)
+    const [menuView, setMenuView] = useState(null); 
 
     useEffect(() => {
         const fetchStreams = async () => {
             setLoading(true);
-            setError(null);
             try {
                 let url = `/api/multi-stream?tmdbId=${tmdbId}&type=${mediaType}&season=${season}&episode=${episode}`;
                 const res = await fetch(url);
@@ -57,22 +59,20 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
 
                 if (data.success && data.streams && data.streams.length > 0) {
                     setSources(data.streams);
-                    loadStream(data.streams[0].url);
+                    const initialSource = data.streams[0];
+                    setCurrentUrlLanguage(initialSource.language);
+                    setCurrentUrlQuality(initialSource.quality);
+                    loadStream(initialSource.url);
                 } else {
-                    let fallbackUrl = `/api/get-stream?tmdbId=${tmdbId}&mediaType=${mediaType}&season=${season}&episode=${episode}`;
-                    const fRes = await fetch(fallbackUrl);
+                    let fRes = await fetch(`/api/get-stream?tmdbId=${tmdbId}&mediaType=${mediaType}&season=${season}&episode=${episode}`);
                     const fData = await fRes.json();
-                    
                     if (fData.success && fData.streamUrl) {
-                        const fallbackSource = { url: fData.streamUrl, language: 'Auto', quality: 'Auto', source: fData.provider };
-                        setSources([fallbackSource]);
+                        setSources([{ url: fData.streamUrl, language: 'English', quality: 'Auto', source: fData.provider }]);
+                        setCurrentUrlLanguage('English');
                         loadStream(fData.streamUrl);
-                    } else {
-                        throw new Error("No playable streams found.");
-                    }
+                    } else throw new Error("No playable streams found.");
                 }
             } catch (err) {
-                console.error("Stream Fetch Error:", err);
                 setError(err.message || "Failed to load stream.");
                 setLoading(false);
             }
@@ -89,10 +89,9 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     const loadStream = (url) => {
         const video = videoRef.current;
         if (!video) return;
-
-        if (hlsRef.current) {
-            hlsRef.current.destroy();
-        }
+        
+        setCurrentUrl(url);
+        if (hlsRef.current) hlsRef.current.destroy();
 
         if (url.includes('.m3u8') && Hls.isSupported()) {
             const hls = new Hls({ maxMaxBufferLength: 60 });
@@ -100,171 +99,237 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             hls.loadSource(url);
             hls.attachMedia(video);
 
-            hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
+            hls.on(Hls.Events.MANIFEST_PARSED, (e, data) => {
                 setLoading(false);
+                setNativeQualities(hls.levels.map(l => l.height));
+                setCurrentNativeQuality(-1);
                 
-                // Extract video qualities
-                const availableQualities = hls.levels.map(l => l.height);
-                setQualities(availableQualities);
-                setCurrentQuality(-1); // Auto
-                
-                // Extract audio tracks
                 if (hls.audioTracks && hls.audioTracks.length > 0) {
-                    setAudioTracks(hls.audioTracks);
-                    setCurrentAudioTrack(hls.audioTrack);
+                    setNativeAudioTracks(hls.audioTracks);
+                    setCurrentNativeAudio(hls.audioTrack);
                 }
-
-                video.play().catch(() => console.log("Autoplay blocked. User interaction required."));
+                
+                // Retain previous time when switching URLs
+                if (currentTime > 0) video.currentTime = currentTime;
+                video.play().catch(() => {});
             });
 
-            // Listen for dynamic audio track updates
-            hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (event, data) => {
-                if (data.audioTracks) setAudioTracks(data.audioTracks);
-            });
-
-            hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (event, data) => {
-                setCurrentAudioTrack(data.id);
-            });
-
-            hls.on(Hls.Events.ERROR, (event, data) => {
+            hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (e, data) => setNativeAudioTracks(data.audioTracks));
+            hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (e, data) => setCurrentNativeAudio(data.id));
+            
+            hls.on(Hls.Events.ERROR, (e, data) => {
                 if (data.fatal) {
-                    switch (data.type) {
-                        case Hls.ErrorTypes.NETWORK_ERROR:
-                            hls.startLoad();
-                            break;
-                        case Hls.ErrorTypes.MEDIA_ERROR:
-                            hls.recoverMediaError();
-                            break;
-                        default:
-                            hls.destroy();
-                            setError("Stream encountered a fatal error.");
-                            break;
-                    }
+                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
+                    else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
                 }
             });
-        } else if (video.canPlayType('application/vnd.apple.mpegurl') || url.includes('.mp4')) {
+        } else {
             video.src = url;
             video.addEventListener('loadedmetadata', () => {
                 setLoading(false);
+                if (currentTime > 0) video.currentTime = currentTime;
                 video.play().catch(() => {});
             });
-        } else {
-            setError("Your browser does not support this video format.");
-            setLoading(false);
         }
+    };
+
+    // --- Switchers Engine (Handles BOTH Native HLS and URL-based swapping) ---
+    
+    // Derived Options based on available data
+    const urlLanguages = [...new Set(sources.map(s => s.language))];
+    const urlQualities = [...new Set(sources.map(s => s.quality))];
+    
+    const hasNativeAudio = nativeAudioTracks.length > 1;
+    const hasUrlAudio = urlLanguages.length > 1;
+    const audioOptions = hasNativeAudio 
+        ? nativeAudioTracks.map((t, i) => ({ id: i, label: t.name || t.language || `Track ${i+1}` }))
+        : urlLanguages.map(l => ({ id: l, label: l }));
+
+    const currentAudioLabel = hasNativeAudio 
+        ? (nativeAudioTracks[currentNativeAudio]?.name || 'Unknown') 
+        : currentUrlLanguage;
+
+    const hasNativeQuality = nativeQualities.length > 1;
+    const hasUrlQuality = urlQualities.length > 1;
+    const qualityOptions = hasNativeQuality
+        ? [{ id: -1, label: 'Auto' }, ...nativeQualities.map((q, i) => ({ id: i, label: `${q}p` }))]
+        : urlQualities.map(q => ({ id: q, label: q === 'Auto' ? 'Best' : q }));
+        
+    const currentQualityLabel = hasNativeQuality
+        ? (currentNativeQuality === -1 ? 'Auto' : `${nativeQualities[currentNativeQuality]}p`)
+        : currentUrlQuality;
+
+    const selectAudio = (id) => {
+        if (hasNativeAudio) {
+            setCurrentNativeAudio(id);
+            if (hlsRef.current) hlsRef.current.audioTrack = id;
+        } else {
+            // URL Swap Logic (Fixes "Hindi + English" issue)
+            const targetLang = id;
+            let match = sources.find(s => s.language === targetLang && s.quality === currentUrlQuality);
+            if (!match) match = sources.find(s => s.language === targetLang); // Fallback quality
+            if (match && match.url !== currentUrl) {
+                setLoading(true);
+                setCurrentUrlLanguage(match.language);
+                setCurrentUrlQuality(match.quality);
+                loadStream(match.url);
+            }
+        }
+        setMenuView(null);
+    };
+
+    const selectQuality = (id) => {
+        if (hasNativeQuality) {
+            setCurrentNativeQuality(id);
+            if (hlsRef.current) hlsRef.current.currentLevel = id;
+        } else {
+            // URL Swap Logic
+            const targetQual = id;
+            let match = sources.find(s => s.quality === targetQual && s.language === currentUrlLanguage);
+            if (!match) match = sources.find(s => s.quality === targetQual); // Fallback language
+            if (match && match.url !== currentUrl) {
+                setLoading(true);
+                setCurrentUrlLanguage(match.language);
+                setCurrentUrlQuality(match.quality);
+                loadStream(match.url);
+            }
+        }
+        setMenuView(null);
     };
 
     // --- Controls ---
-    const togglePlay = () => {
-        if (videoRef.current.paused) videoRef.current.play();
-        else videoRef.current.pause();
-    };
-
-    const handleVolumeChange = (e) => {
-        const val = parseFloat(e.target.value);
-        setVolume(val);
-        videoRef.current.volume = val;
-        setIsMuted(val === 0);
-    };
-
-    const toggleMute = () => {
-        const newMuted = !isMuted;
-        setIsMuted(newMuted);
-        videoRef.current.muted = newMuted;
-        if (!newMuted && volume === 0) {
-            setVolume(1);
-            videoRef.current.volume = 1;
-        }
-    };
-
+    const togglePlay = () => videoRef.current.paused ? videoRef.current.play() : videoRef.current.pause();
+    const seek = (sec) => videoRef.current.currentTime += sec;
     const toggleFullscreen = () => {
-        if (!document.fullscreenElement) {
-            playerContainerRef.current.requestFullscreen().catch(err => console.error(err));
-            setIsFullscreen(true);
-        } else {
-            document.exitFullscreen();
-            setIsFullscreen(false);
-        }
+        if (!document.fullscreenElement) playerContainerRef.current.requestFullscreen();
+        else document.exitFullscreen();
     };
 
-    const seek = (seconds) => { videoRef.current.currentTime += seconds; };
-
-    const handleSeek = (e) => {
-        const newTime = parseFloat(e.target.value);
-        videoRef.current.currentTime = newTime;
-        setCurrentTime(newTime);
-    };
-
-    // --- Mouse idle timer ---
     const handleMouseMove = () => {
         setShowControls(true);
         clearTimeout(controlsTimeoutRef.current);
         controlsTimeoutRef.current = setTimeout(() => {
-            if (isPlaying && !activeMenu) {
-                setShowControls(false);
-            }
-        }, 3000);
+            if (isPlaying && !menuView) setShowControls(false);
+        }, 3500);
     };
 
-    // --- Track Switching ---
-    const changeQuality = (index) => {
-        setCurrentQuality(index);
-        if (hlsRef.current) hlsRef.current.currentLevel = index;
-    };
+    // --- Prime Video UI Rendering ---
+    const renderRadioButton = (isActive) => (
+        <div className={`w-5 h-5 rounded-full border-[2px] flex items-center justify-center transition-all ${isActive ? 'border-[#00A8E1]' : 'border-gray-400'}`}>
+            {isActive && <div className="w-2.5 h-2.5 rounded-full bg-[#00A8E1]" />}
+        </div>
+    );
 
-    const changeAudioTrack = (index) => {
-        setCurrentAudioTrack(index);
-        if (hlsRef.current) hlsRef.current.audioTrack = index;
-    };
+    const renderMenu = () => {
+        if (!menuView) return null;
 
-    const changeSource = (index) => {
-        setCurrentSourceIndex(index);
-        setLoading(true);
-        loadStream(sources[index].url);
-    };
+        return (
+            <div className="absolute bottom-20 right-8 z-[100] animate-in fade-in zoom-in-95 duration-200 origin-bottom-right">
+                <div className="bg-[#0f171e] border border-white/5 rounded-2xl shadow-2xl w-[320px] overflow-hidden text-white font-sans">
+                    
+                    {/* MAIN MENU */}
+                    {menuView === 'main' && (
+                        <div className="flex flex-col">
+                            <div className="py-4 text-center font-bold text-lg border-b border-white/10">Settings</div>
+                            <div className="p-2 space-y-1">
+                                <button className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-white/10 transition-colors opacity-50 cursor-not-allowed">
+                                    <div className="flex items-center gap-4"><MessageSquare size={22}/> <span className="font-semibold text-[15px]">Subtitles</span></div>
+                                    <div className="flex items-center gap-2 text-gray-400 text-sm font-medium">Off <ChevronRight size={18}/></div>
+                                </button>
+                                
+                                <button onClick={() => setMenuView('audio')} disabled={!hasNativeAudio && !hasUrlAudio} className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-white/10 transition-colors disabled:opacity-50">
+                                    <div className="flex items-center gap-4"><Volume2 size={22}/> <span className="font-semibold text-[15px]">Audio</span></div>
+                                    <div className="flex items-center gap-2 text-gray-400 text-sm font-medium">{currentAudioLabel} <ChevronRight size={18}/></div>
+                                </button>
+                            </div>
+                            
+                            {/* Distinct White Highlight for Video Quality like the screenshot */}
+                            <button onClick={() => setMenuView('quality')} disabled={!hasNativeQuality && !hasUrlQuality} className="w-full flex items-center justify-between p-4 bg-white text-black hover:bg-gray-200 transition-colors disabled:opacity-50 mt-1">
+                                <div className="flex items-center gap-4"><Monitor size={22}/> <span className="font-bold text-[15px]">Video Quality</span></div>
+                                <div className="flex items-center gap-2 text-gray-600 text-sm font-bold">{currentQualityLabel} <ChevronRight size={18}/></div>
+                            </button>
+                        </div>
+                    )}
 
-    const toggleMenu = (menuName) => {
-        setActiveMenu(activeMenu === menuName ? null : menuName);
+                    {/* AUDIO SUB-MENU */}
+                    {menuView === 'audio' && (
+                        <div className="flex flex-col max-h-[400px]">
+                            <button onClick={() => setMenuView('main')} className="flex items-center gap-3 p-4 font-bold text-lg hover:bg-white/5 border-b border-white/10 transition">
+                                <ChevronLeft size={24}/> Audio
+                            </button>
+                            <div className="overflow-y-auto p-2">
+                                {audioOptions.map(opt => {
+                                    const isActive = hasNativeAudio ? currentNativeAudio === opt.id : currentUrlLanguage === opt.id;
+                                    return (
+                                        <button key={opt.id} onClick={() => selectAudio(opt.id)} className={`w-full flex items-center gap-4 p-4 rounded-xl transition ${isActive ? 'bg-white/10' : 'hover:bg-white/5'}`}>
+                                            {renderRadioButton(isActive)}
+                                            <div className="flex flex-col text-left">
+                                                <span className={`text-[15px] ${isActive ? 'font-bold text-white' : 'font-medium text-gray-300'}`}>{opt.label}</span>
+                                                {isActive && <span className="text-[11px] text-gray-400 mt-1">AD available • Dialogue Boost available</span>}
+                                            </div>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* QUALITY SUB-MENU */}
+                    {menuView === 'quality' && (
+                        <div className="flex flex-col max-h-[400px]">
+                            <button onClick={() => setMenuView('main')} className="flex items-center gap-3 p-4 font-bold text-lg hover:bg-white/5 border-b border-white/10 transition">
+                                <ChevronLeft size={24}/> Video Quality
+                            </button>
+                            <div className="overflow-y-auto p-2">
+                                {qualityOptions.map(opt => {
+                                    const isActive = hasNativeQuality ? currentNativeQuality === opt.id : currentUrlQuality === opt.id;
+                                    return (
+                                        <button key={opt.id} onClick={() => selectQuality(opt.id)} className={`w-full flex items-center gap-4 p-4 rounded-xl transition ${isActive ? 'bg-white/10' : 'hover:bg-white/5'}`}>
+                                            {renderRadioButton(isActive)}
+                                            <div className="flex flex-col text-left">
+                                                <span className={`text-[15px] ${isActive ? 'font-bold text-white' : 'font-medium text-gray-300'}`}>{opt.label}</span>
+                                                <span className="text-[11px] text-gray-400 mt-1">Adjusts automatically</span>
+                                            </div>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
     };
 
     return (
-        <div 
-            ref={playerContainerRef} 
-            className="fixed inset-0 bg-black z-[999] flex items-center justify-center font-sans"
-            onMouseMove={handleMouseMove}
-            onMouseLeave={() => setShowControls(false)}
-        >
-            {/* Header / Back Button */}
+        <div ref={playerContainerRef} className="fixed inset-0 bg-black z-[999] flex items-center justify-center font-sans" onMouseMove={handleMouseMove} onMouseLeave={() => setShowControls(false)}>
+            
+            {/* Header */}
             <div className={`absolute top-0 left-0 w-full p-6 z-50 bg-gradient-to-b from-black/80 to-transparent transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
-                <button onClick={onClose} className="text-white hover:text-[#00A8E1] transition flex items-center gap-2 font-bold text-lg">
+                <button onClick={onClose} className="text-white hover:text-[#00A8E1] transition flex items-center gap-2 font-bold text-lg drop-shadow-md">
                     <ArrowLeft size={28} /> Back
                 </button>
             </div>
 
-            {/* Loading & Error States */}
             {loading && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center z-40 bg-black/50 backdrop-blur-sm">
+                <div className="absolute inset-0 flex flex-col items-center justify-center z-40 bg-black/60 backdrop-blur-sm">
                     <Loader className="animate-spin text-[#00A8E1] mb-4" size={48} />
-                    <p className="text-white font-bold tracking-widest text-sm uppercase">Optimizing Stream</p>
+                    <p className="text-white font-bold tracking-widest text-sm uppercase drop-shadow-md">Optimizing Stream</p>
                 </div>
             )}
             
             {error && (
-                <div className="absolute z-50 bg-[#19222b] border border-white/10 p-6 rounded-xl text-center max-w-md">
+                <div className="absolute z-50 bg-[#19222b] border border-white/10 p-8 rounded-2xl text-center max-w-md shadow-2xl">
                     <p className="text-white font-bold mb-2 text-xl">Playback Error</p>
-                    <p className="text-gray-400 text-sm mb-4">{error}</p>
-                    <button onClick={onClose} className="bg-[#00A8E1] hover:bg-[#008ebf] text-white px-6 py-2 rounded font-bold transition">Close Player</button>
+                    <p className="text-gray-400 text-sm mb-6">{error}</p>
+                    <button onClick={onClose} className="bg-[#00A8E1] hover:bg-[#008ebf] text-white px-8 py-3 rounded-lg font-bold transition">Close Player</button>
                 </div>
             )}
 
-            {/* Video Element */}
             <video
                 ref={videoRef}
                 className="w-full h-full object-contain cursor-pointer"
-                onClick={() => {
-                    if (activeMenu) setActiveMenu(null);
-                    else togglePlay();
-                }}
+                onClick={() => { if (menuView) setMenuView(null); else togglePlay(); }}
                 onPlay={() => setIsPlaying(true)}
                 onPause={() => setIsPlaying(false)}
                 onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime || 0)}
@@ -272,116 +337,57 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 playsInline
             />
 
-            {/* Controls Overlay */}
-            <div className={`absolute bottom-0 left-0 w-full bg-gradient-to-t from-black/90 via-black/50 to-transparent px-6 pb-6 pt-20 transition-opacity duration-300 z-50 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+            {/* Menu Popups */}
+            {renderMenu()}
+
+            {/* Controls Bar */}
+            <div className={`absolute bottom-0 left-0 w-full bg-gradient-to-t from-black/90 via-black/50 to-transparent px-8 pb-8 pt-24 transition-opacity duration-300 z-50 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
                 
                 {/* Timeline */}
-                <div className="flex items-center gap-4 mb-4">
-                    <span className="text-white text-sm font-medium">{formatTime(currentTime)}</span>
+                <div className="flex items-center gap-4 mb-6 group cursor-pointer">
+                    <span className="text-white text-sm font-medium w-12 text-right">{formatTime(currentTime)}</span>
                     <input 
-                        type="range" 
-                        min="0" 
-                        max={duration || 100} 
-                        value={currentTime} 
-                        onChange={handleSeek}
-                        className="w-full h-1.5 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-[#00A8E1] hover:h-2 transition-all"
+                        type="range" min="0" max={duration || 100} value={currentTime} onChange={handleSeek}
+                        className="w-full h-1.5 bg-white/30 rounded-lg appearance-none cursor-pointer accent-[#00A8E1] group-hover:h-2.5 transition-all"
                     />
-                    <span className="text-white text-sm font-medium">{formatTime(duration)}</span>
+                    <span className="text-white text-sm font-medium w-12">{formatTime(duration)}</span>
                 </div>
 
-                {/* Control Buttons */}
+                {/* Bottom Bar Icons */}
                 <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-6 text-white">
-                        <button onClick={togglePlay} className="hover:text-[#00A8E1] transition hover:scale-110">
-                            {isPlaying ? <Pause size={32} fill="currentColor" /> : <Play size={32} fill="currentColor" />}
+                    <div className="flex items-center gap-8 text-white">
+                        <button onClick={togglePlay} className="hover:text-[#00A8E1] hover:scale-110 transition drop-shadow-lg">
+                            {isPlaying ? <Pause size={36} fill="currentColor" /> : <Play size={36} fill="currentColor" />}
                         </button>
-                        <button onClick={() => seek(-10)} className="hover:text-[#00A8E1] transition">
-                            <SkipBack size={24} />
-                        </button>
-                        <button onClick={() => seek(10)} className="hover:text-[#00A8E1] transition">
-                            <SkipForward size={24} />
-                        </button>
+                        <button onClick={() => seek(-10)} className="hover:text-white text-gray-300 hover:scale-110 transition"><SkipBack size={26} /></button>
+                        <button onClick={() => seek(10)} className="hover:text-white text-gray-300 hover:scale-110 transition"><SkipForward size={26} /></button>
                         
                         <div className="flex items-center gap-2 group relative">
-                            <button onClick={toggleMute} className="hover:text-[#00A8E1] transition">
-                                {isMuted || volume === 0 ? <VolumeX size={24} /> : <Volume2 size={24} />}
+                            <button onClick={() => { setIsMuted(!isMuted); videoRef.current.muted = !isMuted; }} className="hover:text-[#00A8E1] text-gray-300 transition">
+                                {isMuted || volume === 0 ? <VolumeX size={26} /> : <Volume2 size={26} />}
                             </button>
                             <input 
-                                type="range" 
-                                min="0" max="1" step="0.05" 
-                                value={isMuted ? 0 : volume} 
-                                onChange={handleVolumeChange}
-                                className="w-20 h-1.5 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-[#00A8E1] opacity-0 group-hover:opacity-100 transition-opacity"
+                                type="range" min="0" max="1" step="0.05" value={isMuted ? 0 : volume} 
+                                onChange={(e) => { const v = parseFloat(e.target.value); setVolume(v); videoRef.current.volume = v; setIsMuted(v===0); }}
+                                className="w-24 h-1.5 bg-white/30 rounded-lg appearance-none cursor-pointer accent-[#00A8E1] opacity-0 group-hover:opacity-100 transition-opacity"
                             />
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-6 text-white relative">
+                    <div className="flex items-center gap-6 text-white">
+                        {/* Audio Dedicated Button */}
+                        {(hasNativeAudio || hasUrlAudio) && (
+                            <button onClick={() => setMenuView(menuView === 'audio' ? null : 'audio')} className={`transition hover:scale-110 ${menuView === 'audio' ? 'text-[#00A8E1]' : 'text-gray-300 hover:text-white'}`}>
+                                <Volume2 size={24} />
+                            </button>
+                        )}
                         
-                        {/* Audio Button (Only show if multiple tracks exist) */}
-                        {audioTracks.length > 1 && (
-                            <div className="relative">
-                                <button onClick={() => toggleMenu('audio')} className={`transition hover:scale-110 flex items-center gap-2 ${activeMenu === 'audio' ? 'text-[#00A8E1]' : 'hover:text-[#00A8E1]'}`}>
-                                    <AudioLines size={24} />
-                                </button>
-                                
-                                {activeMenu === 'audio' && (
-                                    <div className="absolute bottom-12 right-0 bg-[#19222b]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl w-48 p-2 z-[100] flex flex-col gap-1">
-                                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-3 py-1.5 border-b border-white/10 mb-1">Audio Language</div>
-                                        {audioTracks.map((track, idx) => (
-                                            <button key={idx} onClick={() => {changeAudioTrack(idx); setActiveMenu(null)}} className={`w-full text-left px-3 py-2 rounded text-sm font-medium transition ${currentAudioTrack === idx ? 'bg-[#00A8E1] text-white' : 'text-gray-200 hover:bg-white/10'}`}>
-                                                {track.name || track.language || `Track ${idx + 1}`}
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        )}
+                        {/* Prime Style Gear/Settings Icon */}
+                        <button onClick={() => setMenuView(menuView === 'main' ? null : 'main')} className={`transition hover:scale-110 ${menuView === 'main' || menuView === 'quality' ? 'text-[#00A8E1]' : 'text-gray-300 hover:text-white'}`}>
+                            <Settings size={24} />
+                        </button>
 
-                        {/* Video Quality Button */}
-                        {qualities.length > 0 && (
-                            <div className="relative">
-                                <button onClick={() => toggleMenu('quality')} className={`transition hover:scale-110 flex items-center gap-2 ${activeMenu === 'quality' ? 'text-[#00A8E1]' : 'hover:text-[#00A8E1]'}`}>
-                                    <Settings size={24} />
-                                </button>
-                                
-                                {activeMenu === 'quality' && (
-                                    <div className="absolute bottom-12 right-0 bg-[#19222b]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl w-40 p-2 z-[100] flex flex-col gap-1">
-                                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-3 py-1.5 border-b border-white/10 mb-1">Video Quality</div>
-                                        <button onClick={() => {changeQuality(-1); setActiveMenu(null)}} className={`w-full text-left px-3 py-2 rounded text-sm font-medium transition ${currentQuality === -1 ? 'bg-[#00A8E1] text-white' : 'text-gray-200 hover:bg-white/10'}`}>Auto</button>
-                                        {qualities.map((q, idx) => (
-                                            <button key={idx} onClick={() => {changeQuality(idx); setActiveMenu(null)}} className={`w-full text-left px-3 py-2 rounded text-sm font-medium transition ${currentQuality === idx ? 'bg-[#00A8E1] text-white' : 'text-gray-200 hover:bg-white/10'}`}>
-                                                {q}p
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        )}
-
-                        {/* Servers / Mirrors Button */}
-                        {sources.length > 1 && (
-                            <div className="relative">
-                                <button onClick={() => toggleMenu('server')} className={`transition hover:scale-110 flex items-center gap-2 ${activeMenu === 'server' ? 'text-[#00A8E1]' : 'hover:text-[#00A8E1]'}`}>
-                                    <Server size={24} />
-                                </button>
-
-                                {activeMenu === 'server' && (
-                                    <div className="absolute bottom-12 right-0 bg-[#19222b]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl w-64 p-2 z-[100] flex flex-col gap-1 max-h-[50vh] overflow-y-auto">
-                                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-3 py-1.5 border-b border-white/10 mb-1">Servers / Mirrors</div>
-                                        {sources.map((src, idx) => (
-                                            <button key={idx} onClick={() => {changeSource(idx); setActiveMenu(null)}} className={`w-full text-left px-3 py-2 rounded text-sm font-medium transition flex flex-col ${currentSourceIndex === idx ? 'bg-[#00A8E1] text-white' : 'text-gray-200 hover:bg-white/10'}`}>
-                                                <span>{src.source || 'Server'} {idx + 1}</span>
-                                                <span className="text-[10px] opacity-70 mt-0.5">{src.language} • {src.quality}</span>
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        )}
-
-                        {/* Fullscreen Toggle */}
-                        <button onClick={toggleFullscreen} className="hover:text-[#00A8E1] transition hover:scale-110">
+                        <button onClick={toggleFullscreen} className="text-gray-300 hover:text-white transition hover:scale-110 ml-2">
                             <Maximize size={24} />
                         </button>
                     </div>
