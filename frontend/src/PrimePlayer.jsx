@@ -57,7 +57,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 const data = await res.json();
 
                 if (data.success && data.streams && data.streams.length > 0) {
-                    // No quality filtering! Load everything available.
                     setSources(data.streams);
                     
                     // Priority 1: Force PURE English to load first if it exists
@@ -69,13 +68,17 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
 
                     const initialLangs = parseLanguages(defaultSource.language);
                     
-                    // The "Dual Audio Fix": Standard MP4s play Track 1 (Hindi) by default.
-                    // If we load a Dual Audio stream, we MUST set the UI to Hindi to reflect reality.
+                    // --- THE RADIO BUTTON FIX ---
+                    // If the stream contains BOTH Hindi and English, force the UI to select "Hindi" 
+                    // because standard .mp4 files will default to playing the Hindi track.
                     let defaultUiLang = initialLangs[0];
-                    if (defaultSource.language.toLowerCase().includes('hindi + english') || defaultSource.language.toLowerCase().includes('dual audio')) {
+                    const hasHindi = initialLangs.some(l => l.toLowerCase() === 'hindi');
+                    const hasEnglish = initialLangs.some(l => l.toLowerCase() === 'english');
+                    
+                    if (hasHindi && hasEnglish) {
                         defaultUiLang = 'Hindi'; 
-                    } else if (initialLangs.includes('English')) {
-                        defaultUiLang = 'English';
+                    } else {
+                        defaultUiLang = initialLangs[0];
                     }
 
                     setCurrentUrlLanguage(defaultUiLang);
@@ -124,18 +127,17 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             hls.on(Hls.Events.MANIFEST_PARSED, (e, data) => {
                 setLoading(false);
                 
-                // Read all available qualities dynamically without caps
                 const availableLevels = hls.levels.map((l, idx) => ({ 
                     id: idx, 
                     height: l.height 
                 })).sort((a, b) => b.height - a.height); 
 
                 setNativeQualities(availableLevels);
-                setCurrentNativeQuality(-1); // -1 is Auto
+                setCurrentNativeQuality(-1);
                 
                 if (hls.audioTracks && hls.audioTracks.length > 0) {
                     setNativeAudioTracks(hls.audioTracks);
-                    setCurrentNativeAudio(hls.audioTrack); // Use actual exact Track ID
+                    setCurrentNativeAudio(hls.audioTrack);
                 }
                 
                 if (currentTime > 0) video.currentTime = currentTime;
@@ -197,24 +199,27 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         if (opt.isNative) {
             setCurrentNativeAudio(opt.id);
             if (hlsRef.current) hlsRef.current.audioTrack = opt.id; 
+            setMenuView(null);
         } else {
+            // Update UI state so the radio button moves
             setCurrentUrlLanguage(opt.id);
             
-            // PRIORITY 1: Force purely single-language streams to guarantee the audio switch
+            // Priority 1: Force purely single-language streams to guarantee the audio switch
             let match = sources.find(s => s.language.trim().toLowerCase() === opt.id.toLowerCase() && s.quality === currentUrlQuality);
             if (!match) match = sources.find(s => s.language.trim().toLowerCase() === opt.id.toLowerCase());
             
-            // PRIORITY 2: If we are stuck with Dual Audio, hunt for a DIFFERENT server
-            if (!match) match = sources.find(s => parseLanguages(s.language).includes(opt.id) && s.url !== currentUrl && s.quality === currentUrlQuality);
-            if (!match) match = sources.find(s => parseLanguages(s.language).includes(opt.id) && s.url !== currentUrl);
+            // Priority 2: If we are stuck with Dual Audio, hunt for a DIFFERENT server
+            if (!match) match = sources.find(s => parseLanguages(s.language).map(l=>l.toLowerCase()).includes(opt.id.toLowerCase()) && s.url !== currentUrl && s.quality === currentUrlQuality);
+            if (!match) match = sources.find(s => parseLanguages(s.language).map(l=>l.toLowerCase()).includes(opt.id.toLowerCase()) && s.url !== currentUrl);
             
+            // Only reload the video if we found a valid stream to jump to
             if (match) {
                 setLoading(true);
                 setCurrentUrlQuality(match.quality);
                 loadStream(match.url);
             }
+            setMenuView(null);
         }
-        setMenuView(null);
     };
 
     const selectQuality = (id) => {
