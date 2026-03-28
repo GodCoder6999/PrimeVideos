@@ -158,6 +158,7 @@ const CSS = `
   border-radius: 10px; overflow: hidden;
   box-shadow: 0 24px 64px rgba(0,0,0,.98);
   min-width: 220px; z-index: 9999;
+  pointer-events: auto;
   animation: usPanelIn .14s ease-out;
 }
 @keyframes usPanelIn {
@@ -175,6 +176,7 @@ const CSS = `
   display: flex; align-items: center; gap: 10px;
   padding: 10px 14px; cursor: pointer; font-size: 14px;
   color: rgba(255,255,255,.65); transition: background .08s;
+  pointer-events: auto;
 }
 .us-panel-row:hover { background: rgba(255,255,255,.07); color: #fff; }
 .us-panel-row.on { background: rgba(0,168,225,.14); color: #fff; font-weight: 600; }
