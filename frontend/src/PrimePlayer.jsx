@@ -34,7 +34,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
 
     // Native JW Player Tracks
     const [nativeQualities, setNativeQualities] = useState([]);
-    const [currentNativeQuality, setCurrentNativeQuality] = useState(0); // JW uses index 0 for Auto usually
+    const [currentNativeQuality, setCurrentNativeQuality] = useState(0);
     const [nativeAudioTracks, setNativeAudioTracks] = useState([]);
     const [currentNativeAudio, setCurrentNativeAudio] = useState(0);
 
@@ -55,7 +55,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 const data = await res.json();
 
                 if (data.success && data.streams && data.streams.length > 0) {
-                    // Filter out 4K/2160p natively from the API response
                     const filteredStreams = data.streams.filter(s => {
                         const q = (s.quality || '').toLowerCase();
                         return !q.includes('4k') && !q.includes('2160p');
@@ -91,7 +90,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
 
         return () => {
             if (window.jwplayer && window.jwplayer("prime-jw-player").remove) {
-                window.jwplayer("prime-jw-player").remove();
+                try { window.jwplayer("prime-jw-player").remove(); } catch(e) {}
             }
             clearTimeout(controlsTimeoutRef.current);
         };
@@ -112,14 +111,13 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         
         player.setup({
             file: url,
-            controls: false, // Disables standard UI to use Prime Video UI
+            controls: false, // Disables standard UI
             autostart: true,
             width: "100%",
             height: "100%",
             stretching: "uniform"
         });
 
-        // Event Listeners for State Syncing
         player.on('ready', () => setLoading(false));
         
         player.on('play', () => { setIsPlaying(true); setLoading(false); });
@@ -132,7 +130,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         });
 
         player.on('levels', (e) => {
-            // Cap visual quality options to 1080p maximum
             const validLevels = e.levels.map((level, index) => ({ ...level, index }))
                                         .filter(l => !l.label.includes('4K') && !l.label.includes('2160p') && (l.height <= 1080 || !l.height));
             setNativeQualities(validLevels);
@@ -158,13 +155,11 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             setLoading(false);
         });
 
-        // Retain current playback time if switching URLs
         if (currentTime > 0) {
             player.once('play', () => player.seek(currentTime));
         }
     };
 
-    // --- Dynamic UI Options ---
     const hasNativeAudio = nativeAudioTracks.length > 1;
     
     const urlLanguages = useMemo(() => {
@@ -192,16 +187,13 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         ? (nativeQualities.find(q => q.index === currentNativeQuality)?.label || 'Auto')
         : currentUrlQuality;
 
-    // --- Selection Handlers ---
     const selectAudio = (opt) => {
         if (opt.isNative) {
             window.jwplayer("prime-jw-player").setCurrentAudioTrack(opt.index);
         } else {
             setCurrentUrlLanguage(opt.id);
-            // Priority 1: Force purely single-language streams
             let match = sources.find(s => s.language.trim().toLowerCase() === opt.id.toLowerCase() && s.quality === currentUrlQuality);
             if (!match) match = sources.find(s => s.language.trim().toLowerCase() === opt.id.toLowerCase());
-            // Priority 2: Fallback to dual-audio stream
             if (!match) match = sources.find(s => parseLanguages(s.language).includes(opt.id) && s.quality === currentUrlQuality);
             if (!match) match = sources.find(s => parseLanguages(s.language).includes(opt.id));
             
@@ -230,7 +222,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         setMenuView(null);
     };
 
-    // --- Controls ---
     const togglePlay = () => {
         const player = window.jwplayer("prime-jw-player");
         if (player.getState() === 'playing') player.pause();
@@ -334,8 +325,9 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     };
 
     return (
-        <div ref={playerContainerRef} className="fixed inset-0 bg-black z-[999] flex items-center justify-center font-sans" onMouseMove={handleMouseMove} onMouseLeave={() => setShowControls(false)}>
+        <div ref={playerContainerRef} className="fixed inset-0 bg-black z-[999] font-sans block" onMouseMove={handleMouseMove} onMouseLeave={() => setShowControls(false)}>
             
+            {/* Header Overlay */}
             <div className={`absolute top-0 left-0 w-full p-6 z-50 bg-gradient-to-b from-black/80 to-transparent transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
                 <button onClick={onClose} className="text-white hover:text-[#00A8E1] transition flex items-center gap-2 font-bold text-lg drop-shadow-md">
                     <ArrowLeft size={28} /> Back
@@ -350,17 +342,22 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             )}
             
             {error && (
-                <div className="absolute z-50 bg-[#19222b] border border-white/10 p-8 rounded-2xl text-center max-w-md shadow-2xl">
+                <div className="absolute z-50 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-[#19222b] border border-white/10 p-8 rounded-2xl text-center shadow-2xl w-11/12 max-w-md">
                     <p className="text-white font-bold mb-2 text-xl">Playback Error</p>
                     <p className="text-gray-400 text-sm mb-6">{error}</p>
                     <button onClick={onClose} className="bg-[#00A8E1] hover:bg-[#008ebf] text-white px-8 py-3 rounded-lg font-bold transition">Close Player</button>
                 </div>
             )}
 
-            {/* JW Player Mounting Point */}
+            {/* 1. Bulletproof JW Player Mount: Hidden from React's state tree updates */}
             <div 
-                id="prime-jw-player" 
-                className="w-full h-full object-contain cursor-pointer"
+                className="absolute inset-0 z-0 bg-black" 
+                dangerouslySetInnerHTML={{ __html: '<div id="prime-jw-player"></div>' }} 
+            />
+
+            {/* 2. Transparent Interaction Overlay: Catches clicks so they don't hit the unmanaged JW DOM */}
+            <div 
+                className="absolute inset-0 z-10 cursor-pointer"
                 onClick={() => { if (menuView) setMenuView(null); else togglePlay(); }}
             />
 
