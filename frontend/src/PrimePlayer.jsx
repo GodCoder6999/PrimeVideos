@@ -21,7 +21,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     const hlsRef = useRef(null);
     const controlsTimeoutRef = useRef(null);
 
-    // Stream & Data State
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [sources, setSources] = useState([]);
@@ -35,7 +34,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     const [nativeAudioTracks, setNativeAudioTracks] = useState([]);
     const [currentNativeAudio, setCurrentNativeAudio] = useState(0);
 
-    // Playback & UI State
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
@@ -43,7 +41,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     const [isMuted, setIsMuted] = useState(false);
     const [showControls, setShowControls] = useState(true);
     
-    // Panel States: 'none', 'settings', 'audio', 'quality', 'subtitles', 'volume'
     const [activePanel, setActivePanel] = useState('none');
     const [currentSubtitles, setCurrentSubtitles] = useState('Off');
     const [adToggle, setAdToggle] = useState(false);
@@ -59,22 +56,25 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 if (data.success && data.streams && data.streams.length > 0) {
                     setSources(data.streams);
                     
-                    let defaultSource = data.streams.find(s => s.language.trim().toLowerCase() === 'english');
-                    if (!defaultSource) defaultSource = data.streams.find(s => s.language && s.language.toLowerCase().includes('english'));
+                    let defaultSource = data.streams.find(s => s.language?.trim().toLowerCase() === 'english');
+                    if (!defaultSource) defaultSource = data.streams.find(s => s.language?.toLowerCase().includes('english'));
                     if (!defaultSource) defaultSource = data.streams[0]; 
 
-                    const initialLangs = parseLanguages(defaultSource.language);
-                    let defaultUiLang = initialLangs[0];
-                    const hasHindi = initialLangs.some(l => l.toLowerCase() === 'hindi');
-                    const hasEnglish = initialLangs.some(l => l.toLowerCase() === 'english');
-                    
-                    if (hasHindi && hasEnglish) defaultUiLang = 'Hindi'; 
-                    else defaultUiLang = initialLangs[0];
+                    if (defaultSource && defaultSource.url) {
+                        const initialLangs = parseLanguages(defaultSource.language);
+                        let defaultUiLang = initialLangs[0] || 'Unknown';
+                        
+                        const hasHindi = initialLangs.some(l => l.toLowerCase() === 'hindi');
+                        const hasEnglish = initialLangs.some(l => l.toLowerCase() === 'english');
+                        
+                        if (hasHindi && hasEnglish) defaultUiLang = 'Hindi'; 
+                        else defaultUiLang = initialLangs[0] || 'Unknown';
 
-                    setCurrentUrlLanguage(defaultUiLang);
-                    setCurrentUrlQuality(defaultSource.quality);
-                    loadStream(defaultSource.url);
-                    return;
+                        setCurrentUrlLanguage(defaultUiLang);
+                        setCurrentUrlQuality(defaultSource.quality || 'Auto');
+                        loadStream(defaultSource.url);
+                        return;
+                    }
                 }
                 
                 let fRes = await fetch(`/api/get-stream?tmdbId=${tmdbId}&mediaType=${mediaType}&season=${season}&episode=${episode}`);
@@ -151,7 +151,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         }
     };
 
-    // --- Dynamic Options Maps ---
     const hasNativeAudio = nativeAudioTracks.length > 1;
     const urlLanguages = useMemo(() => {
         const langs = new Set();
@@ -178,22 +177,43 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         ? (currentNativeQuality === -1 ? 'Best' : `${nativeQualities.find(q => q.id === currentNativeQuality)?.height}p`)
         : currentUrlQuality;
 
-    // --- Action Handlers ---
     const selectAudio = (opt) => {
         if (opt.isNative) {
             setCurrentNativeAudio(opt.id);
             if (hlsRef.current) hlsRef.current.audioTrack = opt.id; 
         } else {
+            // Lock the UI to what the user requested
             setCurrentUrlLanguage(opt.id);
-            let match = sources.find(s => s.language.trim().toLowerCase() === opt.id.toLowerCase() && s.quality === currentUrlQuality);
-            if (!match) match = sources.find(s => s.language.trim().toLowerCase() === opt.id.toLowerCase());
-            if (!match) match = sources.find(s => parseLanguages(s.language).map(l=>l.toLowerCase()).includes(opt.id.toLowerCase()) && s.url !== currentUrl && s.quality === currentUrlQuality);
-            if (!match) match = sources.find(s => parseLanguages(s.language).map(l=>l.toLowerCase()).includes(opt.id.toLowerCase()) && s.url !== currentUrl);
             
-            if (match) {
+            // 1. Gather all streams that claim to match the requested language
+            let validStreams = sources.filter(s => 
+                parseLanguages(s.language).map(l=>l.toLowerCase()).includes(opt.id.toLowerCase())
+            );
+            
+            // 2. Fallback to raw filename search if tags fail
+            if (validStreams.length === 0) {
+                validStreams = sources.filter(s => s.rawName?.toLowerCase().includes(opt.id.toLowerCase()));
+            }
+            
+            // 3. Absolute fallback
+            if (validStreams.length === 0) validStreams = sources;
+
+            const currentIndex = validStreams.findIndex(s => s.url === currentUrl);
+            let targetStream = validStreams[0];
+
+            if (currentIndex !== -1 && validStreams.length > 1) {
+                // Server Cycling: User clicked the language again because audio was wrong. Try the NEXT server.
+                targetStream = validStreams[(currentIndex + 1) % validStreams.length];
+            } else if (currentIndex !== -1 && validStreams.length === 1) {
+                // Mislabel Rescue: No other servers claim this language. Force swap to a completely different provider.
+                const otherServers = sources.filter(s => s.url !== currentUrl);
+                targetStream = otherServers.find(s => s.source !== validStreams[0].source) || otherServers[0];
+            }
+
+            if (targetStream && targetStream.url !== currentUrl) {
                 setLoading(true);
-                setCurrentUrlQuality(match.quality);
-                loadStream(match.url);
+                setCurrentUrlQuality(targetStream.quality || 'Auto');
+                loadStream(targetStream.url);
             }
         }
         setActivePanel('none');
@@ -210,7 +230,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             if (match && match.url !== currentUrl) {
                 setLoading(true);
                 const matchLangs = parseLanguages(match.language);
-                setCurrentUrlLanguage(matchLangs.includes(currentUrlLanguage) ? currentUrlLanguage : matchLangs[0]);
+                setCurrentUrlLanguage(matchLangs.includes(currentUrlLanguage) ? currentUrlLanguage : matchLangs[0] || 'Unknown');
                 setCurrentUrlQuality(match.quality);
                 loadStream(match.url);
             }
@@ -348,7 +368,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 .radio-circle { width: 20px; height: 20px; border: 2px solid var(--text-secondary); border-radius: 50%; flex-shrink: 0; margin-top: 1px; display: flex; align-items: center; justify-content: center; transition: border-color 0.15s; }
                 .radio-circle.selected { border-color: var(--accent-blue); background: var(--accent-blue); }
                 .radio-circle.selected::after { content: ''; width: 8px; height: 8px; background: #fff; border-radius: 50%; }
-                .radio-label { font-size: 15px; font-weight: 500; }
+                .radio-label { font-size: 15px; font-weight: 500; text-transform: capitalize; }
                 .radio-sublabel { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
 
                 .quality-option { display: flex; align-items: flex-start; padding: 14px 20px; cursor: pointer; transition: background 0.12s; border-bottom: 1px solid var(--panel-border); gap: 14px; }
@@ -377,7 +397,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             {loading && (
                 <div style={{position:'absolute', inset:0, zIndex:5, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,0.6)'}}>
                     <div style={{width:'40px', height:'40px', border:'3px solid rgba(255,255,255,0.3)', borderTopColor:'#1a98ff', borderRadius:'50%', animation:'spin 1s linear infinite'}} />
-                    <style>{`@keyframes spin { 100% { transform: rotate(360deg); } }`}</style>
                 </div>
             )}
 
@@ -389,7 +408,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 </div>
             )}
 
-            {/* Actual Video Player Element */}
             <video 
                 id="video-layer" 
                 ref={videoRef}
@@ -400,10 +418,8 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 playsInline
             />
             
-            {/* Click Catcher for Play/Pause */}
             <div id="video-click-area" onClick={() => { if(activePanel !== 'none') setActivePanel('none'); else togglePlay(); }} />
 
-            {/* TOP BAR */}
             <div id="topbar" style={{ opacity: showControls || activePanel !== 'none' ? 1 : 0, pointerEvents: showControls || activePanel !== 'none' ? 'auto' : 'none' }}>
                 <div id="topbar-left">
                     <button id="close-btn" onClick={onClose}>
@@ -442,7 +458,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 </div>
             </div>
 
-            {/* BOTTOM CONTROLS */}
             <div id="controls" style={{ opacity: showControls || activePanel !== 'none' ? 1 : 0, pointerEvents: showControls || activePanel !== 'none' ? 'auto' : 'none' }}>
                 <div id="scrubber-container">
                     <span id="time-current">{formatTime(currentTime)}</span>
@@ -477,7 +492,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 </div>
             </div>
 
-            {/* MAIN SETTINGS PANEL */}
             {activePanel === 'settings' && (
                 <div className="panel-base" onClick={(e) => e.stopPropagation()}>
                     <div className="panel-header">Settings</div>
@@ -493,7 +507,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                             <rect x="2" y="6" width="4" height="12" rx="1"/><rect x="8" y="3" width="4" height="18" rx="1"/><rect x="14" y="8" width="4" height="10" rx="1"/>
                         </svg>
                         <span className="settings-row-label">Audio</span>
-                        <span className="settings-row-value">{currentAudioLabel} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
+                        <span className="settings-row-value" style={{textTransform: 'capitalize'}}>{currentAudioLabel} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
                     </div>
                     <div className="settings-row" onClick={() => setActivePanel('quality')}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -505,7 +519,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 </div>
             )}
 
-            {/* AUDIO SUB-PANEL */}
             {activePanel === 'audio' && (
                 <div className="panel-base" onClick={(e) => e.stopPropagation()}>
                     <div className="panel-header">
@@ -547,7 +560,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 </div>
             )}
 
-            {/* QUALITY SUB-PANEL */}
             {activePanel === 'quality' && (
                 <div className="panel-base" onClick={(e) => e.stopPropagation()}>
                     <div className="panel-header">
@@ -573,7 +585,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 </div>
             )}
 
-            {/* SUBTITLES SUB-PANEL */}
             {activePanel === 'subtitles' && (
                 <div className="panel-base" onClick={(e) => e.stopPropagation()}>
                     <div className="panel-header">
@@ -591,7 +602,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 </div>
             )}
 
-            {/* VOLUME POPUP */}
             {activePanel === 'volume' && (
                 <div id="volume-popup" className="panel-base" onClick={(e) => e.stopPropagation()}>
                     <label>Volume</label>
