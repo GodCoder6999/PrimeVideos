@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
+import Hls from 'hls.js';
 import { 
     Play, Pause, Volume2, VolumeX, Maximize, 
     ArrowLeft, Loader, SkipBack, SkipForward, 
@@ -21,7 +22,9 @@ const parseLanguages = (langStr) => {
 };
 
 const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onClose }) => {
+    const videoRef = useRef(null);
     const playerContainerRef = useRef(null);
+    const hlsRef = useRef(null);
     const controlsTimeoutRef = useRef(null);
 
     const [loading, setLoading] = useState(true);
@@ -32,9 +35,8 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     const [currentUrlLanguage, setCurrentUrlLanguage] = useState('');
     const [currentUrlQuality, setCurrentUrlQuality] = useState('Auto');
 
-    // Native JW Player Tracks
     const [nativeQualities, setNativeQualities] = useState([]);
-    const [currentNativeQuality, setCurrentNativeQuality] = useState(0);
+    const [currentNativeQuality, setCurrentNativeQuality] = useState(-1);
     const [nativeAudioTracks, setNativeAudioTracks] = useState([]);
     const [currentNativeAudio, setCurrentNativeAudio] = useState(0);
 
@@ -55,20 +57,16 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 const data = await res.json();
 
                 if (data.success && data.streams && data.streams.length > 0) {
-                    const filteredStreams = data.streams.filter(s => {
-                        const q = (s.quality || '').toLowerCase();
-                        return !q.includes('4k') && !q.includes('2160p');
-                    });
+                    setSources(data.streams);
+                    
+                    // Priority Default: Find English stream first
+                    let defaultSource = data.streams.find(s => s.language && s.language.toLowerCase().includes('english'));
+                    if (!defaultSource) defaultSource = data.streams[0]; // Fallback to first available
 
-                    if (filteredStreams.length > 0) {
-                        setSources(filteredStreams);
-                        const initialSource = filteredStreams[0];
-                        const initialLangs = parseLanguages(initialSource.language);
-                        setCurrentUrlLanguage(initialLangs[0] || 'Unknown');
-                        setCurrentUrlQuality(initialSource.quality);
-                        initJWPlayer(initialSource.url);
-                        return;
-                    }
+                    setCurrentUrlLanguage(defaultSource.language);
+                    setCurrentUrlQuality(defaultSource.quality);
+                    loadStream(defaultSource.url);
+                    return;
                 }
                 
                 let fRes = await fetch(`/api/get-stream?tmdbId=${tmdbId}&mediaType=${mediaType}&season=${season}&episode=${episode}`);
@@ -76,7 +74,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 if (fData.success && fData.streamUrl) {
                     setSources([{ url: fData.streamUrl, language: 'English', quality: 'Auto', source: fData.provider }]);
                     setCurrentUrlLanguage('English');
-                    initJWPlayer(fData.streamUrl);
+                    loadStream(fData.streamUrl);
                 } else {
                     throw new Error("No playable streams found.");
                 }
@@ -89,74 +87,67 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         if (tmdbId) fetchStreams();
 
         return () => {
-            if (window.jwplayer && window.jwplayer("prime-jw-player").remove) {
-                try { window.jwplayer("prime-jw-player").remove(); } catch(e) {}
-            }
+            if (hlsRef.current) hlsRef.current.destroy();
             clearTimeout(controlsTimeoutRef.current);
         };
     }, [tmdbId, mediaType, season, episode]);
 
-    const initJWPlayer = (url) => {
-        if (!window.jwplayer) {
-            setError("JW Player script not found. Please add it to index.html.");
-            setLoading(false);
-            return;
-        }
-
+    const loadStream = (url) => {
+        const video = videoRef.current;
+        if (!video) return;
+        
         setCurrentUrl(url);
         setError(null);
-        setLoading(true);
+        if (hlsRef.current) hlsRef.current.destroy();
 
-        const player = window.jwplayer("prime-jw-player");
-        
-        player.setup({
-            file: url,
-            controls: false, // Disables standard UI
-            autostart: true,
-            width: "100%",
-            height: "100%",
-            stretching: "uniform"
-        });
+        if (Hls.isSupported() && url.includes('.m3u8')) {
+            const hls = new Hls({ maxMaxBufferLength: 60 });
+            hlsRef.current = hls;
+            hls.loadSource(url);
+            hls.attachMedia(video);
 
-        player.on('ready', () => setLoading(false));
-        
-        player.on('play', () => { setIsPlaying(true); setLoading(false); });
-        player.on('pause', () => setIsPlaying(false));
-        player.on('buffer', () => setLoading(true));
-        
-        player.on('time', (e) => {
-            setCurrentTime(e.position);
-            setDuration(e.duration);
-        });
+            hls.on(Hls.Events.MANIFEST_PARSED, (e, data) => {
+                setLoading(false);
+                
+                // Read all available qualities dynamically without caps
+                const availableLevels = hls.levels.map((l, idx) => ({ 
+                    id: idx, 
+                    height: l.height 
+                })).sort((a, b) => b.height - a.height); // Sort highest quality first
 
-        player.on('levels', (e) => {
-            const validLevels = e.levels.map((level, index) => ({ ...level, index }))
-                                        .filter(l => !l.label.includes('4K') && !l.label.includes('2160p') && (l.height <= 1080 || !l.height));
-            setNativeQualities(validLevels);
-            setCurrentNativeQuality(player.getCurrentQuality());
-        });
+                setNativeQualities(availableLevels);
+                setCurrentNativeQuality(-1); // -1 is Auto
+                
+                if (hls.audioTracks && hls.audioTracks.length > 0) {
+                    setNativeAudioTracks(hls.audioTracks);
+                    setCurrentNativeAudio(hls.audioTrack); // Use actual exact Track ID
+                }
+                
+                if (currentTime > 0) video.currentTime = currentTime;
+                video.play().catch(() => {});
+            });
 
-        player.on('levelsChanged', (e) => setCurrentNativeQuality(e.currentQuality));
+            hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (e, data) => setNativeAudioTracks(data.audioTracks));
+            hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (e, data) => setCurrentNativeAudio(data.id));
+            
+            hls.on(Hls.Events.ERROR, (e, data) => {
+                if (data.fatal) {
+                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
+                    else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+                }
+            });
+        } else {
+            video.src = url;
+            video.addEventListener('loadedmetadata', () => {
+                setLoading(false);
+                if (currentTime > 0) video.currentTime = currentTime;
+                video.play().catch(() => {});
+            }, { once: true });
 
-        player.on('audioTracks', (e) => {
-            setNativeAudioTracks(e.tracks);
-            setCurrentNativeAudio(player.getCurrentAudioTrack());
-        });
-
-        player.on('audioTrackChanged', (e) => setCurrentNativeAudio(e.currentTrack));
-
-        player.on('error', (e) => {
-            setError(e.message || "Stream format error or server unavailable.");
-            setLoading(false);
-        });
-        
-        player.on('setupError', (e) => {
-            setError(e.message || "Failed to initialize player.");
-            setLoading(false);
-        });
-
-        if (currentTime > 0) {
-            player.once('play', () => player.seek(currentTime));
+            video.addEventListener('error', () => {
+                setError("Stream is currently offline or unsupported.");
+                setLoading(false);
+            }, { once: true });
         }
     };
 
@@ -169,37 +160,43 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     }, [sources]);
 
     let displayAudioOptions = hasNativeAudio 
-        ? nativeAudioTracks.map(t => ({ id: t.autoselect ? t.language : t.name, index: nativeAudioTracks.indexOf(t), label: t.name || t.language || `Track ${nativeAudioTracks.indexOf(t) + 1}`, isNative: true }))
+        ? nativeAudioTracks.map(t => ({ id: t.id, label: t.name || t.language || `Track ${t.id}`, isNative: true })) // Strict mapping to t.id
         : urlLanguages.map(l => ({ id: l, label: l, isNative: false }));
 
     const currentAudioLabel = hasNativeAudio 
-        ? (nativeAudioTracks[currentNativeAudio]?.name || 'Auto') 
+        ? (nativeAudioTracks.find(t => t.id === currentNativeAudio)?.name || 'Auto') 
         : currentUrlLanguage;
 
     const hasNativeQuality = nativeQualities.length > 1;
     const urlQualities = [...new Set(sources.map(s => s.quality))];
     
     const qualityOptions = hasNativeQuality
-        ? nativeQualities.map(q => ({ id: q.index, label: q.label }))
+        ? [{ id: -1, label: 'Auto' }, ...nativeQualities.map(q => ({ id: q.id, label: `${q.height}p` }))]
         : urlQualities.map(q => ({ id: q, label: q === 'Auto' ? 'Best' : q }));
         
     const currentQualityLabel = hasNativeQuality
-        ? (nativeQualities.find(q => q.index === currentNativeQuality)?.label || 'Auto')
+        ? (currentNativeQuality === -1 ? 'Auto' : `${nativeQualities.find(q => q.id === currentNativeQuality)?.height || 'Unknown '}p`)
         : currentUrlQuality;
 
     const selectAudio = (opt) => {
         if (opt.isNative) {
-            window.jwplayer("prime-jw-player").setCurrentAudioTrack(opt.index);
+            setCurrentNativeAudio(opt.id);
+            if (hlsRef.current) hlsRef.current.audioTrack = opt.id; // Corrected: Exact target track
         } else {
             setCurrentUrlLanguage(opt.id);
+            
+            // Priority 1: Force purely single-language streams if available
             let match = sources.find(s => s.language.trim().toLowerCase() === opt.id.toLowerCase() && s.quality === currentUrlQuality);
             if (!match) match = sources.find(s => s.language.trim().toLowerCase() === opt.id.toLowerCase());
+            
+            // Priority 2: Fallback to dual-audio stream
             if (!match) match = sources.find(s => parseLanguages(s.language).includes(opt.id) && s.quality === currentUrlQuality);
             if (!match) match = sources.find(s => parseLanguages(s.language).includes(opt.id));
             
             if (match && match.url !== currentUrl) {
+                setLoading(true);
                 setCurrentUrlQuality(match.quality);
-                initJWPlayer(match.url);
+                loadStream(match.url);
             }
         }
         setMenuView(null);
@@ -207,29 +204,25 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
 
     const selectQuality = (id) => {
         if (hasNativeQuality) {
-            window.jwplayer("prime-jw-player").setCurrentQuality(id);
+            setCurrentNativeQuality(id);
+            if (hlsRef.current) hlsRef.current.currentLevel = id;
         } else {
             let match = sources.find(s => s.quality === id && parseLanguages(s.language).includes(currentUrlLanguage));
             if (!match) match = sources.find(s => s.quality === id);
             
             if (match && match.url !== currentUrl) {
+                setLoading(true);
                 const matchLangs = parseLanguages(match.language);
                 setCurrentUrlLanguage(matchLangs.includes(currentUrlLanguage) ? currentUrlLanguage : matchLangs[0]);
                 setCurrentUrlQuality(match.quality);
-                initJWPlayer(match.url);
+                loadStream(match.url);
             }
         }
         setMenuView(null);
     };
 
-    const togglePlay = () => {
-        const player = window.jwplayer("prime-jw-player");
-        if (player.getState() === 'playing') player.pause();
-        else player.play();
-    };
-    
-    const seek = (sec) => window.jwplayer("prime-jw-player").seek(currentTime + sec);
-    
+    const togglePlay = () => videoRef.current.paused ? videoRef.current.play() : videoRef.current.pause();
+    const seek = (sec) => videoRef.current.currentTime += sec;
     const toggleFullscreen = () => {
         if (!document.fullscreenElement) playerContainerRef.current.requestFullscreen();
         else document.exitFullscreen();
@@ -285,7 +278,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                             </button>
                             <div className="overflow-y-auto p-2">
                                 {displayAudioOptions.map((opt, idx) => {
-                                    const isActive = opt.isNative ? currentNativeAudio === opt.index : currentUrlLanguage === opt.id;
+                                    const isActive = opt.isNative ? currentNativeAudio === opt.id : currentUrlLanguage === opt.id;
                                     return (
                                         <button key={idx} onClick={() => selectAudio(opt)} className={`w-full flex items-center gap-4 p-4 rounded-xl transition ${isActive ? 'bg-white/10' : 'hover:bg-white/5'}`}>
                                             {renderRadioButton(isActive)}
@@ -325,9 +318,8 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     };
 
     return (
-        <div ref={playerContainerRef} className="fixed inset-0 bg-black z-[999] font-sans block" onMouseMove={handleMouseMove} onMouseLeave={() => setShowControls(false)}>
+        <div ref={playerContainerRef} className="fixed inset-0 bg-black z-[999] flex items-center justify-center font-sans" onMouseMove={handleMouseMove} onMouseLeave={() => setShowControls(false)}>
             
-            {/* Header Overlay */}
             <div className={`absolute top-0 left-0 w-full p-6 z-50 bg-gradient-to-b from-black/80 to-transparent transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
                 <button onClick={onClose} className="text-white hover:text-[#00A8E1] transition flex items-center gap-2 font-bold text-lg drop-shadow-md">
                     <ArrowLeft size={28} /> Back
@@ -342,23 +334,22 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             )}
             
             {error && (
-                <div className="absolute z-50 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-[#19222b] border border-white/10 p-8 rounded-2xl text-center shadow-2xl w-11/12 max-w-md">
+                <div className="absolute z-50 bg-[#19222b] border border-white/10 p-8 rounded-2xl text-center max-w-md shadow-2xl">
                     <p className="text-white font-bold mb-2 text-xl">Playback Error</p>
                     <p className="text-gray-400 text-sm mb-6">{error}</p>
                     <button onClick={onClose} className="bg-[#00A8E1] hover:bg-[#008ebf] text-white px-8 py-3 rounded-lg font-bold transition">Close Player</button>
                 </div>
             )}
 
-            {/* 1. Bulletproof JW Player Mount: Hidden from React's state tree updates */}
-            <div 
-                className="absolute inset-0 z-0 bg-black" 
-                dangerouslySetInnerHTML={{ __html: '<div id="prime-jw-player"></div>' }} 
-            />
-
-            {/* 2. Transparent Interaction Overlay: Catches clicks so they don't hit the unmanaged JW DOM */}
-            <div 
-                className="absolute inset-0 z-10 cursor-pointer"
+            <video
+                ref={videoRef}
+                className="w-full h-full object-contain cursor-pointer"
                 onClick={() => { if (menuView) setMenuView(null); else togglePlay(); }}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+                onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime || 0)}
+                onLoadedMetadata={() => setDuration(videoRef.current?.duration || 0)}
+                playsInline
             />
 
             {renderMenu()}
@@ -369,7 +360,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                     <span className="text-white text-sm font-medium w-12 text-right">{formatTime(currentTime)}</span>
                     <input 
                         type="range" min="0" max={duration || 100} value={currentTime} 
-                        onChange={(e) => { const newTime = parseFloat(e.target.value); window.jwplayer("prime-jw-player").seek(newTime); }}
+                        onChange={(e) => { const newTime = parseFloat(e.target.value); videoRef.current.currentTime = newTime; setCurrentTime(newTime); }}
                         className="w-full h-1.5 bg-white/30 rounded-lg appearance-none cursor-pointer accent-[#00A8E1] group-hover:h-2.5 transition-all"
                     />
                     <span className="text-white text-sm font-medium w-12">{formatTime(duration)}</span>
@@ -384,20 +375,12 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                         <button onClick={() => seek(10)} className="hover:text-white text-gray-300 hover:scale-110 transition"><SkipForward size={26} /></button>
                         
                         <div className="flex items-center gap-2 group relative">
-                            <button onClick={() => { 
-                                const p = window.jwplayer("prime-jw-player"); 
-                                p.setMute(!isMuted); setIsMuted(!isMuted); 
-                            }} className="hover:text-[#00A8E1] text-gray-300 transition">
+                            <button onClick={() => { setIsMuted(!isMuted); videoRef.current.muted = !isMuted; }} className="hover:text-[#00A8E1] text-gray-300 transition">
                                 {isMuted || volume === 0 ? <VolumeX size={26} /> : <Volume2 size={26} />}
                             </button>
                             <input 
-                                type="range" min="0" max="100" step="5" value={isMuted ? 0 : volume * 100} 
-                                onChange={(e) => { 
-                                    const v = parseFloat(e.target.value); 
-                                    setVolume(v / 100); 
-                                    window.jwplayer("prime-jw-player").setVolume(v); 
-                                    if(v === 0) setIsMuted(true); else setIsMuted(false);
-                                }}
+                                type="range" min="0" max="1" step="0.05" value={isMuted ? 0 : volume} 
+                                onChange={(e) => { const v = parseFloat(e.target.value); setVolume(v); videoRef.current.volume = v; setIsMuted(v===0); }}
                                 className="w-24 h-1.5 bg-white/30 rounded-lg appearance-none cursor-pointer accent-[#00A8E1] opacity-0 group-hover:opacity-100 transition-opacity"
                             />
                         </div>
