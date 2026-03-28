@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
-import Hls from 'hls.js';
+import shaka from 'shaka-player/dist/shaka-player.ui'; // Use Shaka Player
 import { 
     Play, Pause, Volume2, VolumeX, Maximize, 
     ArrowLeft, Loader, SkipBack, SkipForward, 
@@ -24,7 +24,7 @@ const parseLanguages = (langStr) => {
 const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onClose }) => {
     const videoRef = useRef(null);
     const playerContainerRef = useRef(null);
-    const hlsRef = useRef(null);
+    const shakaPlayerRef = useRef(null); // Replaced HLS ref with Shaka ref
     const controlsTimeoutRef = useRef(null);
 
     const [loading, setLoading] = useState(true);
@@ -35,10 +35,11 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     const [currentUrlLanguage, setCurrentUrlLanguage] = useState('');
     const [currentUrlQuality, setCurrentUrlQuality] = useState('Auto');
 
+    // Shaka Player Native Tracks
     const [nativeQualities, setNativeQualities] = useState([]);
-    const [currentNativeQuality, setCurrentNativeQuality] = useState(-1);
+    const [currentNativeQuality, setCurrentNativeQuality] = useState('Auto'); // ID or 'Auto'
     const [nativeAudioTracks, setNativeAudioTracks] = useState([]);
-    const [currentNativeAudio, setCurrentNativeAudio] = useState(0);
+    const [currentNativeAudio, setCurrentNativeAudio] = useState(''); // Language string
 
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
@@ -49,6 +50,28 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     const [menuView, setMenuView] = useState(null); 
 
     useEffect(() => {
+        // Initialize Shaka Player once
+        shaka.polyfill.installAll();
+        if (shaka.Player.isBrowserSupported()) {
+            const player = new shaka.Player(videoRef.current);
+            shakaPlayerRef.current = player;
+            
+            // Listen for errors
+            player.addEventListener('error', (e) => {
+                console.error('Shaka Error:', e.detail);
+                setError("Stream encountered an error.");
+            });
+        } else {
+            setError("Browser not supported for video playback.");
+        }
+
+        return () => {
+            if (shakaPlayerRef.current) shakaPlayerRef.current.destroy();
+            clearTimeout(controlsTimeoutRef.current);
+        };
+    }, []);
+
+    useEffect(() => {
         const fetchStreams = async () => {
             setLoading(true);
             try {
@@ -57,7 +80,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 const data = await res.json();
 
                 if (data.success && data.streams && data.streams.length > 0) {
-                    // Filter out 4K and 2160p to enforce max 1080p
                     const filteredStreams = data.streams.filter(s => {
                         const q = (s.quality || '').toLowerCase();
                         return !q.includes('4k') && !q.includes('2160p');
@@ -74,7 +96,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                     }
                 }
                 
-                // Fallback
                 let fRes = await fetch(`/api/get-stream?tmdbId=${tmdbId}&mediaType=${mediaType}&season=${season}&episode=${episode}`);
                 const fData = await fRes.json();
                 if (fData.success && fData.streamUrl) {
@@ -91,77 +112,80 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         };
 
         if (tmdbId) fetchStreams();
-
-        return () => {
-            if (hlsRef.current) hlsRef.current.destroy();
-            clearTimeout(controlsTimeoutRef.current);
-        };
     }, [tmdbId, mediaType, season, episode]);
 
-    const loadStream = (url) => {
+    const loadStream = async (url) => {
         const video = videoRef.current;
-        if (!video) return;
+        const player = shakaPlayerRef.current;
+        if (!video || !player) return;
         
         setCurrentUrl(url);
-        if (hlsRef.current) hlsRef.current.destroy();
+        setLoading(true);
 
-        if (url.includes('.m3u8') && Hls.isSupported()) {
-            const hls = new Hls({ maxMaxBufferLength: 60 });
-            hlsRef.current = hls;
-            hls.loadSource(url);
-            hls.attachMedia(video);
-
-            hls.on(Hls.Events.MANIFEST_PARSED, (e, data) => {
-                setLoading(false);
-                
-                // Extract and cap HLS levels to 1080p max
-                const availableLevels = [];
-                let maxAllowedLevelIndex = -1;
-                
-                hls.levels.forEach((l, idx) => {
-                    if (l.height <= 1080) {
-                        availableLevels.push({ id: idx, height: l.height });
-                        maxAllowedLevelIndex = Math.max(maxAllowedLevelIndex, idx);
-                    }
-                });
-
-                if (maxAllowedLevelIndex !== -1) {
-                    hls.autoLevelCapping = maxAllowedLevelIndex; // Force HLS Auto to not exceed 1080p
+        try {
+            // Configure Shaka to restrict Max resolution to 1080p natively
+            player.configure({
+                abr: {
+                    restrictions: { maxVideoHeight: 1080 }
                 }
-
-                setNativeQualities(availableLevels);
-                setCurrentNativeQuality(-1);
-                
-                if (hls.audioTracks && hls.audioTracks.length > 0) {
-                    setNativeAudioTracks(hls.audioTracks);
-                    setCurrentNativeAudio(hls.audioTrack);
-                }
-                
-                if (currentTime > 0) video.currentTime = currentTime;
-                video.play().catch(() => {});
             });
 
-            hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (e, data) => setNativeAudioTracks(data.audioTracks));
-            hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (e, data) => setCurrentNativeAudio(data.id));
+            await player.load(url);
+            setLoading(false);
+
+            // Extract embedded Audio Languages from Shaka
+            const audioLangs = player.getAudioLanguages();
+            if (audioLangs.length > 0) {
+                setNativeAudioTracks(audioLangs);
+                setCurrentNativeAudio(audioLangs[0]); // Default to first track
+            } else {
+                setNativeAudioTracks([]);
+            }
+
+            // Extract embedded Qualities from Shaka
+            const tracks = player.getVariantTracks();
+            const uniqueQualities = [];
+            const seenHeights = new Set();
             
-            hls.on(Hls.Events.ERROR, (e, data) => {
-                if (data.fatal) {
-                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
-                    else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+            tracks.forEach(t => {
+                if (t.videoHeight && t.videoHeight <= 1080 && !seenHeights.has(t.videoHeight)) {
+                    seenHeights.add(t.videoHeight);
+                    uniqueQualities.push({ id: t.id, height: t.videoHeight });
                 }
             });
-        } else {
-            video.src = url;
-            video.addEventListener('loadedmetadata', () => {
+
+            // Sort qualities highest to lowest
+            uniqueQualities.sort((a, b) => b.height - a.height);
+            
+            if (uniqueQualities.length > 0) {
+                setNativeQualities(uniqueQualities);
+                setCurrentNativeQuality('Auto');
+            } else {
+                setNativeQualities([]);
+            }
+
+            if (currentTime > 0) video.currentTime = currentTime;
+            video.play().catch(() => {});
+
+        } catch (e) {
+            console.error('Shaka Load Error:', e);
+            
+            // Fallback for native mp4s if Shaka rejects it
+            if (url.includes('.mp4')) {
+                video.src = url;
+                video.addEventListener('loadedmetadata', () => {
+                    setLoading(false);
+                    if (currentTime > 0) video.currentTime = currentTime;
+                    video.play().catch(() => {});
+                });
+            } else {
+                setError("Browser does not support this stream format.");
                 setLoading(false);
-                if (currentTime > 0) video.currentTime = currentTime;
-                video.play().catch(() => {});
-            });
+            }
         }
     };
 
     const hasNativeAudio = nativeAudioTracks.length > 1;
-    
     const urlLanguages = useMemo(() => {
         const langs = new Set();
         sources.forEach(src => parseLanguages(src.language).forEach(l => langs.add(l)));
@@ -169,39 +193,31 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     }, [sources]);
 
     let displayAudioOptions = hasNativeAudio 
-        ? nativeAudioTracks.map((t, i) => ({ id: i, label: t.name || t.language || `Track ${i + 1}`, isNative: true }))
+        ? nativeAudioTracks.map(lang => ({ id: lang, label: lang.toUpperCase(), isNative: true }))
         : urlLanguages.map(l => ({ id: l, label: l, isNative: false }));
 
-    const currentAudioLabel = hasNativeAudio 
-        ? (nativeAudioTracks[currentNativeAudio]?.name || 'Auto') 
-        : currentUrlLanguage;
+    const currentAudioLabel = hasNativeAudio ? currentNativeAudio.toUpperCase() : currentUrlLanguage;
 
     const hasNativeQuality = nativeQualities.length > 1;
     const urlQualities = [...new Set(sources.map(s => s.quality))];
     
     const qualityOptions = hasNativeQuality
-        ? [{ id: -1, label: 'Auto' }, ...nativeQualities.map(q => ({ id: q.id, label: `${q.height}p` }))]
+        ? [{ id: 'Auto', label: 'Auto' }, ...nativeQualities.map(q => ({ id: q.id, label: `${q.height}p` }))]
         : urlQualities.map(q => ({ id: q, label: q === 'Auto' ? 'Best' : q }));
         
     const currentQualityLabel = hasNativeQuality
-        ? (currentNativeQuality === -1 ? 'Auto' : `${nativeQualities.find(q => q.id === currentNativeQuality)?.height || 1080}p`)
+        ? (currentNativeQuality === 'Auto' ? 'Auto' : `${nativeQualities.find(q => q.id === currentNativeQuality)?.height || 1080}p`)
         : currentUrlQuality;
 
     const selectAudio = (opt) => {
         if (opt.isNative) {
             setCurrentNativeAudio(opt.id);
-            if (hlsRef.current) hlsRef.current.audioTrack = opt.id;
+            // Instruct Shaka Player to switch embedded audio language
+            shakaPlayerRef.current.selectAudioLanguage(opt.id);
         } else {
             setCurrentUrlLanguage(opt.id);
-            
-            // PRIORITY 1: Find a stream that is EXACTLY this language (forces jump from "Hindi+English" dual-audio to purely "English")
             let match = sources.find(s => s.language.trim().toLowerCase() === opt.id.toLowerCase() && s.quality === currentUrlQuality);
-            if (!match) match = sources.find(s => s.language.trim().toLowerCase() === opt.id.toLowerCase());
-            
-            // PRIORITY 2: Fallback to a source that simply includes the language
-            if (!match) match = sources.find(s => parseLanguages(s.language).includes(opt.id) && s.quality === currentUrlQuality);
             if (!match) match = sources.find(s => parseLanguages(s.language).includes(opt.id));
-            
             if (match && match.url !== currentUrl) {
                 setLoading(true);
                 setCurrentUrlQuality(match.quality);
@@ -214,15 +230,21 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     const selectQuality = (id) => {
         if (hasNativeQuality) {
             setCurrentNativeQuality(id);
-            if (hlsRef.current) hlsRef.current.currentLevel = id;
+            const player = shakaPlayerRef.current;
+            if (id === 'Auto') {
+                player.configure({ abr: { enabled: true } }); // Enable Auto ABR
+            } else {
+                player.configure({ abr: { enabled: false } }); // Disable Auto ABR
+                const tracks = player.getVariantTracks();
+                const selectedTrack = tracks.find(t => t.id === id);
+                if (selectedTrack) player.selectVariantTrack(selectedTrack, true);
+            }
         } else {
             let match = sources.find(s => s.quality === id && parseLanguages(s.language).includes(currentUrlLanguage));
             if (!match) match = sources.find(s => s.quality === id);
-            
             if (match && match.url !== currentUrl) {
                 setLoading(true);
-                const matchLangs = parseLanguages(match.language);
-                setCurrentUrlLanguage(matchLangs.includes(currentUrlLanguage) ? currentUrlLanguage : matchLangs[0]);
+                setCurrentUrlLanguage(parseLanguages(match.language)[0]);
                 setCurrentUrlQuality(match.quality);
                 loadStream(match.url);
             }
