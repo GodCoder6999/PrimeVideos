@@ -1,11 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import Hls from 'hls.js';
 import { 
     Play, Pause, Volume2, VolumeX, Maximize, 
     ArrowLeft, Loader, SkipBack, SkipForward, 
-    Settings, MessageSquare, ChevronRight, ChevronLeft, Monitor
+    Settings, ChevronRight, ChevronLeft
 } from 'lucide-react';
 
+// Helper to format time
 const formatTime = (seconds) => {
     if (isNaN(seconds)) return '00:00';
     const h = Math.floor(seconds / 3600);
@@ -14,6 +15,12 @@ const formatTime = (seconds) => {
     return h > 0 
         ? `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
         : `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+};
+
+// Helper to parse strings like "Hindi + English" or "Hindi/English" into separate array items
+const parseLanguages = (langStr) => {
+    if (!langStr) return ['Unknown'];
+    return langStr.split(/(?:\+|\||,|and|&|\/)/i).map(l => l.trim()).filter(Boolean);
 };
 
 const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onClose }) => {
@@ -29,10 +36,10 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     
     // Active Source Identifiers
     const [currentUrl, setCurrentUrl] = useState('');
-    const [currentUrlLanguage, setCurrentUrlLanguage] = useState('Auto');
+    const [currentUrlLanguage, setCurrentUrlLanguage] = useState('');
     const [currentUrlQuality, setCurrentUrlQuality] = useState('Auto');
 
-    // Native HLS Tracks (If the m3u8 has embedded options)
+    // Native HLS Tracks (If the m3u8 has embedded options natively)
     const [nativeQualities, setNativeQualities] = useState([]);
     const [currentNativeQuality, setCurrentNativeQuality] = useState(-1);
     const [nativeAudioTracks, setNativeAudioTracks] = useState([]);
@@ -60,7 +67,8 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 if (data.success && data.streams && data.streams.length > 0) {
                     setSources(data.streams);
                     const initialSource = data.streams[0];
-                    setCurrentUrlLanguage(initialSource.language);
+                    const initialLangs = parseLanguages(initialSource.language);
+                    setCurrentUrlLanguage(initialLangs[0] || 'Unknown');
                     setCurrentUrlQuality(initialSource.quality);
                     loadStream(initialSource.url);
                 } else {
@@ -70,7 +78,9 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                         setSources([{ url: fData.streamUrl, language: 'English', quality: 'Auto', source: fData.provider }]);
                         setCurrentUrlLanguage('English');
                         loadStream(fData.streamUrl);
-                    } else throw new Error("No playable streams found.");
+                    } else {
+                        throw new Error("No playable streams found.");
+                    }
                 }
             } catch (err) {
                 setError(err.message || "Failed to load stream.");
@@ -109,7 +119,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                     setCurrentNativeAudio(hls.audioTrack);
                 }
                 
-                // Retain previous time when switching URLs
                 if (currentTime > 0) video.currentTime = currentTime;
                 video.play().catch(() => {});
             });
@@ -133,24 +142,39 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         }
     };
 
-    // --- Switchers Engine (Handles BOTH Native HLS and URL-based swapping) ---
-    
-    // Derived Options based on available data
-    const urlLanguages = [...new Set(sources.map(s => s.language))];
-    const urlQualities = [...new Set(sources.map(s => s.quality))];
-    
+    // --- Dynamic Derived Options (Splitting "Hindi + English") ---
     const hasNativeAudio = nativeAudioTracks.length > 1;
+    
+    // Extract unique languages from backend URL array
+    const urlLanguages = useMemo(() => {
+        const langs = new Set();
+        sources.forEach(src => parseLanguages(src.language).forEach(l => langs.add(l)));
+        return Array.from(langs);
+    }, [sources]);
+
     const hasUrlAudio = urlLanguages.length > 1;
-    const audioOptions = hasNativeAudio 
-        ? nativeAudioTracks.map((t, i) => ({ id: i, label: t.name || t.language || `Track ${i+1}` }))
-        : urlLanguages.map(l => ({ id: l, label: l }));
+
+    // Construct Audio Menu Array
+    let displayAudioOptions = [];
+    if (hasNativeAudio) {
+        displayAudioOptions = nativeAudioTracks.map((t, i) => ({
+            id: i, label: t.name || t.language || `Track ${i + 1}`, isNative: true
+        }));
+    } else {
+        displayAudioOptions = urlLanguages.map(l => ({
+            id: l, label: l, isNative: false
+        }));
+    }
 
     const currentAudioLabel = hasNativeAudio 
-        ? (nativeAudioTracks[currentNativeAudio]?.name || 'Unknown') 
+        ? (nativeAudioTracks[currentNativeAudio]?.name || 'Auto') 
         : currentUrlLanguage;
 
+    // Construct Quality Menu Array
     const hasNativeQuality = nativeQualities.length > 1;
+    const urlQualities = [...new Set(sources.map(s => s.quality))];
     const hasUrlQuality = urlQualities.length > 1;
+    
     const qualityOptions = hasNativeQuality
         ? [{ id: -1, label: 'Auto' }, ...nativeQualities.map((q, i) => ({ id: i, label: `${q}p` }))]
         : urlQualities.map(q => ({ id: q, label: q === 'Auto' ? 'Best' : q }));
@@ -159,18 +183,19 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         ? (currentNativeQuality === -1 ? 'Auto' : `${nativeQualities[currentNativeQuality]}p`)
         : currentUrlQuality;
 
-    const selectAudio = (id) => {
-        if (hasNativeAudio) {
-            setCurrentNativeAudio(id);
-            if (hlsRef.current) hlsRef.current.audioTrack = id;
+    // --- Selection Handlers ---
+    const selectAudio = (opt) => {
+        if (opt.isNative) {
+            setCurrentNativeAudio(opt.id);
+            if (hlsRef.current) hlsRef.current.audioTrack = opt.id;
         } else {
-            // URL Swap Logic (Fixes "Hindi + English" issue)
-            const targetLang = id;
-            let match = sources.find(s => s.language === targetLang && s.quality === currentUrlQuality);
-            if (!match) match = sources.find(s => s.language === targetLang); // Fallback quality
+            setCurrentUrlLanguage(opt.id);
+            // Find a source that contains the exact selected language inside its string (e.g. finds "Hindi" inside "Hindi + English")
+            let match = sources.find(s => parseLanguages(s.language).includes(opt.id) && s.quality === currentUrlQuality);
+            if (!match) match = sources.find(s => parseLanguages(s.language).includes(opt.id));
+            
             if (match && match.url !== currentUrl) {
                 setLoading(true);
-                setCurrentUrlLanguage(match.language);
                 setCurrentUrlQuality(match.quality);
                 loadStream(match.url);
             }
@@ -183,13 +208,13 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             setCurrentNativeQuality(id);
             if (hlsRef.current) hlsRef.current.currentLevel = id;
         } else {
-            // URL Swap Logic
             const targetQual = id;
-            let match = sources.find(s => s.quality === targetQual && s.language === currentUrlLanguage);
-            if (!match) match = sources.find(s => s.quality === targetQual); // Fallback language
+            let match = sources.find(s => s.quality === targetQual && parseLanguages(s.language).includes(currentUrlLanguage));
+            if (!match) match = sources.find(s => s.quality === targetQual);
             if (match && match.url !== currentUrl) {
                 setLoading(true);
-                setCurrentUrlLanguage(match.language);
+                const matchLangs = parseLanguages(match.language);
+                setCurrentUrlLanguage(matchLangs.includes(currentUrlLanguage) ? currentUrlLanguage : matchLangs[0]);
                 setCurrentUrlQuality(match.quality);
                 loadStream(match.url);
             }
@@ -213,7 +238,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         }, 3500);
     };
 
-    // --- Prime Video UI Rendering ---
+    // --- Prime Video Nested UI Rendering ---
     const renderRadioButton = (isActive) => (
         <div className={`w-5 h-5 rounded-full border-[2px] flex items-center justify-center transition-all ${isActive ? 'border-[#00A8E1]' : 'border-gray-400'}`}>
             {isActive && <div className="w-2.5 h-2.5 rounded-full bg-[#00A8E1]" />}
@@ -233,19 +258,18 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                             <div className="py-4 text-center font-bold text-lg border-b border-white/10">Settings</div>
                             <div className="p-2 space-y-1">
                                 <button className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-white/10 transition-colors opacity-50 cursor-not-allowed">
-                                    <div className="flex items-center gap-4"><MessageSquare size={22}/> <span className="font-semibold text-[15px]">Subtitles</span></div>
+                                    <div className="flex items-center gap-4"><Settings size={22}/> <span className="font-semibold text-[15px]">Subtitles</span></div>
                                     <div className="flex items-center gap-2 text-gray-400 text-sm font-medium">Off <ChevronRight size={18}/></div>
                                 </button>
                                 
-                                <button onClick={() => setMenuView('audio')} disabled={!hasNativeAudio && !hasUrlAudio} className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-white/10 transition-colors disabled:opacity-50">
+                                <button onClick={() => setMenuView('audio')} disabled={displayAudioOptions.length <= 1} className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-white/10 transition-colors disabled:opacity-50">
                                     <div className="flex items-center gap-4"><Volume2 size={22}/> <span className="font-semibold text-[15px]">Audio</span></div>
                                     <div className="flex items-center gap-2 text-gray-400 text-sm font-medium">{currentAudioLabel} <ChevronRight size={18}/></div>
                                 </button>
                             </div>
                             
-                            {/* Distinct White Highlight for Video Quality like the screenshot */}
                             <button onClick={() => setMenuView('quality')} disabled={!hasNativeQuality && !hasUrlQuality} className="w-full flex items-center justify-between p-4 bg-white text-black hover:bg-gray-200 transition-colors disabled:opacity-50 mt-1">
-                                <div className="flex items-center gap-4"><Monitor size={22}/> <span className="font-bold text-[15px]">Video Quality</span></div>
+                                <div className="flex items-center gap-4"><Settings size={22}/> <span className="font-bold text-[15px]">Video Quality</span></div>
                                 <div className="flex items-center gap-2 text-gray-600 text-sm font-bold">{currentQualityLabel} <ChevronRight size={18}/></div>
                             </button>
                         </div>
@@ -255,17 +279,16 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                     {menuView === 'audio' && (
                         <div className="flex flex-col max-h-[400px]">
                             <button onClick={() => setMenuView('main')} className="flex items-center gap-3 p-4 font-bold text-lg hover:bg-white/5 border-b border-white/10 transition">
-                                <ChevronLeft size={24}/> Audio
+                                <ChevronLeft size={24}/> Audio Languages
                             </button>
                             <div className="overflow-y-auto p-2">
-                                {audioOptions.map(opt => {
-                                    const isActive = hasNativeAudio ? currentNativeAudio === opt.id : currentUrlLanguage === opt.id;
+                                {displayAudioOptions.map((opt, idx) => {
+                                    const isActive = opt.isNative ? currentNativeAudio === opt.id : currentUrlLanguage === opt.id;
                                     return (
-                                        <button key={opt.id} onClick={() => selectAudio(opt.id)} className={`w-full flex items-center gap-4 p-4 rounded-xl transition ${isActive ? 'bg-white/10' : 'hover:bg-white/5'}`}>
+                                        <button key={idx} onClick={() => selectAudio(opt)} className={`w-full flex items-center gap-4 p-4 rounded-xl transition ${isActive ? 'bg-white/10' : 'hover:bg-white/5'}`}>
                                             {renderRadioButton(isActive)}
                                             <div className="flex flex-col text-left">
                                                 <span className={`text-[15px] ${isActive ? 'font-bold text-white' : 'font-medium text-gray-300'}`}>{opt.label}</span>
-                                                {isActive && <span className="text-[11px] text-gray-400 mt-1">AD available • Dialogue Boost available</span>}
                                             </div>
                                         </button>
                                     );
@@ -281,14 +304,13 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                                 <ChevronLeft size={24}/> Video Quality
                             </button>
                             <div className="overflow-y-auto p-2">
-                                {qualityOptions.map(opt => {
+                                {qualityOptions.map((opt, idx) => {
                                     const isActive = hasNativeQuality ? currentNativeQuality === opt.id : currentUrlQuality === opt.id;
                                     return (
-                                        <button key={opt.id} onClick={() => selectQuality(opt.id)} className={`w-full flex items-center gap-4 p-4 rounded-xl transition ${isActive ? 'bg-white/10' : 'hover:bg-white/5'}`}>
+                                        <button key={idx} onClick={() => selectQuality(opt.id)} className={`w-full flex items-center gap-4 p-4 rounded-xl transition ${isActive ? 'bg-white/10' : 'hover:bg-white/5'}`}>
                                             {renderRadioButton(isActive)}
                                             <div className="flex flex-col text-left">
                                                 <span className={`text-[15px] ${isActive ? 'font-bold text-white' : 'font-medium text-gray-300'}`}>{opt.label}</span>
-                                                <span className="text-[11px] text-gray-400 mt-1">Adjusts automatically</span>
                                             </div>
                                         </button>
                                     );
@@ -337,24 +359,23 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 playsInline
             />
 
-            {/* Menu Popups */}
             {renderMenu()}
 
             {/* Controls Bar */}
             <div className={`absolute bottom-0 left-0 w-full bg-gradient-to-t from-black/90 via-black/50 to-transparent px-8 pb-8 pt-24 transition-opacity duration-300 z-50 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
                 
                 {/* Timeline */}
-                <div className="flex items-center gap-4 mb-6 group cursor-pointer">
+                <div className="flex items-center gap-4 mb-6 group cursor-pointer pointer-events-auto">
                     <span className="text-white text-sm font-medium w-12 text-right">{formatTime(currentTime)}</span>
                     <input 
-                        type="range" min="0" max={duration || 100} value={currentTime} onChange={handleSeek}
+                        type="range" min="0" max={duration || 100} value={currentTime} 
+                        onChange={(e) => { const newTime = parseFloat(e.target.value); videoRef.current.currentTime = newTime; setCurrentTime(newTime); }}
                         className="w-full h-1.5 bg-white/30 rounded-lg appearance-none cursor-pointer accent-[#00A8E1] group-hover:h-2.5 transition-all"
                     />
                     <span className="text-white text-sm font-medium w-12">{formatTime(duration)}</span>
                 </div>
 
-                {/* Bottom Bar Icons */}
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between pointer-events-auto">
                     <div className="flex items-center gap-8 text-white">
                         <button onClick={togglePlay} className="hover:text-[#00A8E1] hover:scale-110 transition drop-shadow-lg">
                             {isPlaying ? <Pause size={36} fill="currentColor" /> : <Play size={36} fill="currentColor" />}
@@ -375,14 +396,12 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                     </div>
 
                     <div className="flex items-center gap-6 text-white">
-                        {/* Audio Dedicated Button */}
-                        {(hasNativeAudio || hasUrlAudio) && (
+                        {displayAudioOptions.length > 1 && (
                             <button onClick={() => setMenuView(menuView === 'audio' ? null : 'audio')} className={`transition hover:scale-110 ${menuView === 'audio' ? 'text-[#00A8E1]' : 'text-gray-300 hover:text-white'}`}>
                                 <Volume2 size={24} />
                             </button>
                         )}
                         
-                        {/* Prime Style Gear/Settings Icon */}
                         <button onClick={() => setMenuView(menuView === 'main' ? null : 'main')} className={`transition hover:scale-110 ${menuView === 'main' || menuView === 'quality' ? 'text-[#00A8E1]' : 'text-gray-300 hover:text-white'}`}>
                             <Settings size={24} />
                         </button>
