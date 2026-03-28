@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
 
 const formatTime = (seconds) => {
@@ -10,37 +10,30 @@ const formatTime = (seconds) => {
     return `${m}:${String(sec).padStart(2,'0')}`;
 };
 
-const parseLanguages = (langStr) => {
-    if (!langStr) return ['Unknown'];
-    return langStr.split(/(?:\+|\||,|and|&|\/)/i).map(l => l.trim()).filter(Boolean);
-};
-
 const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onClose, title = "Prime Video" }) => {
     const videoRef = useRef(null);
     const playerContainerRef = useRef(null);
     const hlsRef = useRef(null);
+    const controlsTimeoutRef = useRef(null);
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [sources, setSources] = useState([]);
     
-    const [currentUrl, setCurrentUrl] = useState('');
-    const [currentUrlLanguage, setCurrentUrlLanguage] = useState('');
-    const [currentUrlQuality, setCurrentUrlQuality] = useState('Auto');
-
+    // Native HLS Tracks
     const [nativeQualities, setNativeQualities] = useState([]);
     const [currentNativeQuality, setCurrentNativeQuality] = useState(-1);
     const [nativeAudioTracks, setNativeAudioTracks] = useState([]);
     const [currentNativeAudio, setCurrentNativeAudio] = useState(0);
 
+    // Playback & UI State
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
     const [volume, setVolume] = useState(0.8);
     const [isMuted, setIsMuted] = useState(false);
     const [showControls, setShowControls] = useState(true);
-    const controlsTimeoutRef = useRef(null);
     
+    // Panel States
     const [activePanel, setActivePanel] = useState('none');
     const [currentSubtitles, setCurrentSubtitles] = useState('Off');
     const [adToggle, setAdToggle] = useState(false);
@@ -49,29 +42,25 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         const fetchStreams = async () => {
             setLoading(true);
             try {
-                let url = `/api/multi-stream?tmdbId=${tmdbId}&type=${mediaType}&season=${season}&episode=${episode}`;
-                const res = await fetch(url);
-                const data = await res.json();
-
-                if (data.success && data.streams && data.streams.length > 0) {
-                    setSources(data.streams);
-                    
-                    // Prioritize finding an English stream first
-                    let defaultSource = data.streams.find(s => s.language === 'English');
-                    if (!defaultSource) defaultSource = data.streams.find(s => s.language.includes('English'));
-                    if (!defaultSource) defaultSource = data.streams[0]; 
-
-                    // Ensure UI matches reality (Standard Dual Audio MP4s play Hindi first)
-                    const isDualAudio = defaultSource.language.includes('+') || defaultSource.language.toLowerCase().includes('dual');
-                    const uiLang = isDualAudio ? 'Hindi' : (parseLanguages(defaultSource.language)[0] || 'English');
-
-                    setCurrentUrlLanguage(uiLang);
-                    setCurrentUrlQuality(defaultSource.quality || 'Auto');
-                    loadStream(defaultSource.url);
-                } else {
-                    setError("No playable streams found across 5 providers. Try again later.");
-                    setLoading(false);
+                // Priority 1: Fetch from GET-STREAM (Vidsrc/Embed.su - Massive libraries, Hallmark movies, Native Multi-Audio)
+                let fRes = await fetch(`/api/get-stream?tmdbId=${tmdbId}&mediaType=${mediaType}&season=${season}&episode=${episode}`);
+                const fData = await fRes.json();
+                
+                if (fData.success && fData.streamUrl) {
+                    loadStream(fData.streamUrl);
+                    return;
                 }
+
+                // Priority 2: Fallback to MULTI-STREAM (Stremio Addons) if get-stream fails
+                let mRes = await fetch(`/api/multi-stream?tmdbId=${tmdbId}&type=${mediaType}&season=${season}&episode=${episode}`);
+                const mData = await mRes.json();
+
+                if (mData.success && mData.streams && mData.streams.length > 0) {
+                    loadStream(mData.streams[0].url);
+                    return;
+                }
+
+                throw new Error("No playable streams found across any provider.");
             } catch (err) {
                 setError(err.message || "Failed to load stream.");
                 setLoading(false);
@@ -86,33 +75,55 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         };
     }, [tmdbId, mediaType, season, episode]);
 
-    const loadStream = (url) => {
+    const loadStream = (rawUrl) => {
         const video = videoRef.current;
         if (!video) return;
         
-        setCurrentUrl(url);
         setError(null);
         setLoading(true);
         if (hlsRef.current) hlsRef.current.destroy();
 
-        if (Hls.isSupported() && url.includes('.m3u8')) {
-            const hls = new Hls({ maxMaxBufferLength: 60 });
+        if (Hls.isSupported() && rawUrl.includes('.m3u8')) {
+            const hls = new Hls({ 
+                maxMaxBufferLength: 60,
+                // THE CORS FIX: Route all internal HLS traffic through your proxy API automatically
+                xhrSetup: (xhr, url) => {
+                    if (!url.includes('/api/proxy')) {
+                        xhr.open('GET', `/api/proxy?url=${encodeURIComponent(url)}`, true);
+                    }
+                }
+            });
+            
             hlsRef.current = hls;
-            hls.loadSource(url);
+            hls.loadSource(rawUrl);
             hls.attachMedia(video);
 
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
                 setLoading(false);
-                const availableLevels = hls.levels.map((l, idx) => ({ id: idx, height: l.height })).sort((a, b) => b.height - a.height); 
+                const availableLevels = hls.levels.map((l, idx) => ({ id: idx, height: l.height || 'Unknown' })).sort((a, b) => b.height - a.height); 
                 setNativeQualities(availableLevels);
                 setCurrentNativeQuality(-1);
                 
                 if (hls.audioTracks && hls.audioTracks.length > 0) {
                     setNativeAudioTracks(hls.audioTracks);
-                    setCurrentNativeAudio(hls.audioTrack);
+                    
+                    // THE AUDIO GLITCH FIX: Find the verified embedded English track and force it first
+                    let defaultTrackId = hls.audioTrack;
+                    const engTrack = hls.audioTracks.find(t => 
+                        t.language?.toLowerCase() === 'en' || 
+                        t.language?.toLowerCase() === 'eng' || 
+                        t.name?.toLowerCase().includes('english')
+                    );
+                    
+                    if (engTrack) {
+                        defaultTrackId = engTrack.id;
+                        hls.audioTrack = engTrack.id; 
+                    }
+                    setCurrentNativeAudio(defaultTrackId);
                 }
+                
                 if (currentTime > 0) video.currentTime = currentTime;
-                video.play().catch(() => {});
+                video.play().catch(() => console.log("Autoplay prevented"));
             });
 
             hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (e, data) => setNativeAudioTracks(data.audioTracks));
@@ -125,7 +136,10 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 }
             });
         } else {
-            video.src = url;
+            // Direct MP4 Fallback
+            const proxiedUrl = rawUrl.includes('/api/proxy') ? rawUrl : `/api/proxy?url=${encodeURIComponent(rawUrl)}`;
+            video.src = proxiedUrl;
+            
             video.addEventListener('loadedmetadata', () => {
                 setLoading(false);
                 if (currentTime > 0) video.currentTime = currentTime;
@@ -133,81 +147,22 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             }, { once: true });
             
             video.addEventListener('error', () => {
-                setError("This specific stream is currently offline. Please refresh to try another.");
+                setError("Stream is currently offline or unsupported.");
                 setLoading(false);
             }, { once: true });
         }
     };
 
-    // --- Dynamic Options Maps ---
-    const hasNativeAudio = nativeAudioTracks.length > 1;
-    const urlLanguages = useMemo(() => {
-        const langs = new Set();
-        sources.forEach(src => parseLanguages(src.language).forEach(l => langs.add(l)));
-        return Array.from(langs);
-    }, [sources]);
+    // --- Dynamic UI Formatters ---
+    const currentAudioLabel = nativeAudioTracks.find(t => t.id === currentNativeAudio)?.name || 
+                              nativeAudioTracks.find(t => t.id === currentNativeAudio)?.language || 
+                              'Default Audio';
 
-    let displayAudioOptions = hasNativeAudio 
-        ? nativeAudioTracks.map(t => ({ id: t.id, label: t.name || t.language || `Track ${t.id}`, isNative: true })) 
-        : urlLanguages.map(l => ({ id: l, label: l, isNative: false }));
-
-    const currentAudioLabel = hasNativeAudio 
-        ? (nativeAudioTracks.find(t => t.id === currentNativeAudio)?.name || 'Auto') 
-        : currentUrlLanguage;
-
-    const hasNativeQuality = nativeQualities.length > 1;
-    const urlQualities = [...new Set(sources.map(s => s.quality))];
-    
-    const qualityOptions = hasNativeQuality
-        ? [{ id: -1, label: 'Best (Auto)' }, ...nativeQualities.map(q => ({ id: q.id, label: `${q.height}p` }))]
-        : urlQualities.map(q => ({ id: q, label: q === 'Auto' ? 'Best (Auto)' : q }));
-        
-    const currentQualityLabel = hasNativeQuality
-        ? (currentNativeQuality === -1 ? 'Best' : `${nativeQualities.find(q => q.id === currentNativeQuality)?.height}p`)
-        : currentUrlQuality;
+    const currentQualityLabel = currentNativeQuality === -1 
+        ? 'Best (Auto)' 
+        : `${nativeQualities.find(q => q.id === currentNativeQuality)?.height}p`;
 
     // --- Action Handlers ---
-    const selectAudio = (opt) => {
-        if (opt.isNative) {
-            setCurrentNativeAudio(opt.id);
-            if (hlsRef.current) hlsRef.current.audioTrack = opt.id; 
-        } else {
-            // Find Exact match first
-            let targetStream = sources.find(s => s.language === opt.id);
-            
-            // Find Dual Audio match 
-            if (!targetStream) {
-                targetStream = sources.find(s => parseLanguages(s.language).includes(opt.id) && s.url !== currentUrl);
-            }
-            
-            if (targetStream && targetStream.url !== currentUrl) {
-                setCurrentUrlLanguage(opt.id);
-                setCurrentUrlQuality(targetStream.quality || 'Auto');
-                loadStream(targetStream.url);
-            } else {
-                setCurrentUrlLanguage(opt.id); // Update UI even if we can't swap
-            }
-        }
-        setActivePanel('none');
-    };
-
-    const selectQuality = (id) => {
-        if (hasNativeQuality) {
-            setCurrentNativeQuality(id);
-            if (hlsRef.current) hlsRef.current.currentLevel = id;
-        } else {
-            let match = sources.find(s => s.quality === id && parseLanguages(s.language).includes(currentUrlLanguage));
-            if (!match) match = sources.find(s => s.quality === id);
-            
-            if (match && match.url !== currentUrl) {
-                setCurrentUrlLanguage(parseLanguages(match.language)[0] || 'Unknown');
-                setCurrentUrlQuality(match.quality);
-                loadStream(match.url);
-            }
-        }
-        setActivePanel('none');
-    };
-
     const togglePlay = () => videoRef.current.paused ? videoRef.current.play() : videoRef.current.pause();
     const skipBack = () => videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 10);
     const skipFwd = () => videoRef.current.currentTime = Math.min(duration, videoRef.current.currentTime + 10);
@@ -315,6 +270,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 #play-pause-btn:hover { background: rgba(255,255,255,1) !important; transform: scale(1.05); }
                 #play-pause-btn svg { color: #000; width: 24px; height: 24px; filter: none; }
 
+                /* Panels */
                 .panel-base { position: absolute; top: 60px; right: 16px; width: 320px; background: var(--panel-bg); border-radius: 8px; overflow: hidden; z-index: 100; animation: slideDown 0.18s ease; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
                 @keyframes slideDown { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
                 
@@ -475,17 +431,19 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                         Audio
                     </div>
                     <div style={{maxHeight:'250px', overflowY:'auto'}}>
-                        {displayAudioOptions.map((opt, idx) => {
-                            const isActive = opt.isNative ? currentNativeAudio === opt.id : currentUrlLanguage === opt.id;
-                            return (
-                                <div key={idx} className="radio-option" onClick={() => selectAudio(opt)}>
-                                    <div className={`radio-circle ${isActive ? 'selected' : ''}`}></div>
-                                    <div>
-                                        <div className="radio-label">{opt.label}</div>
-                                    </div>
+                        {nativeAudioTracks.length === 0 && <div style={{padding:'16px 20px', color:'#8b8f97', fontSize:'14px'}}>Only default audio available</div>}
+                        {nativeAudioTracks.map((opt) => (
+                            <div key={opt.id} className="radio-option" onClick={() => {
+                                setCurrentNativeAudio(opt.id);
+                                if (hlsRef.current) hlsRef.current.audioTrack = opt.id;
+                                setActivePanel('none');
+                            }}>
+                                <div className={`radio-circle ${currentNativeAudio === opt.id ? 'selected' : ''}`}></div>
+                                <div>
+                                    <div className="radio-label" style={{textTransform:'capitalize'}}>{opt.name || opt.language || `Track ${opt.id}`}</div>
                                 </div>
-                            );
-                        })}
+                            </div>
+                        ))}
                     </div>
                 </div>
             )}
@@ -500,14 +458,22 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                         Video Quality
                     </div>
                     <div style={{maxHeight:'350px', overflowY:'auto', paddingBottom:'8px'}}>
-                        <div className={`quality-option ${currentNativeQuality === -1 ? 'selected' : ''}`} onClick={() => selectQuality(-1)}>
+                        <div className={`quality-option ${currentNativeQuality === -1 ? 'selected' : ''}`} onClick={() => {
+                            setCurrentNativeQuality(-1);
+                            if (hlsRef.current) hlsRef.current.currentLevel = -1;
+                            setActivePanel('none');
+                        }}>
                             <div className={`radio-circle ${currentNativeQuality === -1 ? 'selected' : ''}`}></div>
                             <div>
                                 <div className="radio-label">Best (Auto)</div>
                             </div>
                         </div>
                         {nativeQualities.map((opt) => (
-                            <div key={opt.id} className={`quality-option ${currentNativeQuality === opt.id ? 'selected' : ''}`} onClick={() => selectQuality(opt.id)}>
+                            <div key={opt.id} className={`quality-option ${currentNativeQuality === opt.id ? 'selected' : ''}`} onClick={() => {
+                                setCurrentNativeQuality(opt.id);
+                                if (hlsRef.current) hlsRef.current.currentLevel = opt.id;
+                                setActivePanel('none');
+                            }}>
                                 <div className={`radio-circle ${currentNativeQuality === opt.id ? 'selected' : ''}`}></div>
                                 <div>
                                     <div className="radio-label">{opt.height}p</div>
