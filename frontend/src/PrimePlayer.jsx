@@ -19,16 +19,18 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     const videoRef = useRef(null);
     const playerContainerRef = useRef(null);
     const hlsRef = useRef(null);
+    const controlsTimeoutRef = useRef(null);
 
-    // Global Player State
+    // Global Data State
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [sources, setSources] = useState([]);
     
-    // Active Source Trackers
-    const currentSourceIndexRef = useRef(0);
-    const timeoutIdRef = useRef(null);
-    
+    // Auto-Fallback Queue System
+    const activeStreamQueue = useRef([]);
+    const queueIndex = useRef(0);
+
+    const [currentUrl, setCurrentUrl] = useState('');
     const [currentUrlLanguage, setCurrentUrlLanguage] = useState('');
     const [currentUrlQuality, setCurrentUrlQuality] = useState('Auto');
 
@@ -45,46 +47,61 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     const [volume, setVolume] = useState(0.8);
     const [isMuted, setIsMuted] = useState(false);
     const [showControls, setShowControls] = useState(true);
-    const controlsTimeoutRef = useRef(null);
     
     const [activePanel, setActivePanel] = useState('none');
     const [currentSubtitles, setCurrentSubtitles] = useState('Off');
     const [adToggle, setAdToggle] = useState(false);
 
-    // 1. Massive Redundancy Initialization
     useEffect(() => {
         const fetchStreams = async () => {
             setLoading(true);
-            let combinedSources = [];
-
             try {
-                // Fetch direct hosters (Vidsrc, Embed.su - guarantees Hallmark movies)
+                let combinedSources = [];
+
+                // Priority 1: Fetch Direct Hosters (Vidsrc/Embed.su)
                 try {
                     let fRes = await fetch(`/api/get-stream?tmdbId=${tmdbId}&mediaType=${mediaType}&season=${season}&episode=${episode}`);
                     let fData = await fRes.json();
                     if (fData.success && fData.streamUrl) {
-                        combinedSources.push({ url: fData.streamUrl, language: 'English', quality: 'Auto', source: fData.provider || 'Direct Hoster' });
+                        combinedSources.push({
+                            url: fData.streamUrl,
+                            language: 'English', // Native Direct Hosters usually default to English or have embedded tracks
+                            quality: 'Auto',
+                            source: fData.provider || 'Direct Hoster'
+                        });
                     }
-                } catch(e) { console.log("get-stream failed"); }
+                } catch(e) {}
 
-                // Fetch Stremio endpoints (Dual Audio / Hindi)
+                // Priority 2: Fetch Stremio Links (Multi-Stream)
                 try {
                     let mRes = await fetch(`/api/multi-stream?tmdbId=${tmdbId}&type=${mediaType}&season=${season}&episode=${episode}`);
                     let mData = await mRes.json();
-                    if (mData.success && mData.streams) {
+                    if (mData.success && mData.streams && mData.streams.length > 0) {
                         combinedSources = [...combinedSources, ...mData.streams];
                     }
-                } catch(e) { console.log("multi-stream failed"); }
+                } catch(e) {}
 
                 if (combinedSources.length > 0) {
                     setSources(combinedSources);
-                    tryNextStream(combinedSources, 0); // Start the Auto-Failover engine
+                    
+                    const firstSource = combinedSources[0];
+                    const initialLangs = parseLanguages(firstSource.language);
+                    let defaultUiLang = initialLangs[0] || 'Unknown';
+                    const isDual = firstSource.language.includes('+') || firstSource.language.toLowerCase().includes('dual');
+                    
+                    // If it's a Dual Audio MP4, UI must default to Hindi as browsers play Track 1 first
+                    if (isDual && firstSource.source !== 'Direct Hoster') {
+                        defaultUiLang = 'Hindi';
+                    }
+
+                    setCurrentUrlLanguage(defaultUiLang);
+                    tryLoadQueue(combinedSources, 0); // Start Auto-Cycler
                 } else {
-                    setError("No streams found. The movie may not be available yet.");
+                    setError("No playable streams found across any provider.");
                     setLoading(false);
                 }
             } catch (err) {
-                setError(err.message || "Failed to initialize player.");
+                setError(err.message || "Failed to initialize streams.");
                 setLoading(false);
             }
         };
@@ -94,65 +111,48 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         return () => {
             if (hlsRef.current) hlsRef.current.destroy();
             clearTimeout(controlsTimeoutRef.current);
-            clearTimeout(timeoutIdRef.current);
         };
     }, [tmdbId, mediaType, season, episode]);
 
-    // 2. The Auto-Failover Engine (Silent Cycler)
-    const tryNextStream = (sourceList, startIndex) => {
-        if (startIndex >= sourceList.length) {
-            setError("All available servers are offline. Please try another movie.");
+    // --- The Auto-Fallback Engine ---
+    const tryLoadQueue = (queue, index) => {
+        if (index >= queue.length) {
+            setError("All servers for this audio/quality selection are currently offline. Please try another option.");
             setLoading(false);
             return;
         }
 
-        const source = sourceList[startIndex];
-        currentSourceIndexRef.current = startIndex;
+        const targetStream = queue[index];
+        activeStreamQueue.current = queue;
+        queueIndex.current = index;
 
-        // UI Language Alignment
-        const initialLangs = parseLanguages(source.language);
-        let defaultUiLang = initialLangs[0] || 'Unknown';
-        const isDual = source.language.includes('+') || source.language.toLowerCase().includes('dual');
-        if (isDual) defaultUiLang = 'Hindi'; // Because .mp4 naturally plays Track 1 (Hindi) first
+        setCurrentUrl(targetStream.url);
+        setCurrentUrlQuality(targetStream.quality || 'Auto');
         
-        setCurrentUrlLanguage(defaultUiLang);
-        setCurrentUrlQuality(source.quality || 'Auto');
-        
-        loadStream(source.url, sourceList, startIndex);
+        loadStreamInternal(targetStream.url);
     };
 
-    const loadStream = (rawUrl, sourceList, index) => {
+    const handleStreamError = () => {
+        console.log(`[Stream Dead] Jumping to fallback server ${queueIndex.current + 1} of ${activeStreamQueue.current.length}`);
+        tryLoadQueue(activeStreamQueue.current, queueIndex.current + 1);
+    };
+
+    const loadStreamInternal = (rawUrl) => {
         const video = videoRef.current;
         if (!video) return;
         
         setError(null);
         setLoading(true);
-        if (hlsRef.current) {
-            hlsRef.current.destroy();
-            hlsRef.current = null;
-        }
+        if (hlsRef.current) hlsRef.current.destroy();
 
         const proxiedUrl = rawUrl.includes('/api/proxy') ? rawUrl : `/api/proxy?url=${encodeURIComponent(rawUrl)}`;
-
-        const handleFail = () => {
-            console.log(`[Stream Failed] Jumping to server index: ${index + 1}`);
-            tryNextStream(sourceList, index + 1);
-        };
-
-        // 12 Second Crash Timer
-        if (timeoutIdRef.current) clearTimeout(timeoutIdRef.current);
-        timeoutIdRef.current = setTimeout(() => {
-            console.log(`[Stream Timeout] Jumping to server index: ${index + 1}`);
-            if (hlsRef.current) hlsRef.current.destroy();
-            handleFail();
-        }, 12000); 
 
         if (Hls.isSupported() && rawUrl.includes('.m3u8')) {
             const hls = new Hls({ 
                 maxMaxBufferLength: 60,
-                manifestLoadingMaxRetry: 0, // Fail immediately so we can cycle to next server
-                levelLoadingMaxRetry: 0,
-                fragLoadingMaxRetry: 0,
+                manifestLoadingMaxRetry: 1, // Only retry once before instantly swapping servers
+                levelLoadingMaxRetry: 1,
+                fragLoadingMaxRetry: 1,
                 xhrSetup: (xhr, url) => {
                     if (!url.includes('/api/proxy')) xhr.open('GET', `/api/proxy?url=${encodeURIComponent(url)}`, true);
                 }
@@ -163,7 +163,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             hls.attachMedia(video);
 
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                clearTimeout(timeoutIdRef.current);
                 setLoading(false);
                 const availableLevels = hls.levels.map((l, idx) => ({ id: idx, height: l.height || 'Unknown' })).sort((a, b) => b.height - a.height); 
                 setNativeQualities(availableLevels);
@@ -194,31 +193,27 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             
             hls.on(Hls.Events.ERROR, (e, data) => {
                 if (data.fatal) {
-                    clearTimeout(timeoutIdRef.current);
                     hls.destroy();
-                    handleFail();
+                    handleStreamError(); // Swap server instantly on fatal M3U8 error
                 }
             });
         } else {
-            // MP4 Fallback
             video.src = proxiedUrl;
             
             const onMeta = () => {
-                clearTimeout(timeoutIdRef.current);
                 setLoading(false);
-                video.removeEventListener('loadedmetadata', onMeta);
+                video.removeEventListener('error', onErr);
                 if (currentTime > 0) video.currentTime = currentTime;
                 video.play().catch(() => {});
             };
             
             const onErr = () => {
-                clearTimeout(timeoutIdRef.current);
-                video.removeEventListener('error', onErr);
-                handleFail();
+                video.removeEventListener('loadedmetadata', onMeta);
+                handleStreamError(); // Swap server instantly if MP4 returns 404/500
             };
 
-            video.addEventListener('loadedmetadata', onMeta);
-            video.addEventListener('error', onErr);
+            video.addEventListener('loadedmetadata', onMeta, { once: true });
+            video.addEventListener('error', onErr, { once: true });
         }
     };
 
@@ -235,21 +230,21 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         : urlLanguages.map(l => ({ id: l, label: l, isNative: false }));
 
     const currentAudioLabel = hasNativeAudio 
-        ? (nativeAudioTracks.find(t => t.id === currentNativeAudio)?.name || 'Auto') 
+        ? (nativeAudioTracks.find(t => t.id === currentNativeAudio)?.name || nativeAudioTracks.find(t => t.id === currentNativeAudio)?.language || 'Auto') 
         : currentUrlLanguage;
 
     const hasNativeQuality = nativeQualities.length > 1;
     const urlQualities = [...new Set(sources.map(s => s.quality))];
     
     const qualityOptions = hasNativeQuality
-        ? [{ id: -1, label: 'Best (Auto)' }, ...nativeQualities.map(q => ({ id: q.id, label: `${q.height}p` }))]
-        : urlQualities.map(q => ({ id: q, label: q === 'Auto' ? 'Best (Auto)' : q }));
+        ? [{ id: -1, label: 'Best' }, ...nativeQualities.map(q => ({ id: q.id, label: `${q.height}p` }))]
+        : urlQualities.map(q => ({ id: q, label: q === 'Auto' ? 'Best' : q }));
         
     const currentQualityLabel = hasNativeQuality
         ? (currentNativeQuality === -1 ? 'Best' : `${nativeQualities.find(q => q.id === currentNativeQuality)?.height}p`)
         : currentUrlQuality;
 
-    // --- The "Server Skipper" Action Handlers ---
+    // --- Action Handlers ---
     const selectAudio = (opt) => {
         if (opt.isNative) {
             setCurrentNativeAudio(opt.id);
@@ -257,24 +252,18 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         } else {
             setCurrentUrlLanguage(opt.id);
             
-            // Gather all servers that claim to be this language
+            // Build a queue of all servers that support the selected language
             let validStreams = sources.filter(s => parseLanguages(s.language).map(l=>l.toLowerCase()).includes(opt.id.toLowerCase()));
-            if (validStreams.length === 0) validStreams = sources; // Absolute fallback
+            if (validStreams.length === 0) validStreams = sources; // Fallback
             
-            // If the current server lied about its language, skip to the NEXT server in the valid list
-            const currentIndex = validStreams.findIndex(s => s.url === sources[currentSourceIndexRef.current]?.url);
-            let nextStream;
-            
-            if (currentIndex !== -1 && currentIndex + 1 < validStreams.length) {
-                nextStream = validStreams[currentIndex + 1]; // Move to next server
-            } else {
-                nextStream = validStreams[0]; // Start at top of list
-            }
-            
-            if (nextStream) {
-                const globalIndex = sources.findIndex(s => s.url === nextStream.url);
-                tryNextStream(sources, globalIndex !== -1 ? globalIndex : 0);
-            }
+            // Sort so the currently selected quality is tried first
+            validStreams.sort((a, b) => {
+                if (a.quality === currentUrlQuality && b.quality !== currentUrlQuality) return -1;
+                if (b.quality === currentUrlQuality && a.quality !== currentUrlQuality) return 1;
+                return 0;
+            });
+
+            tryLoadQueue(validStreams, 0); // Start Auto-Fallback engine with new language
         }
         setActivePanel('none');
     };
@@ -287,13 +276,16 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             let validStreams = sources.filter(s => s.quality === id);
             if (validStreams.length === 0) validStreams = sources;
             
-            let match = validStreams.find(s => parseLanguages(s.language).includes(currentUrlLanguage));
-            if (!match) match = validStreams[0];
+            // Prioritize servers matching current language
+            validStreams.sort((a, b) => {
+                const aMatches = parseLanguages(a.language).includes(currentUrlLanguage);
+                const bMatches = parseLanguages(b.language).includes(currentUrlLanguage);
+                if (aMatches && !bMatches) return -1;
+                if (!aMatches && bMatches) return 1;
+                return 0;
+            });
 
-            if (match) {
-                const globalIndex = sources.findIndex(s => s.url === match.url);
-                tryNextStream(sources, globalIndex !== -1 ? globalIndex : 0);
-            }
+            tryLoadQueue(validStreams, 0);
         }
         setActivePanel('none');
     };
@@ -399,7 +391,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 .icon-btn { background: none; border: none; color: #fff; cursor: pointer; padding: 8px; border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: background 0.15s; }
                 .icon-btn:hover { background: var(--hover-bg); }
                 .icon-btn.active { background: var(--active-bg); }
-                .icon-btn svg { width: 22px; height: 22px; }
+                .icon-btn svg { width: 22px; height: 22px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5)); }
 
                 /* BOTTOM CONTROLS */
                 #controls {
@@ -449,6 +441,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 .radio-circle.selected { border-color: var(--accent-blue); background: var(--accent-blue); }
                 .radio-circle.selected::after { content: ''; width: 8px; height: 8px; background: #fff; border-radius: 50%; }
                 .radio-label { font-size: 15px; font-weight: 500; text-transform: capitalize; }
+                .radio-sublabel { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
 
                 .quality-option { display: flex; align-items: flex-start; padding: 14px 20px; cursor: pointer; transition: background 0.12s; border-bottom: 1px solid var(--panel-border); gap: 14px; }
                 .quality-option:hover { background: var(--hover-bg); }
@@ -476,6 +469,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             {loading && (
                 <div style={{position:'absolute', inset:0, zIndex:5, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,0.6)'}}>
                     <div style={{width:'40px', height:'40px', border:'3px solid rgba(255,255,255,0.3)', borderTopColor:'#1a98ff', borderRadius:'50%', animation:'spin 1s linear infinite'}} />
+                    <p style={{color:'#fff', marginTop:'16px', fontSize:'14px', fontWeight:'bold', letterSpacing:'1px'}}>Optimizing Stream</p>
                 </div>
             )}
 
@@ -631,7 +625,8 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                     <div className={`quality-option ${currentNativeQuality === -1 ? 'selected' : ''}`} onClick={() => selectQuality(-1)}>
                         <div className={`radio-circle ${currentNativeQuality === -1 ? 'selected' : ''}`}></div>
                         <div>
-                            <div className="radio-label">Best (Auto)</div>
+                            <div className="radio-label">Best</div>
+                            <div className="radio-sublabel">Uses variable GB per hour</div>
                         </div>
                     </div>
                     {nativeQualities.map((opt) => (
@@ -639,6 +634,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                             <div className={`radio-circle ${currentNativeQuality === opt.id ? 'selected' : ''}`}></div>
                             <div>
                                 <div className="radio-label">{opt.height}p</div>
+                                <div className="radio-sublabel">Uses about {opt.height === 1080 ? '1.40' : (opt.height >= 2160 ? '6.84' : '0.38')} GB per hour</div>
                             </div>
                         </div>
                     ))}
