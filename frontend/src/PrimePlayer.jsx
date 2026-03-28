@@ -6,7 +6,6 @@ import {
     Settings, ChevronRight, ChevronLeft
 } from 'lucide-react';
 
-// Helper to format time
 const formatTime = (seconds) => {
     if (isNaN(seconds)) return '00:00';
     const h = Math.floor(seconds / 3600);
@@ -17,7 +16,6 @@ const formatTime = (seconds) => {
         : `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 };
 
-// Helper to parse strings like "Hindi + English" or "Hindi/English" into separate array items
 const parseLanguages = (langStr) => {
     if (!langStr) return ['Unknown'];
     return langStr.split(/(?:\+|\||,|and|&|\/)/i).map(l => l.trim()).filter(Boolean);
@@ -29,31 +27,25 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     const hlsRef = useRef(null);
     const controlsTimeoutRef = useRef(null);
 
-    // Core Stream State
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [sources, setSources] = useState([]);
     
-    // Active Source Identifiers
     const [currentUrl, setCurrentUrl] = useState('');
     const [currentUrlLanguage, setCurrentUrlLanguage] = useState('');
     const [currentUrlQuality, setCurrentUrlQuality] = useState('Auto');
 
-    // Native HLS Tracks (If the m3u8 has embedded options natively)
     const [nativeQualities, setNativeQualities] = useState([]);
     const [currentNativeQuality, setCurrentNativeQuality] = useState(-1);
     const [nativeAudioTracks, setNativeAudioTracks] = useState([]);
     const [currentNativeAudio, setCurrentNativeAudio] = useState(0);
 
-    // Player UI State
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
     const [volume, setVolume] = useState(1);
     const [isMuted, setIsMuted] = useState(false);
     const [showControls, setShowControls] = useState(true);
-    
-    // Settings Menu State ('main', 'audio', 'quality', null)
     const [menuView, setMenuView] = useState(null); 
 
     useEffect(() => {
@@ -65,22 +57,32 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 const data = await res.json();
 
                 if (data.success && data.streams && data.streams.length > 0) {
-                    setSources(data.streams);
-                    const initialSource = data.streams[0];
-                    const initialLangs = parseLanguages(initialSource.language);
-                    setCurrentUrlLanguage(initialLangs[0] || 'Unknown');
-                    setCurrentUrlQuality(initialSource.quality);
-                    loadStream(initialSource.url);
-                } else {
-                    let fRes = await fetch(`/api/get-stream?tmdbId=${tmdbId}&mediaType=${mediaType}&season=${season}&episode=${episode}`);
-                    const fData = await fRes.json();
-                    if (fData.success && fData.streamUrl) {
-                        setSources([{ url: fData.streamUrl, language: 'English', quality: 'Auto', source: fData.provider }]);
-                        setCurrentUrlLanguage('English');
-                        loadStream(fData.streamUrl);
-                    } else {
-                        throw new Error("No playable streams found.");
+                    // Filter out 4K and 2160p to enforce max 1080p
+                    const filteredStreams = data.streams.filter(s => {
+                        const q = (s.quality || '').toLowerCase();
+                        return !q.includes('4k') && !q.includes('2160p');
+                    });
+
+                    if (filteredStreams.length > 0) {
+                        setSources(filteredStreams);
+                        const initialSource = filteredStreams[0];
+                        const initialLangs = parseLanguages(initialSource.language);
+                        setCurrentUrlLanguage(initialLangs[0] || 'Unknown');
+                        setCurrentUrlQuality(initialSource.quality);
+                        loadStream(initialSource.url);
+                        return;
                     }
+                }
+                
+                // Fallback
+                let fRes = await fetch(`/api/get-stream?tmdbId=${tmdbId}&mediaType=${mediaType}&season=${season}&episode=${episode}`);
+                const fData = await fRes.json();
+                if (fData.success && fData.streamUrl) {
+                    setSources([{ url: fData.streamUrl, language: 'English', quality: 'Auto', source: fData.provider }]);
+                    setCurrentUrlLanguage('English');
+                    loadStream(fData.streamUrl);
+                } else {
+                    throw new Error("No playable streams found.");
                 }
             } catch (err) {
                 setError(err.message || "Failed to load stream.");
@@ -111,7 +113,23 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
 
             hls.on(Hls.Events.MANIFEST_PARSED, (e, data) => {
                 setLoading(false);
-                setNativeQualities(hls.levels.map(l => l.height));
+                
+                // Extract and cap HLS levels to 1080p max
+                const availableLevels = [];
+                let maxAllowedLevelIndex = -1;
+                
+                hls.levels.forEach((l, idx) => {
+                    if (l.height <= 1080) {
+                        availableLevels.push({ id: idx, height: l.height });
+                        maxAllowedLevelIndex = Math.max(maxAllowedLevelIndex, idx);
+                    }
+                });
+
+                if (maxAllowedLevelIndex !== -1) {
+                    hls.autoLevelCapping = maxAllowedLevelIndex; // Force HLS Auto to not exceed 1080p
+                }
+
+                setNativeQualities(availableLevels);
                 setCurrentNativeQuality(-1);
                 
                 if (hls.audioTracks && hls.audioTracks.length > 0) {
@@ -142,56 +160,46 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         }
     };
 
-    // --- Dynamic Derived Options (Splitting "Hindi + English") ---
     const hasNativeAudio = nativeAudioTracks.length > 1;
     
-    // Extract unique languages from backend URL array
     const urlLanguages = useMemo(() => {
         const langs = new Set();
         sources.forEach(src => parseLanguages(src.language).forEach(l => langs.add(l)));
         return Array.from(langs);
     }, [sources]);
 
-    const hasUrlAudio = urlLanguages.length > 1;
-
-    // Construct Audio Menu Array
-    let displayAudioOptions = [];
-    if (hasNativeAudio) {
-        displayAudioOptions = nativeAudioTracks.map((t, i) => ({
-            id: i, label: t.name || t.language || `Track ${i + 1}`, isNative: true
-        }));
-    } else {
-        displayAudioOptions = urlLanguages.map(l => ({
-            id: l, label: l, isNative: false
-        }));
-    }
+    let displayAudioOptions = hasNativeAudio 
+        ? nativeAudioTracks.map((t, i) => ({ id: i, label: t.name || t.language || `Track ${i + 1}`, isNative: true }))
+        : urlLanguages.map(l => ({ id: l, label: l, isNative: false }));
 
     const currentAudioLabel = hasNativeAudio 
         ? (nativeAudioTracks[currentNativeAudio]?.name || 'Auto') 
         : currentUrlLanguage;
 
-    // Construct Quality Menu Array
     const hasNativeQuality = nativeQualities.length > 1;
     const urlQualities = [...new Set(sources.map(s => s.quality))];
-    const hasUrlQuality = urlQualities.length > 1;
     
     const qualityOptions = hasNativeQuality
-        ? [{ id: -1, label: 'Auto' }, ...nativeQualities.map((q, i) => ({ id: i, label: `${q}p` }))]
+        ? [{ id: -1, label: 'Auto' }, ...nativeQualities.map(q => ({ id: q.id, label: `${q.height}p` }))]
         : urlQualities.map(q => ({ id: q, label: q === 'Auto' ? 'Best' : q }));
         
     const currentQualityLabel = hasNativeQuality
-        ? (currentNativeQuality === -1 ? 'Auto' : `${nativeQualities[currentNativeQuality]}p`)
+        ? (currentNativeQuality === -1 ? 'Auto' : `${nativeQualities.find(q => q.id === currentNativeQuality)?.height || 1080}p`)
         : currentUrlQuality;
 
-    // --- Selection Handlers ---
     const selectAudio = (opt) => {
         if (opt.isNative) {
             setCurrentNativeAudio(opt.id);
             if (hlsRef.current) hlsRef.current.audioTrack = opt.id;
         } else {
             setCurrentUrlLanguage(opt.id);
-            // Find a source that contains the exact selected language inside its string (e.g. finds "Hindi" inside "Hindi + English")
-            let match = sources.find(s => parseLanguages(s.language).includes(opt.id) && s.quality === currentUrlQuality);
+            
+            // PRIORITY 1: Find a stream that is EXACTLY this language (forces jump from "Hindi+English" dual-audio to purely "English")
+            let match = sources.find(s => s.language.trim().toLowerCase() === opt.id.toLowerCase() && s.quality === currentUrlQuality);
+            if (!match) match = sources.find(s => s.language.trim().toLowerCase() === opt.id.toLowerCase());
+            
+            // PRIORITY 2: Fallback to a source that simply includes the language
+            if (!match) match = sources.find(s => parseLanguages(s.language).includes(opt.id) && s.quality === currentUrlQuality);
             if (!match) match = sources.find(s => parseLanguages(s.language).includes(opt.id));
             
             if (match && match.url !== currentUrl) {
@@ -208,9 +216,9 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             setCurrentNativeQuality(id);
             if (hlsRef.current) hlsRef.current.currentLevel = id;
         } else {
-            const targetQual = id;
-            let match = sources.find(s => s.quality === targetQual && parseLanguages(s.language).includes(currentUrlLanguage));
-            if (!match) match = sources.find(s => s.quality === targetQual);
+            let match = sources.find(s => s.quality === id && parseLanguages(s.language).includes(currentUrlLanguage));
+            if (!match) match = sources.find(s => s.quality === id);
+            
             if (match && match.url !== currentUrl) {
                 setLoading(true);
                 const matchLangs = parseLanguages(match.language);
@@ -222,7 +230,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         setMenuView(null);
     };
 
-    // --- Controls ---
     const togglePlay = () => videoRef.current.paused ? videoRef.current.play() : videoRef.current.pause();
     const seek = (sec) => videoRef.current.currentTime += sec;
     const toggleFullscreen = () => {
@@ -238,7 +245,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         }, 3500);
     };
 
-    // --- Prime Video Nested UI Rendering ---
     const renderRadioButton = (isActive) => (
         <div className={`w-5 h-5 rounded-full border-[2px] flex items-center justify-center transition-all ${isActive ? 'border-[#00A8E1]' : 'border-gray-400'}`}>
             {isActive && <div className="w-2.5 h-2.5 rounded-full bg-[#00A8E1]" />}
@@ -252,7 +258,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             <div className="absolute bottom-20 right-8 z-[100] animate-in fade-in zoom-in-95 duration-200 origin-bottom-right">
                 <div className="bg-[#0f171e] border border-white/5 rounded-2xl shadow-2xl w-[320px] overflow-hidden text-white font-sans">
                     
-                    {/* MAIN MENU */}
                     {menuView === 'main' && (
                         <div className="flex flex-col">
                             <div className="py-4 text-center font-bold text-lg border-b border-white/10">Settings</div>
@@ -268,14 +273,13 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                                 </button>
                             </div>
                             
-                            <button onClick={() => setMenuView('quality')} disabled={!hasNativeQuality && !hasUrlQuality} className="w-full flex items-center justify-between p-4 bg-white text-black hover:bg-gray-200 transition-colors disabled:opacity-50 mt-1">
+                            <button onClick={() => setMenuView('quality')} disabled={!hasNativeQuality && urlQualities.length <= 1} className="w-full flex items-center justify-between p-4 bg-white text-black hover:bg-gray-200 transition-colors disabled:opacity-50 mt-1">
                                 <div className="flex items-center gap-4"><Settings size={22}/> <span className="font-bold text-[15px]">Video Quality</span></div>
                                 <div className="flex items-center gap-2 text-gray-600 text-sm font-bold">{currentQualityLabel} <ChevronRight size={18}/></div>
                             </button>
                         </div>
                     )}
 
-                    {/* AUDIO SUB-MENU */}
                     {menuView === 'audio' && (
                         <div className="flex flex-col max-h-[400px]">
                             <button onClick={() => setMenuView('main')} className="flex items-center gap-3 p-4 font-bold text-lg hover:bg-white/5 border-b border-white/10 transition">
@@ -297,7 +301,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                         </div>
                     )}
 
-                    {/* QUALITY SUB-MENU */}
                     {menuView === 'quality' && (
                         <div className="flex flex-col max-h-[400px]">
                             <button onClick={() => setMenuView('main')} className="flex items-center gap-3 p-4 font-bold text-lg hover:bg-white/5 border-b border-white/10 transition">
@@ -326,7 +329,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     return (
         <div ref={playerContainerRef} className="fixed inset-0 bg-black z-[999] flex items-center justify-center font-sans" onMouseMove={handleMouseMove} onMouseLeave={() => setShowControls(false)}>
             
-            {/* Header */}
             <div className={`absolute top-0 left-0 w-full p-6 z-50 bg-gradient-to-b from-black/80 to-transparent transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
                 <button onClick={onClose} className="text-white hover:text-[#00A8E1] transition flex items-center gap-2 font-bold text-lg drop-shadow-md">
                     <ArrowLeft size={28} /> Back
@@ -361,10 +363,8 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
 
             {renderMenu()}
 
-            {/* Controls Bar */}
             <div className={`absolute bottom-0 left-0 w-full bg-gradient-to-t from-black/90 via-black/50 to-transparent px-8 pb-8 pt-24 transition-opacity duration-300 z-50 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
                 
-                {/* Timeline */}
                 <div className="flex items-center gap-4 mb-6 group cursor-pointer pointer-events-auto">
                     <span className="text-white text-sm font-medium w-12 text-right">{formatTime(currentTime)}</span>
                     <input 
