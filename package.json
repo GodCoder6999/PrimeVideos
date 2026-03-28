@@ -11,7 +11,8 @@
     "axios": "^1.6.8",
     "cors": "^2.8.5",
     "express": "^4.18.3",
-    "node-fetch": "^2.7.0"
+    "node-fetch": "^2.7.0",
+    "shaka-player": "^4.7.0"
   },
   "engines": {
     "node": "24.x"
