@@ -9,6 +9,29 @@ const formatTime = (seconds) => {
     return `${m}:${String(sec).padStart(2,'0')}`;
 };
 
+const detectQuality = (filename) => {
+    const f = filename.toLowerCase();
+    if (f.includes('2160p') || f.includes('4k')) return '4K';
+    if (f.includes('1080p')) return '1080p';
+    if (f.includes('720p')) return '720p';
+    if (f.includes('480p')) return '480p';
+    return 'Auto';
+};
+
+const detectLanguage = (filename) => {
+    const f = filename.toLowerCase();
+    if (f.includes('dual') || f.includes('multi')) return 'Dual Audio';
+    if (f.includes('hin') || f.includes('hindi')) return 'Hindi';
+    if (f.includes('eng') || f.includes('english')) return 'English';
+    return 'Unknown'; // Defaults to whatever is embedded in the file
+};
+
+const parseLanguages = (langStr) => {
+    if (!langStr) return ['Unknown'];
+    if (langStr === 'Dual Audio') return ['Hindi', 'English']; // MP4/MKV usually default to Hindi on web
+    return langStr.split(/(?:\+|\||,|and|&|\/)/i).map(l => l.trim()).filter(Boolean);
+};
+
 const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onClose, title = "Prime Video" }) => {
     const videoRef = useRef(null);
     const playerContainerRef = useRef(null);
@@ -36,42 +59,41 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
 
     const showToast = (msg) => {
         setToastMessage(msg);
-        setTimeout(() => setToastMessage(null), 6000);
+        setTimeout(() => setToastMessage(null), 5000);
     };
 
     useEffect(() => {
-        const scrapeOpenDirectory = async () => {
+        const scrapeDirectDirectory = async () => {
             setLoading(true);
             try {
-                // 1. Fetch TMDB Details to get accurate Title and Year
+                // 1. Fetch TMDB to get the exact Title and Year
                 const tmdbRes = await fetch(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=cb1dc311039e6ae85db0aa200345cbc5`);
                 const tmdbData = await tmdbRes.json();
                 
-                const actualTitle = tmdbData.title || tmdbData.name || title;
+                const exactTitle = tmdbData.title || tmdbData.name || title;
                 const releaseYear = (tmdbData.release_date || tmdbData.first_air_date || '').split('-')[0];
                 
                 const baseUrl = 'https://a.111477.xyz';
                 let targetFolders = [];
 
-                // 2. Build Target Directory URLs based on Media Type
+                // 2. Build the precise directory URLs
                 if (mediaType === 'tv') {
-                    const safeTitle = encodeURIComponent(actualTitle.replace(/ /g, ' '));
+                    // Try different season folder formats
                     targetFolders = [
-                        `${baseUrl}/tvs/${safeTitle}/Season ${season}/`,
-                        `${baseUrl}/tvs/${safeTitle}/Season ${String(season).padStart(2, '0')}/`,
-                        `${baseUrl}/tvs/${encodeURIComponent(actualTitle)}/Season ${season}/`
+                        `${baseUrl}/tvs/${encodeURIComponent(exactTitle)}/Season ${season}/`,
+                        `${baseUrl}/tvs/${encodeURIComponent(exactTitle)}/Season ${String(season).padStart(2, '0')}/`,
+                        `${baseUrl}/tvs/${exactTitle.replace(/ /g, '%20')}/Season ${season}/`
                     ];
                 } else {
-                    const safeTitle = actualTitle.replace(/ /g, '%20');
                     targetFolders = [
-                        `${baseUrl}/movies/${safeTitle}%20(${releaseYear})/`,
-                        `${baseUrl}/movies/${encodeURIComponent(actualTitle)}%20(${releaseYear})/`
+                        `${baseUrl}/movies/${encodeURIComponent(exactTitle)}%20(${releaseYear})/`,
+                        `${baseUrl}/movies/${exactTitle.replace(/ /g, '%20')}%20(${releaseYear})/`
                     ];
                 }
 
                 let foundFiles = [];
 
-                // 3. Scrape the Directory HTML via Proxy
+                // 3. Scrape the HTML directory list via Proxy (to bypass CORS)
                 for (const folderUrl of targetFolders) {
                     try {
                         const proxyUrl = `/api/proxy?url=${encodeURIComponent(folderUrl)}`;
@@ -80,99 +102,78 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                         
                         const html = await res.text();
                         
-                        // Extract all MKV/MP4 links
-                        const linkRegex = /<a\s+(?:[^>]*?\s+)?href="([^"]+\.(?:mkv|mp4|avi|webm))"[^>]*>(.*?)<\/a>/gi;
+                        // Extract all links ending in video extensions
+                        const linkRegex = /href="([^"]+\.(mkv|mp4|avi|webm))"/gi;
                         let match;
                         
                         while ((match = linkRegex.exec(html)) !== null) {
-                            const href = match[1];
-                            const filename = decodeURIComponent(match[2]);
+                            const rawHref = match[1];
+                            const filename = decodeURIComponent(rawHref);
                             
-                            // If TV Show, strictly filter for the requested episode
+                            // TV Shows: Filter precisely for the requested episode
                             if (mediaType === 'tv') {
-                                const epCode1 = `E${String(episode).padStart(2, '0')}`;
-                                const epCode2 = `Episode ${episode}`;
-                                if (!filename.toUpperCase().includes(epCode1) && !filename.toUpperCase().includes(epCode2.toUpperCase())) {
+                                const epCode1 = `e${String(episode).padStart(2, '0')}`;
+                                const epCode2 = `episode ${episode}`;
+                                if (!filename.toLowerCase().includes(epCode1) && !filename.toLowerCase().includes(epCode2)) {
                                     continue;
                                 }
                             }
                             
                             foundFiles.push({
                                 name: filename,
-                                url: folderUrl + href
+                                url: folderUrl + rawHref, // Combine base path with filename
+                                quality: detectQuality(filename),
+                                language: detectLanguage(filename)
                             });
                         }
                         
-                        if (foundFiles.length > 0) break; // Break loop if we found the files!
+                        if (foundFiles.length > 0) break; // Stop hunting if we found files
                     } catch (e) {
-                        console.log(`Failed scanning folder: ${folderUrl}`);
+                        console.log("Directory read failed, trying next variant...");
                     }
                 }
 
                 if (foundFiles.length === 0) {
-                    throw new Error(`Could not locate files for "${actualTitle}" in the server directory.`);
+                    throw new Error(`Could not locate files for "${exactTitle}" in the server index.`);
                 }
 
-                // 4. Map Files to Prime UI Source Structure
-                const mappedSources = foundFiles.map(file => {
-                    const rawName = file.name.toLowerCase();
-                    
-                    // Detect Quality
-                    let quality = 'Auto';
-                    if (rawName.includes('2160p') || rawName.includes('4k')) quality = '4K';
-                    else if (rawName.includes('1080p')) quality = '1080p';
-                    else if (rawName.includes('720p')) quality = '720p';
-                    else if (rawName.includes('480p')) quality = '480p';
+                // 4. Sort files by quality (highest first)
+                const rank = { '4K': 4, '1080p': 3, '720p': 2, '480p': 1, 'Auto': 0 };
+                foundFiles.sort((a, b) => (rank[b.quality] || 0) - (rank[a.quality] || 0));
 
-                    // Detect Language
-                    let language = 'Unknown';
-                    if (rawName.includes('dual') || rawName.includes('multi')) language = 'Dual Audio';
-                    else if (rawName.includes('hin') || rawName.includes('hindi')) language = 'Hindi';
-                    else if (rawName.includes('eng') || rawName.includes('english')) language = 'English';
-
-                    return { url: file.url, quality, language, rawName: file.name, source: 'Direct Directory' };
-                });
-
-                // Sort by Quality (Best First)
-                mappedSources.sort((a, b) => {
-                    const ranks = { '4K': 4, '1080p': 3, '720p': 2, '480p': 1, 'Auto': 0 };
-                    return (ranks[b.quality] || 0) - (ranks[a.quality] || 0);
-                });
-
-                setSources(mappedSources);
+                setSources(foundFiles);
                 
-                // Lock Defaults
-                const defaultSource = mappedSources[0];
+                // 5. Setup defaults
+                const defaultSource = foundFiles[0];
                 const isDual = defaultSource.language === 'Dual Audio';
                 
-                // Browsers default to Hindi (Track 1) for Dual Audio files, so we sync the UI
                 setCurrentUrlLanguage(isDual ? 'Hindi' : defaultSource.language);
                 setCurrentUrlQuality(defaultSource.quality);
                 
-                loadStream(defaultSource.url);
+                // CRITICAL: Feed the RAW URL (no proxy) directly to the player
+                loadStreamDirectly(defaultSource.url);
 
             } catch (err) {
-                setError(err.message || "Failed to initialize directory stream.");
+                setError(err.message || "Failed to locate stream.");
                 setLoading(false);
             }
         };
 
-        if (tmdbId) scrapeOpenDirectory();
+        if (tmdbId) scrapeDirectDirectory();
 
         return () => clearTimeout(controlsTimeoutRef.current);
     }, [tmdbId, mediaType, season, episode]);
 
-    const loadStream = (rawUrl) => {
+    const loadStreamDirectly = (directUrl) => {
         const video = videoRef.current;
         if (!video) return;
         
         setError(null);
         setLoading(true);
+        setCurrentUrl(directUrl);
         
-        // HUGE FIX: We pass the raw directory URL directly into the video element.
-        // This bypasses Vercel's proxy size limits and CORS completely!
-        video.src = rawUrl;
-        setCurrentUrl(rawUrl);
+        // We pass the raw URL. Open directories generally do not have CORS limits on direct media streaming.
+        video.src = directUrl;
         
         const onMeta = () => {
             setLoading(false);
@@ -183,7 +184,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         
         const onErr = () => {
             video.removeEventListener('loadedmetadata', onMeta);
-            setError(`Playback Error: The browser failed to decode this file. It may be corrupted or in an unsupported format.`);
+            setError(`Playback Error: The browser failed to decode this file format (${directUrl.split('.').pop()}). Try another quality or browser.`);
             setLoading(false);
         };
 
@@ -198,11 +199,11 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             if (src.language === 'Dual Audio') { langs.add('Hindi'); langs.add('English'); }
             else if (src.language !== 'Unknown') { langs.add(src.language); }
         });
-        if (langs.size === 0) langs.add('Default Audio');
+        if (langs.size === 0) langs.add('Default');
         return Array.from(langs);
     }, [sources]);
 
-    let displayAudioOptions = urlLanguages.map(l => ({ id: l, label: l, isNative: false }));
+    let displayAudioOptions = urlLanguages.map(l => ({ id: l, label: l }));
     const currentAudioLabel = currentUrlLanguage;
 
     const urlQualities = [...new Set(sources.map(s => s.quality))];
@@ -213,11 +214,12 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     const selectAudio = (opt) => {
         setActivePanel('none');
         
-        // 1. Check if an alternate file exists exclusively for that language
+        // Browsers cannot dynamically switch tracks inside a single MKV file using JS.
+        // We must find a completely separate video file in the directory that matches the selected language.
         const pureStreams = sources.filter(s => s.language.toLowerCase() === opt.id.toLowerCase());
         let targetStream = pureStreams.find(s => s.quality === currentUrlQuality) || pureStreams[0];
         
-        // 2. If no pure stream, try finding a dual audio file
+        // If no pure stream, try finding a dual audio file
         if (!targetStream) {
             const dualStreams = sources.filter(s => s.language === 'Dual Audio');
             targetStream = dualStreams.find(s => s.quality === currentUrlQuality) || dualStreams[0];
@@ -225,11 +227,11 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         
         if (targetStream && targetStream.url !== currentUrl) {
             setCurrentUrlLanguage(opt.id);
-            setCurrentUrlQuality(targetStream.quality || 'Auto');
-            loadStream(targetStream.url);
+            setCurrentUrlQuality(targetStream.quality);
+            loadStreamDirectly(targetStream.url);
         } else {
-            setCurrentUrlLanguage(opt.id); // Update UI to reflect click
-            showToast(`Browser Limitation: Web browsers cannot switch embedded audio tracks inside a single MKV/MP4 file. Track 1 will continue playing.`);
+            setCurrentUrlLanguage(opt.id); 
+            showToast(`Browser Limitation: Browsers cannot switch embedded audio tracks inside a single file. Track 1 will continue playing.`);
         }
     };
 
@@ -243,7 +245,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         if (match && match.url !== currentUrl) {
             setLoading(true);
             setCurrentUrlQuality(match.quality);
-            loadStream(match.url);
+            loadStreamDirectly(match.url);
         }
     };
 
@@ -396,7 +398,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 .radio-circle.selected { border-color: var(--accent-blue); background: var(--accent-blue); }
                 .radio-circle.selected::after { content: ''; width: 8px; height: 8px; background: #fff; border-radius: 50%; }
                 .radio-label { font-size: 15px; font-weight: 500; text-transform: capitalize; }
-                
+
                 .quality-option { display: flex; align-items: flex-start; padding: 14px 20px; cursor: pointer; transition: background 0.12s; border-bottom: 1px solid var(--panel-border); gap: 14px; }
                 .quality-option:hover { background: var(--hover-bg); }
                 .quality-option.selected { background: rgba(255,255,255,0.95); border-radius: 6px; margin: 4px; }
@@ -409,7 +411,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 #volume-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; background: #fff; border-radius: 50%; cursor: pointer; }
             `}</style>
 
-            {/* WARNING TOAST FOR MKV BROWSER LIMITATIONS */}
             {toastMessage && (
                 <div style={{
                     position: 'absolute', top: '80px', left: '50%', transform: 'translateX(-50%)',
@@ -424,7 +425,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             {loading && (
                 <div style={{position:'absolute', inset:0, zIndex:5, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,0.6)'}}>
                     <div style={{width:'40px', height:'40px', border:'3px solid rgba(255,255,255,0.3)', borderTopColor:'#1a98ff', borderRadius:'50%', animation:'spin 1s linear infinite'}} />
-                    <p style={{color:'#fff', marginTop:'16px', fontSize:'14px', fontWeight:'bold', letterSpacing:'1px'}}>Locating Directory File...</p>
+                    <p style={{color:'#fff', marginTop:'16px', fontSize:'14px', fontWeight:'bold', letterSpacing:'1px'}}>Locating Files...</p>
                 </div>
             )}
 
@@ -437,8 +438,12 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             )}
 
             <div id="video-area" onClick={togglePlay}>
+                {/* Raw MKV/MP4 links fed directly to the browser.
+                    We use crossorigin="anonymous" to handle external server requests smoothly.
+                */}
                 <video 
                     ref={videoRef}
+                    crossOrigin="anonymous"
                     onPlay={() => setIsPlaying(true)}
                     onPause={() => setIsPlaying(false)}
                     onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime || 0)}
@@ -486,7 +491,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 </div>
             </div>
 
-            {/* BOTTOM CONTROLS UI */}
             <div id="controls" className={`fade-transition ${showControls || activePanel !== 'none' ? 'visible-controls' : 'hidden-controls'}`}>
                 <div id="scrubber-container">
                     <span id="time-current">{formatTime(currentTime)}</span>
@@ -535,7 +539,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                         <rect x="2" y="6" width="4" height="12" rx="1"/><rect x="8" y="3" width="4" height="18" rx="1"/><rect x="14" y="8" width="4" height="10" rx="1"/>
                     </svg>
-                    <span className="settings-row-label">Audio</span>
+                    <span className="settings-row-label">Audio Languages</span>
                     <span className="settings-row-value">{currentAudioLabel} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
                 </div>
                 <div className="settings-row" onClick={() => setActivePanel('quality')}>
