@@ -1,6 +1,6 @@
 // frontend/src/PrimePlayer.jsx
-// Architecture inspired by UltraStream — direct DOM control, portal rendering,
-// no wrapper divs that block pointer events, HLS.js managed imperatively.
+// Pure React rewrite — all panels rendered with JSX and direct onClick handlers.
+// No innerHTML, no global window functions, no pointer-events hacks.
 
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -289,79 +289,81 @@ const SVG = {
 export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', season = 1, episode = 1, onClose }) {
   const navigate = useNavigate();
 
-  // All DOM refs — we talk to the DOM directly, UltraStream style
-  const rootRef    = useRef(null);
-  const videoRef   = useRef(null);
-  const seekRef    = useRef(null);
+  // DOM refs
+  const rootRef     = useRef(null);
+  const videoRef    = useRef(null);
+  const seekRef     = useRef(null);
   const volTrackRef = useRef(null);
-  const hlsRef     = useRef(null);
-  const ctrlTimer  = useRef(null);
-  const streamsRef = useRef([]);
-  const curIdxRef  = useRef(0);
-  const resumedRef = useRef(false);
-  const cleanupRef = useRef(null);
-  const dragVolRef = useRef(false);
+  const hlsRef      = useRef(null);
+  const ctrlTimer   = useRef(null);
+  const resumedRef  = useRef(false);
+  const cleanupRef  = useRef(null);
+  const dragVolRef  = useRef(false);
 
-  // Minimal React state — only what needs to trigger re-renders
-  const [ready, setReady] = useState(false); // portal is mounted
+  // Refs that mirror state for use inside async callbacks / HLS event handlers
+  const streamsRef  = useRef([]);
+  const curIdxRef   = useRef(0);
 
+  // ── React state ─────────────────────────────────────────────────────────────
+  const [ready,        setReady]        = useState(false);
+  const [streams,      setStreams]      = useState([]);   // full stream list from API
+  const [hlsTracks,    setHlsTracks]    = useState([]);   // HLS built-in audio tracks
+  const [hlsActiveTrack, setHlsActiveTrack] = useState(0);
+  const [curIdx,       setCurIdx]       = useState(0);    // currently playing stream index
+  const [spinnerVisible, setSpinnerVisible] = useState(true);
+  const [spinnerLabel,   setSpinnerLabel]   = useState('');
+  const [errorMsg,     setErrorMsg]     = useState(null);
+  const [langOpen,     setLangOpen]     = useState(false);
+  const [allOpen,      setAllOpen]      = useState(false);
+  const [volOpen,      setVolOpen]      = useState(false);
+  const [titleText,    setTitleText]    = useState(title);
+  const [subtitleText, setSubtitleText] = useState('');
+  const [nextEpFn,     setNextEpFn]     = useState(null); // function | null
+  const [playing,      setPlaying]      = useState(false);
+  const [muted,        setMuted]        = useState(false);
+  const [volumePct,    setVolumePct]    = useState(100);  // 0-100 for display
+
+  // ── Mount / unmount ──────────────────────────────────────────────────────────
   useEffect(() => {
     injectCSS();
     setReady(true);
     return () => {
-      // Full cleanup on unmount
       cleanupRef.current?.();
       hlsRef.current?.destroy();
       clearTimeout(ctrlTimer.current);
     };
   }, []);
 
-  // ── Everything below runs imperatively on the real DOM ──────────────────────
-  // This is the UltraStream approach: React renders the shell,
-  // JS functions mutate DOM nodes directly — zero re-render overhead,
-  // zero pointer-events issues, zero stale closure bugs.
-
   function getEl(id) { return document.getElementById(id); }
 
   // ── Controls show/hide ──────────────────────────────────────────────────────
   function showControls() {
     const top = getEl('us-top'), ctr = getEl('us-center'), bot = getEl('us-bottom');
-    const gt = getEl('us-grad-top'), gb = getEl('us-grad-bot');
+    const gt  = getEl('us-grad-top'), gb = getEl('us-grad-bot');
     if (top) top.style.opacity = '1';
     if (ctr) ctr.style.opacity = '1';
     if (bot) bot.style.opacity = '1';
-    if (gt) gt.style.opacity = '1';
-    if (gb) gb.style.opacity = '1';
+    if (gt)  gt.style.opacity  = '1';
+    if (gb)  gb.style.opacity  = '1';
     clearTimeout(ctrlTimer.current);
     ctrlTimer.current = setTimeout(hideControls, 3500);
   }
 
   function hideControls() {
-    // Don't hide if a panel is open
-    if (document.querySelector('.us-panel.open, .us-vol-pop.open')) {
-      showControls(); return;
-    }
+    if (langOpen || allOpen || volOpen) { showControls(); return; }
     const top = getEl('us-top'), ctr = getEl('us-center'), bot = getEl('us-bottom');
-    const gt = getEl('us-grad-top'), gb = getEl('us-grad-bot');
+    const gt  = getEl('us-grad-top'), gb = getEl('us-grad-bot');
     if (top) top.style.opacity = '0';
     if (ctr) ctr.style.opacity = '0';
     if (bot) bot.style.opacity = '0';
-    if (gt) gt.style.opacity = '0';
-    if (gb) gb.style.opacity = '0';
-  }
-
-  // ── Panel toggle ────────────────────────────────────────────────────────────
-  function togglePanel(id) {
-    const target = getEl(id);
-    const isOpen = target?.classList.contains('open');
-    // Close all panels and vol pop
-    document.querySelectorAll('.us-panel, .us-vol-pop').forEach(p => p.classList.remove('open'));
-    if (!isOpen) target?.classList.add('open');
-    showControls();
+    if (gt)  gt.style.opacity  = '0';
+    if (gb)  gb.style.opacity  = '0';
   }
 
   function closeAllPanels() {
-    document.querySelectorAll('.us-panel, .us-vol-pop').forEach(p => p.classList.remove('open'));
+    setLangOpen(false);
+    setAllOpen(false);
+    setVolOpen(false);
   }
 
   // ── Seek bar ────────────────────────────────────────────────────────────────
@@ -377,12 +379,12 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     const bar = seekRef.current; if (!bar) return;
     const vid = videoRef.current; if (!vid || !vid.duration) return;
     const pct = (e.clientX - bar.getBoundingClientRect().left) / bar.offsetWidth;
-    const t = Math.max(0, Math.min(1, pct)) * vid.duration;
+    const t   = Math.max(0, Math.min(1, pct)) * vid.duration;
     const tip = getEl('us-seek-tip');
     if (tip) {
       const x = Math.max(26, Math.min(e.clientX - bar.getBoundingClientRect().left, bar.offsetWidth - 26));
-      tip.style.left = x + 'px';
-      tip.textContent = fmt(t);
+      tip.style.left   = x + 'px';
+      tip.textContent  = fmt(t);
       tip.classList.remove('hidden');
     }
   }
@@ -394,86 +396,60 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
   // ── Volume ──────────────────────────────────────────────────────────────────
   function setVolFromY(e) {
     const track = volTrackRef.current; if (!track) return;
-    const rect = track.getBoundingClientRect();
-    const pct = 1 - Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
-    const vid = videoRef.current; if (!vid) return;
-    vid.volume = pct; vid.muted = pct === 0;
-    updateVolUI(pct, vid.muted);
+    const rect  = track.getBoundingClientRect();
+    const pct   = 1 - Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    const vid   = videoRef.current; if (!vid) return;
+    vid.volume  = pct;
+    vid.muted   = pct === 0;
+    setMuted(pct === 0);
+    setVolumePct(Math.round(pct * 100));
+    updateVolSlider(pct, pct === 0);
   }
 
-  function updateVolUI(vol, muted) {
+  function updateVolSlider(vol, isMuted) {
     const fill = getEl('us-vol-fill'), knob = getEl('us-vol-knob');
-    const label = getEl('us-vol-label'), btn = getEl('us-vol-btn');
-    const pct = muted ? 0 : vol;
+    const pct  = isMuted ? 0 : vol;
     if (fill) fill.style.height = (pct * 100) + '%';
     if (knob) knob.style.bottom = (pct * 100) + '%';
-    if (label) label.textContent = Math.round(pct * 100);
-    if (btn) btn.innerHTML = (muted || vol === 0) ? SVG.volx : vol < 0.5 ? SVG.volmid : SVG.volhi;
   }
 
-  // ── Stream loading ──────────────────────────────────────────────────────────
-  function updateStreamUI(stream) {
-    // Update pills
-    const pills = getEl('us-pills');
-    if (pills && stream) {
-      pills.innerHTML = [
-        stream.language ? `<span class="us-pill lang">${flagFor(stream.language)} ${stream.language}</span>` : '',
-        stream.quality  ? `<span class="us-pill">${stream.quality}</span>` : '',
-        stream.source   ? `<span class="us-pill">${stream.source}</span>` : '',
-      ].join('');
-    }
+  // ── Spinner / error helpers ──────────────────────────────────────────────────
+  function showSpinner(label = '') {
+    setSpinnerVisible(true);
+    setSpinnerLabel(label);
+    setErrorMsg(null);
   }
 
-  function setSpinner(visible, label = '') {
-    const el = getEl('us-spinner');
-    if (!el) return;
-    el.classList.toggle('hidden', !visible);
-    const lbl = getEl('us-spinner-label');
-    if (lbl) lbl.textContent = label;
+  function hideSpinner() {
+    setSpinnerVisible(false);
   }
 
-  function setError(msg) {
-    const el = getEl('us-error');
-    if (!el) return;
-    el.classList.remove('hidden');
-    const msgEl = getEl('us-error-msg');
-    if (msgEl) msgEl.textContent = msg;
-    setSpinner(false);
-  }
-
-  function clearError() {
-    getEl('us-error')?.classList.add('hidden');
+  function showError(msg) {
+    setErrorMsg(msg);
+    setSpinnerVisible(false);
   }
 
   // ── Core: load a stream by index ────────────────────────────────────────────
-  // Direct DOM + imperative HLS control — exactly like UltraStream's playStream()
   function loadStream(idx) {
     const list = streamsRef.current;
-    if (!list?.length)      { setError('No streams available.'); return; }
-    if (idx >= list.length) { setError('All streams failed. Please go back and try again.'); return; }
+    if (!list?.length)      { showError('No streams available.'); return; }
+    if (idx >= list.length) { showError('All streams failed. Please go back and try again.'); return; }
 
     cleanupRef.current?.(); cleanupRef.current = null;
     hlsRef.current?.destroy(); hlsRef.current = null;
 
     const stream = list[idx];
     curIdxRef.current = idx;
-    clearError();
-    setSpinner(true, `${stream.source} · ${stream.quality} · ${stream.language}`);
-    updateStreamUI(stream);
-
-    // Highlight active row in panels
-    document.querySelectorAll('.us-panel-row[data-idx]').forEach(r => {
-      r.classList.toggle('on', parseInt(r.dataset.idx) === idx);
-      const check = r.querySelector('[data-check]');
-      if (check) check.innerHTML = parseInt(r.dataset.idx) === idx ? SVG.check : '';
-    });
+    setCurIdx(idx);
+    setHlsTracks([]);     // clear HLS tracks until new manifest parsed
+    setErrorMsg(null);
+    showSpinner(`${stream.source} · ${stream.quality} · ${stream.language}`);
 
     const vid = videoRef.current; if (!vid) return;
     vid.pause(); vid.removeAttribute('src'); vid.load();
 
     const tryNext = () => loadStream(idx + 1);
 
-    // Resume logic
     function tryResume() {
       if (resumedRef.current) return;
       resumedRef.current = true;
@@ -491,22 +467,31 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       hls.loadSource(stream.url);
       hls.attachMedia(vid);
 
-      hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
-        setSpinner(false);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        hideSpinner();
         vid.volume = 1; vid.muted = false;
+        setMuted(false); setVolumePct(100);
+        updateVolSlider(1, false);
         tryResume();
         vid.play().catch(() => { vid.muted = true; vid.play(); });
 
-        // Populate lang panel from HLS audio tracks
-        populateLangPanel(hls.audioTracks?.map((t, i) => ({
-          language: t.lang || t.name, label: t.name || t.lang, idx: i, isHls: true
-        })) || []);
+        const tracks = (hls.audioTracks || []).map((t, i) => ({
+          language: t.lang || t.name, label: t.name || t.lang, idx: i,
+        }));
+        if (tracks.length) {
+          setHlsTracks(tracks);
+          setHlsActiveTrack(0);
+        }
       });
 
       hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (_, data) => {
-        populateLangPanel((data.audioTracks || []).map((t, i) => ({
-          language: t.lang || t.name, label: t.name || t.lang, idx: i, isHls: true
-        })));
+        const tracks = (data.audioTracks || []).map((t, i) => ({
+          language: t.lang || t.name, label: t.name || t.lang, idx: i,
+        }));
+        if (tracks.length) {
+          setHlsTracks(tracks);
+          setHlsActiveTrack(hls.audioTrack ?? 0);
+        }
       });
 
       hls.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) tryNext(); });
@@ -516,8 +501,11 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     // MP4 / direct
     let stall = setTimeout(tryNext, 14000);
     const onOk = () => {
-      clearTimeout(stall); setSpinner(false);
+      clearTimeout(stall);
+      hideSpinner();
       vid.volume = 1; vid.muted = false;
+      setMuted(false); setVolumePct(100);
+      updateVolSlider(1, false);
       tryResume();
       vid.play().catch(() => { vid.muted = true; vid.play(); });
     };
@@ -528,129 +516,32 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     cleanupRef.current = () => {
       clearTimeout(stall);
       vid.removeEventListener('canplay', onOk);
-      vid.removeEventListener('error', onErr);
+      vid.removeEventListener('error',   onErr);
     };
   }
 
-  // ── Build language panel from stream list ────────────────────────────────────
-  function buildStreamPanels(streams) {
-    // Unique languages
-    const seen = new Set();
-    const langs = streams.filter(s => {
-      if (seen.has(s.language)) return false;
-      seen.add(s.language); return true;
-    }).map(s => s.language);
+  // ── Language / quality / stream selection handlers ───────────────────────────
+  function selectLang(lang) {
+    closeAllPanels(); showControls();
+    const list = streamsRef.current; if (!list.length) return;
+    const cur  = list[curIdxRef.current];
+    let idx = list.findIndex(s => s.language === lang && s.quality === cur?.quality);
+    if (idx === -1) idx = list.findIndex(s => s.language === lang);
+    if (idx !== -1) loadStream(idx);
+  }
 
-    const langPanel = getEl('us-lang-body');
-    if (langPanel) {
-      langPanel.innerHTML = langs.map((lang, _) => {
-        const qCount = streams.filter(s => s.language === lang).length;
-        const isOn = streams[0]?.language === lang;
-        return `
-          <div class="us-panel-row${isOn ? ' on' : ''}" data-lang="${lang}"
-               onclick="window.__usSelectLang('${lang}')">
-            <span data-check>${isOn ? SVG.check : ''}</span>
-            <span class="us-flag">${flagFor(lang)}</span>
-            <span style="flex:1">${lang}</span>
-            <span class="us-panel-badge">${qCount} ${qCount===1?'quality':'qualities'}</span>
-          </div>`;
-      }).join('');
+  function selectStream(idx) {
+    closeAllPanels(); showControls();
+    loadStream(idx);
+  }
 
-      // Quality section for current language
-      buildQualitySection(streams, streams[0]?.language);
+  function switchHlsAudio(trackIdx) {
+    if (hlsRef.current) {
+      hlsRef.current.audioTrack = trackIdx;
+      setHlsActiveTrack(trackIdx);
     }
-
-    // All streams panel
-    const allPanel = getEl('us-all-body');
-    if (allPanel) {
-      allPanel.innerHTML = streams.map((s, i) => `
-        <div class="us-panel-row${i===0?' on':''}" data-idx="${i}"
-             onclick="window.__usSelectStream(${i})">
-          <span data-check>${i===0 ? SVG.check : ''}</span>
-          <span class="us-flag">${flagFor(s.language)}</span>
-          <div style="flex:1;min-width:0">
-            <span style="display:block">${s.language} · ${s.quality}</span>
-            <span style="color:rgba(255,255,255,.3);font-size:11px;display:block;
-                         overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-              ${s.source} · ${s.type?.toUpperCase()}${s.rawName ? ' · ' + s.rawName.slice(0,30) : ''}
-            </span>
-          </div>
-        </div>`).join('');
-    }
+    closeAllPanels(); showControls();
   }
-
-  function buildQualitySection(streams, activeLang) {
-    const sec = getEl('us-quality-sec');
-    if (!sec) return;
-    const forLang = streams.map((s, i) => ({...s, idx: i})).filter(s => s.language === activeLang);
-    if (forLang.length <= 1) { sec.classList.add('hidden'); return; }
-    sec.classList.remove('hidden');
-    const lbl = getEl('us-quality-lbl');
-    if (lbl) lbl.textContent = `Quality — ${activeLang}`;
-    const body = getEl('us-quality-body');
-    if (body) {
-      body.innerHTML = forLang.map(s => `
-        <div class="us-panel-row${curIdxRef.current===s.idx?' on':''}" data-idx="${s.idx}"
-             onclick="window.__usSelectStream(${s.idx})">
-          <span data-check>${curIdxRef.current===s.idx ? SVG.check : ''}</span>
-          <span class="us-flag" style="font-size:13px">🎬</span>
-          <span style="flex:1">${s.quality}</span>
-          <span class="us-panel-badge">${s.source.split(' ')[0]}</span>
-        </div>`).join('');
-    }
-  }
-
-  function populateLangPanel(hlsTracks) {
-    // Called when HLS provides its own audio tracks
-    const langPanel = getEl('us-lang-body');
-    if (!langPanel || !hlsTracks.length) return;
-    langPanel.innerHTML = hlsTracks.map((t, i) => `
-      <div class="us-panel-row${i===0?' on':''}"
-           onclick="window.__usHlsAudio(${i}, '${t.label}')">
-        <span data-check>${i===0 ? SVG.check : ''}</span>
-        <span class="us-flag">${flagFor(t.language)}</span>
-        <span style="flex:1">${t.label || t.language}</span>
-      </div>`).join('');
-    getEl('us-quality-sec')?.classList.add('hidden');
-  }
-
-  // ── Expose callbacks to DOM onclick handlers ─────────────────────────────────
-  // UltraStream uses inline onclick in innerHTML — we wire them to window functions
-  useEffect(() => {
-    if (!ready) return;
-
-    window.__usSelectLang = (lang) => {
-      closeAllPanels(); showControls();
-      const list = streamsRef.current; if (!list.length) return;
-      const cur  = list[curIdxRef.current];
-      let idx = list.findIndex(s => s.language === lang && s.quality === cur?.quality);
-      if (idx === -1) idx = list.findIndex(s => s.language === lang);
-      if (idx !== -1) { buildQualitySection(list, lang); loadStream(idx); }
-    };
-
-    window.__usSelectStream = (idx) => {
-      closeAllPanels(); showControls();
-      loadStream(idx);
-    };
-
-    window.__usHlsAudio = (idx, label) => {
-      if (hlsRef.current) {
-        hlsRef.current.audioTrack = idx;
-        document.querySelectorAll('#us-lang-body .us-panel-row').forEach((r, i) => {
-          r.classList.toggle('on', i === idx);
-          const check = r.querySelector('[data-check]');
-          if (check) check.innerHTML = i === idx ? SVG.check : '';
-        });
-      }
-      closeAllPanels(); showControls();
-    };
-
-    return () => {
-      delete window.__usSelectLang;
-      delete window.__usSelectStream;
-      delete window.__usHlsAudio;
-    };
-  }, [ready]);
 
   // ── Fetch streams on mount ───────────────────────────────────────────────────
   useEffect(() => {
@@ -658,51 +549,44 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     let cancelled = false;
     resumedRef.current = false;
     streamsRef.current = [];
-    curIdxRef.current = 0;
+    curIdxRef.current  = 0;
+    setStreams([]);
+    setHlsTracks([]);
+    setCurIdx(0);
 
-    // Set title
+    // Fetch title from TMDB
     fetch(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_KEY}`)
       .then(r => r.json()).then(d => {
-        if (!cancelled) {
-          const t = getEl('us-title');
-          if (t) t.textContent = d.title || d.name || title;
-        }
+        if (!cancelled) setTitleText(d.title || d.name || title);
       }).catch(() => {});
 
-    // Set episode info
+    // Fetch episode info for TV
     if (mediaType === 'tv') {
       fetch(`https://api.themoviedb.org/3/tv/${tmdbId}/season/${season}?api_key=${TMDB_KEY}`)
         .then(r => r.json()).then(d => {
           if (cancelled) return;
           const ep = (d.episodes || []).find(e => e.episode_number == episode);
-          const sub = getEl('us-subtitle');
-          if (sub) sub.textContent = `S${season} E${episode}${ep?.name ? ` — ${ep.name}` : ''}`;
+          setSubtitleText(`S${season} E${episode}${ep?.name ? ` — ${ep.name}` : ''}`);
           const nx = (d.episodes || []).find(e => e.episode_number == Number(episode) + 1);
-          const nextBtn = getEl('us-next');
-          if (nextBtn) {
-            if (nx) {
-              nextBtn.classList.remove('hidden');
-              nextBtn.onclick = () => navigate(`/watch/tv/${tmdbId}?season=${season}&episode=${Number(episode)+1}`, { replace: true });
-            } else {
-              nextBtn.classList.add('hidden');
-            }
-          }
+          setNextEpFn(nx
+            ? () => () => navigate(`/watch/tv/${tmdbId}?season=${season}&episode=${Number(episode)+1}`, { replace: true })
+            : null);
         }).catch(() => {});
     }
 
     // Fetch streams
-    setSpinner(true, 'Finding streams…');
+    showSpinner('Finding streams…');
     fetch(`/api/multi-stream?${new URLSearchParams({ tmdbId, type: mediaType, season: String(season), episode: String(episode) })}`)
       .then(r => r.json()).then(data => {
         if (cancelled) return;
-        if (!data.success || !data.streams?.length) { setError(data.error || 'No streams found.'); return; }
+        if (!data.success || !data.streams?.length) { showError(data.error || 'No streams found.'); return; }
         streamsRef.current = data.streams;
-        buildStreamPanels(data.streams);
+        setStreams(data.streams);
         loadStream(0);
-      }).catch(err => { if (!cancelled) setError('Fetch failed: ' + err.message); });
+      }).catch(err => { if (!cancelled) showError('Fetch failed: ' + err.message); });
 
     return () => { cancelled = true; };
-  }, [tmdbId, mediaType, season, episode, ready]);
+  }, [tmdbId, mediaType, season, episode, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Video event listeners ────────────────────────────────────────────────────
   useEffect(() => {
@@ -711,14 +595,13 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
 
     const onTimeUpdate = () => {
       if (!vid.duration) return;
-      const pct = (vid.currentTime / vid.duration) * 100;
-      const play = getEl('us-seek-play'), thumb = getEl('us-seek-thumb');
-      if (play)  play.style.width  = pct + '%';
-      if (thumb) thumb.style.left  = pct + '%';
-      const time = getEl('us-time-cur');
-      const dur  = getEl('us-time-dur');
-      if (time) time.textContent = fmt(vid.currentTime);
-      if (dur)  dur.textContent  = ' / ' + fmt(vid.duration);
+      const pct   = (vid.currentTime / vid.duration) * 100;
+      const play  = getEl('us-seek-play'), thumb = getEl('us-seek-thumb');
+      if (play)  play.style.width = pct + '%';
+      if (thumb) thumb.style.left = pct + '%';
+      const timeCur = getEl('us-time-cur'), timeDur = getEl('us-time-dur');
+      if (timeCur) timeCur.textContent = fmt(vid.currentTime);
+      if (timeDur) timeDur.textContent = ' / ' + fmt(vid.duration);
     };
 
     const onProgress = () => {
@@ -728,34 +611,33 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       }
     };
 
-    const onPlay  = () => { setSpinner(false); getEl('us-play-btn')?.setAttribute('data-playing', '1'); updatePlayBtn(); };
-    const onPause = () => { getEl('us-play-btn')?.removeAttribute('data-playing'); updatePlayBtn(); };
-    const onVolCh = () => updateVolUI(vid.volume, vid.muted);
+    const onPlay  = () => { hideSpinner(); setPlaying(true);  };
+    const onPause = () => { setPlaying(false); };
+    const onVolCh = () => {
+      setMuted(vid.muted);
+      const v = vid.muted ? 0 : vid.volume;
+      setVolumePct(Math.round(v * 100));
+      updateVolSlider(vid.volume, vid.muted);
+    };
 
-    function updatePlayBtn() {
-      const btn = getEl('us-play-btn');
-      if (!btn) return;
-      btn.innerHTML = vid.paused ? SVG.play : SVG.pause;
-    }
-
-    vid.addEventListener('timeupdate',     onTimeUpdate);
-    vid.addEventListener('progress',       onProgress);
-    vid.addEventListener('play',           onPlay);
-    vid.addEventListener('pause',          onPause);
-    vid.addEventListener('playing',        onPlay);
-    vid.addEventListener('volumechange',   onVolCh);
+    vid.addEventListener('timeupdate',   onTimeUpdate);
+    vid.addEventListener('progress',     onProgress);
+    vid.addEventListener('play',         onPlay);
+    vid.addEventListener('playing',      onPlay);
+    vid.addEventListener('pause',        onPause);
+    vid.addEventListener('volumechange', onVolCh);
 
     return () => {
       vid.removeEventListener('timeupdate',   onTimeUpdate);
       vid.removeEventListener('progress',     onProgress);
       vid.removeEventListener('play',         onPlay);
-      vid.removeEventListener('pause',        onPause);
       vid.removeEventListener('playing',      onPlay);
+      vid.removeEventListener('pause',        onPause);
       vid.removeEventListener('volumechange', onVolCh);
     };
-  }, [ready]);
+  }, [ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Keyboard shortcuts (UltraStream style) ───────────────────────────────────
+  // ── Keyboard shortcuts ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!ready) return;
     const vid = videoRef.current;
@@ -767,7 +649,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
         case 'ArrowRight':  e.preventDefault(); if (vid) vid.currentTime += 10; break;
         case 'ArrowUp':     e.preventDefault(); if (vid) { vid.volume = Math.min(1, vid.volume + .1); vid.muted = false; } break;
         case 'ArrowDown':   e.preventDefault(); if (vid) vid.volume = Math.max(0, vid.volume - .1); break;
-        case 'm':           if (vid) { vid.muted = !vid.muted; } break;
+        case 'm':           if (vid) vid.muted = !vid.muted; break;
         case 'f':           document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen(); break;
         case 'Escape':      onClose?.(); break;
       }
@@ -775,9 +657,9 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [ready, onClose]);
+  }, [ready, onClose]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Volume drag (global mousemove) ───────────────────────────────────────────
+  // ── Volume drag (global mouse events) ───────────────────────────────────────
   useEffect(() => {
     if (!ready) return;
     const onMove = e => { if (dragVolRef.current) setVolFromY(e); };
@@ -785,14 +667,28 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup',   onUp);
     return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-  }, [ready]);
+  }, [ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Render the portal ────────────────────────────────────────────────────────
+  // ── Derived display values ───────────────────────────────────────────────────
+  const currentStream  = streams[curIdx];
+  const activeLang     = currentStream?.language;
+
+  // Unique languages from stream list (for language panel when no HLS tracks)
+  const uniqueLangs = [...new Set(streams.map(s => s.language))];
+
+  // Quality options for the active language
+  const qualityOptions = streams
+    .map((s, i) => ({ ...s, idx: i }))
+    .filter(s => s.language === activeLang);
+
+  // Volume icon based on state
+  const volIcon = (muted || volumePct === 0) ? SVG.volx : volumePct < 50 ? SVG.volmid : SVG.volhi;
+
+  // ── Render ───────────────────────────────────────────────────────────────────
   if (!ready) return null;
 
   const playerHTML = (
-    <div id="us-player" ref={rootRef} onMouseMove={showControls}
-         onClick={closeAllPanels}>
+    <div id="us-player" ref={rootRef} onMouseMove={showControls} onClick={closeAllPanels}>
 
       {/* VIDEO */}
       <video id="us-video" ref={videoRef} playsInline preload="metadata"
@@ -805,18 +701,20 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       />
 
       {/* SPINNER */}
-      <div id="us-spinner" className="us-spinner">
+      <div id="us-spinner" className={`us-spinner${spinnerVisible ? '' : ' hidden'}`}>
         <div className="us-spinner-ring" />
-        <span id="us-spinner-label" className="us-spinner-label" />
+        <span className="us-spinner-label">{spinnerLabel}</span>
       </div>
 
       {/* ERROR */}
-      <div id="us-error" className="us-error hidden">
-        <div className="us-error-icon">⚠️</div>
-        <div className="us-error-title">No Playable Streams Found</div>
-        <div id="us-error-msg" className="us-error-msg" />
-        <button className="us-error-back" onClick={onClose}>← Go Back</button>
-      </div>
+      {errorMsg && (
+        <div className="us-error">
+          <div className="us-error-icon">⚠️</div>
+          <div className="us-error-title">No Playable Streams Found</div>
+          <div className="us-error-msg">{errorMsg}</div>
+          <button className="us-error-back" onClick={onClose}>← Go Back</button>
+        </div>
+      )}
 
       {/* GRADIENT OVERLAYS */}
       <div id="us-grad-top" className="us-grad-top" />
@@ -825,69 +723,150 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       {/* ── TOP BAR ── */}
       <div id="us-top" className="us-top" onClick={e => e.stopPropagation()}>
         <div className="us-top-inner">
+
+          {/* Title area */}
           <div className="us-title-col">
-            <span id="us-title" className="us-title">{title}</span>
-            {mediaType === 'tv' && <span id="us-subtitle" className="us-subtitle" />}
-            <div id="us-pills" className="us-pills" />
+            <span className="us-title">{titleText}</span>
+            {mediaType === 'tv' && subtitleText && (
+              <span className="us-subtitle">{subtitleText}</span>
+            )}
+            {/* Stream pills */}
+            {currentStream && (
+              <div className="us-pills">
+                {currentStream.language && (
+                  <span className="us-pill lang">{flagFor(currentStream.language)} {currentStream.language}</span>
+                )}
+                {currentStream.quality && <span className="us-pill">{currentStream.quality}</span>}
+                {currentStream.source  && <span className="us-pill">{currentStream.source}</span>}
+              </div>
+            )}
           </div>
 
           <div className="us-btns">
 
-            {/* LANGUAGE */}
+            {/* LANGUAGE / QUALITY PANEL */}
             <div className="us-panel-wrap">
-              <button id="us-lang-btn" className="us-btn accent"
-                title="Audio Language"
-                onClick={e => { e.stopPropagation(); togglePanel('us-lang-panel'); }}>
+              <button className="us-btn accent" title="Audio Language"
+                onClick={e => { e.stopPropagation(); setLangOpen(o => !o); setAllOpen(false); setVolOpen(false); showControls(); }}>
                 <span dangerouslySetInnerHTML={{ __html: SVG.globe }} />
-                <span id="us-lang-dot" className="us-dot hidden" />
+                {streams.length > 0 && <span className="us-dot">{uniqueLangs.length}</span>}
               </button>
-              <div id="us-lang-panel" className="us-panel" onClick={e => e.stopPropagation()}>
+
+              <div className={`us-panel${langOpen ? ' open' : ''}`} onClick={e => e.stopPropagation()}>
+
+                {/* Language section: HLS tracks OR stream languages */}
                 <div className="us-panel-sec">
                   <div className="us-panel-lbl">Audio Language</div>
-                  <div id="us-lang-body" />
+
+                  {hlsTracks.length > 0 ? (
+                    // HLS built-in audio tracks
+                    hlsTracks.map((track, i) => (
+                      <div key={i}
+                        className={`us-panel-row${i === hlsActiveTrack ? ' on' : ''}`}
+                        onClick={() => switchHlsAudio(i)}>
+                        <span className="us-check-space">
+                          {i === hlsActiveTrack && <span dangerouslySetInnerHTML={{ __html: SVG.check }} />}
+                        </span>
+                        <span className="us-flag">{flagFor(track.language)}</span>
+                        <span style={{ flex: 1 }}>{track.label || track.language}</span>
+                      </div>
+                    ))
+                  ) : (
+                    // Stream-based language switching
+                    uniqueLangs.map(lang => {
+                      const qCount  = streams.filter(s => s.language === lang).length;
+                      const isActive = lang === activeLang;
+                      return (
+                        <div key={lang}
+                          className={`us-panel-row${isActive ? ' on' : ''}`}
+                          onClick={() => selectLang(lang)}>
+                          <span className="us-check-space">
+                            {isActive && <span dangerouslySetInnerHTML={{ __html: SVG.check }} />}
+                          </span>
+                          <span className="us-flag">{flagFor(lang)}</span>
+                          <span style={{ flex: 1 }}>{lang}</span>
+                          <span className="us-panel-badge">{qCount} {qCount === 1 ? 'quality' : 'qualities'}</span>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
-                <div id="us-quality-sec" className="us-panel-sec hidden">
-                  <div id="us-quality-lbl" className="us-panel-lbl">Quality</div>
-                  <div id="us-quality-body" />
-                </div>
+
+                {/* Quality section (only for stream-based mode with multiple qualities) */}
+                {hlsTracks.length === 0 && qualityOptions.length > 1 && (
+                  <div className="us-panel-sec">
+                    <div className="us-panel-lbl">Quality — {activeLang}</div>
+                    {qualityOptions.map(s => (
+                      <div key={s.idx}
+                        className={`us-panel-row${curIdx === s.idx ? ' on' : ''}`}
+                        onClick={() => selectStream(s.idx)}>
+                        <span className="us-check-space">
+                          {curIdx === s.idx && <span dangerouslySetInnerHTML={{ __html: SVG.check }} />}
+                        </span>
+                        <span className="us-flag" style={{ fontSize: 13 }}>🎬</span>
+                        <span style={{ flex: 1 }}>{s.quality}</span>
+                        <span className="us-panel-badge">{s.source.split(' ')[0]}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* ALL STREAMS */}
+            {/* ALL STREAMS PANEL */}
             <div className="us-panel-wrap">
               <button className="us-btn" title="All Streams"
-                onClick={e => { e.stopPropagation(); togglePanel('us-all-panel'); }}>
+                onClick={e => { e.stopPropagation(); setAllOpen(o => !o); setLangOpen(false); setVolOpen(false); showControls(); }}>
                 <span dangerouslySetInnerHTML={{ __html: SVG.cog }} />
               </button>
-              <div id="us-all-panel" className="us-panel"
+
+              <div className={`us-panel${allOpen ? ' open' : ''}`}
                 style={{ width: 300, maxHeight: '55vh', overflowY: 'auto' }}
                 onClick={e => e.stopPropagation()}>
                 <div className="us-panel-sec">
                   <div className="us-panel-lbl">All Streams</div>
-                  <div id="us-all-body" />
+                  {streams.map((s, i) => (
+                    <div key={i}
+                      className={`us-panel-row${curIdx === i ? ' on' : ''}`}
+                      onClick={() => selectStream(i)}>
+                      <span className="us-check-space">
+                        {curIdx === i && <span dangerouslySetInnerHTML={{ __html: SVG.check }} />}
+                      </span>
+                      <span className="us-flag">{flagFor(s.language)}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: 'block' }}>{s.language} · {s.quality}</span>
+                        <span style={{ color: 'rgba(255,255,255,.3)', fontSize: 11, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {s.source} · {s.type?.toUpperCase()}{s.rawName ? ' · ' + s.rawName.slice(0, 30) : ''}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
 
             {/* VOLUME */}
             <div className="us-panel-wrap"
-              onMouseEnter={() => { getEl('us-vol-pop')?.classList.add('open'); showControls(); }}
-              onMouseLeave={() => { if (!dragVolRef.current) getEl('us-vol-pop')?.classList.remove('open'); }}>
-              <button id="us-vol-btn" className="us-btn" title="Volume"
+              onMouseEnter={() => { setVolOpen(true); showControls(); }}
+              onMouseLeave={() => { if (!dragVolRef.current) setVolOpen(false); }}>
+              <button className="us-btn" title="Volume"
                 onClick={e => {
                   e.stopPropagation();
                   const v = videoRef.current; if (!v) return;
                   v.muted = !v.muted;
-                  updateVolUI(v.volume, v.muted);
+                  setMuted(v.muted);
+                  setVolumePct(v.muted ? 0 : Math.round(v.volume * 100));
+                  updateVolSlider(v.volume, v.muted);
                 }}>
-                <span dangerouslySetInnerHTML={{ __html: SVG.volhi }} />
+                <span dangerouslySetInnerHTML={{ __html: volIcon }} />
               </button>
-              <div id="us-vol-pop" className="us-vol-pop" onClick={e => e.stopPropagation()}>
-                <span id="us-vol-label" className="us-vol-label">100</span>
+
+              <div className={`us-vol-pop${volOpen ? ' open' : ''}`} onClick={e => e.stopPropagation()}>
+                <span className="us-vol-label">{volumePct}</span>
                 <div ref={volTrackRef} className="us-vol-track"
                   onMouseDown={e => { e.stopPropagation(); dragVolRef.current = true; setVolFromY(e); }}>
-                  <div id="us-vol-fill" className="us-vol-fill" style={{ height: '100%' }} />
-                  <div id="us-vol-knob" className="us-vol-knob" style={{ bottom: '100%' }} />
+                  <div id="us-vol-fill" className="us-vol-fill" style={{ height: volumePct + '%' }} />
+                  <div id="us-vol-knob" className="us-vol-knob" style={{ bottom: volumePct + '%' }} />
                 </div>
               </div>
             </div>
@@ -932,13 +911,13 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
           <button className="us-btn" onClick={e => { e.stopPropagation(); const v = videoRef.current; if (v) v.currentTime -= 10; }}>
             <span dangerouslySetInnerHTML={{ __html: SVG.rw }} />
           </button>
-          <button id="us-play-btn" className="us-btn" style={{ padding: 10 }}
+          <button className="us-btn" style={{ padding: 10 }}
             onClick={e => {
               e.stopPropagation();
               const v = videoRef.current;
               if (v?.paused) v.play(); else v?.pause();
             }}>
-            <span dangerouslySetInnerHTML={{ __html: SVG.play }} />
+            <span dangerouslySetInnerHTML={{ __html: playing ? SVG.pause : SVG.play }} />
           </button>
           <button className="us-btn" onClick={e => { e.stopPropagation(); const v = videoRef.current; if (v) v.currentTime += 10; }}>
             <span dangerouslySetInnerHTML={{ __html: SVG.fw }} />
@@ -949,7 +928,7 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
       {/* ── BOTTOM BAR ── */}
       <div id="us-bottom" className="us-bottom" onClick={e => e.stopPropagation()}>
         <div className="us-bottom-inner">
-          {/* Seek */}
+          {/* Seek bar */}
           <div id="us-seek" ref={seekRef} className="us-seek"
             onClick={onSeekClick}
             onMouseMove={onSeekHover}
@@ -959,14 +938,14 @@ export default function PrimePlayer({ tmdbId, title = '', mediaType = 'movie', s
             <div id="us-seek-thumb" className="us-seek-thumb" style={{ left: 0 }} />
             <div id="us-seek-tip"   className="us-seek-tooltip hidden" />
           </div>
-          {/* Time row */}
+          {/* Time / next episode row */}
           <div className="us-time-row">
             <div className="us-time">
               <span id="us-time-cur" className="cur">0:00:00</span>
               <span id="us-time-dur" className="dur"> / 0:00:00</span>
             </div>
-            {mediaType === 'tv' && (
-              <button id="us-next" className="us-next-btn hidden">
+            {mediaType === 'tv' && nextEpFn && (
+              <button className="us-next-btn" onClick={() => nextEpFn()}>
                 Next Episode →
               </button>
             )}
