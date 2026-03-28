@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
 
 const formatTime = (seconds) => {
@@ -10,81 +10,43 @@ const formatTime = (seconds) => {
     return `${m}:${String(sec).padStart(2,'0')}`;
 };
 
-const parseLanguages = (langStr) => {
-    if (!langStr) return ['Unknown'];
-    return langStr.split(/(?:\+|\||,|and|&|\/)/i).map(l => l.trim()).filter(Boolean);
-};
-
 const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onClose, title = "Prime Video" }) => {
     const videoRef = useRef(null);
     const playerContainerRef = useRef(null);
     const hlsRef = useRef(null);
     const controlsTimeoutRef = useRef(null);
 
+    // Stream State
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [sources, setSources] = useState([]);
     
-    const [currentUrl, setCurrentUrl] = useState('');
-    const [currentUrlLanguage, setCurrentUrlLanguage] = useState('');
-    const [currentUrlQuality, setCurrentUrlQuality] = useState('Auto');
-
+    // Native HLS Tracks (From Vidsrc.pro m3u8)
     const [nativeQualities, setNativeQualities] = useState([]);
     const [currentNativeQuality, setCurrentNativeQuality] = useState(-1);
     const [nativeAudioTracks, setNativeAudioTracks] = useState([]);
     const [currentNativeAudio, setCurrentNativeAudio] = useState(0);
 
+    // Playback & UI State
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
     const [volume, setVolume] = useState(0.8);
     const [isMuted, setIsMuted] = useState(false);
     const [showControls, setShowControls] = useState(true);
-    
     const [activePanel, setActivePanel] = useState('none');
-    const [currentSubtitles, setCurrentSubtitles] = useState('Off');
-    const [adToggle, setAdToggle] = useState(false);
 
     useEffect(() => {
-        const fetchStreams = async () => {
+        const fetchVidsrcStream = async () => {
             setLoading(true);
             try {
-                let url = `/api/multi-stream?tmdbId=${tmdbId}&type=${mediaType}&season=${season}&episode=${episode}`;
-                const res = await fetch(url);
+                // Call our new backend route
+                const res = await fetch(`/api/vidsrc?tmdbId=${tmdbId}&type=${mediaType}&season=${season}&episode=${episode}`);
                 const data = await res.json();
 
-                if (data.success && data.streams && data.streams.length > 0) {
-                    setSources(data.streams);
-                    
-                    let defaultSource = data.streams.find(s => s.language?.trim().toLowerCase() === 'english');
-                    if (!defaultSource) defaultSource = data.streams.find(s => s.language?.toLowerCase().includes('english'));
-                    if (!defaultSource) defaultSource = data.streams[0]; 
-
-                    if (defaultSource && defaultSource.url) {
-                        const initialLangs = parseLanguages(defaultSource.language);
-                        let defaultUiLang = initialLangs[0] || 'Unknown';
-                        
-                        const hasHindi = initialLangs.some(l => l.toLowerCase() === 'hindi');
-                        const hasEnglish = initialLangs.some(l => l.toLowerCase() === 'english');
-                        
-                        if (hasHindi && hasEnglish) defaultUiLang = 'Hindi'; 
-                        else defaultUiLang = initialLangs[0] || 'Unknown';
-
-                        setCurrentUrlLanguage(defaultUiLang);
-                        setCurrentUrlQuality(defaultSource.quality || 'Auto');
-                        loadStream(defaultSource.url);
-                        return;
-                    }
-                }
-                
-                let fRes = await fetch(`/api/get-stream?tmdbId=${tmdbId}&mediaType=${mediaType}&season=${season}&episode=${episode}`);
-                const fData = await fRes.json();
-                if (fData.success && fData.streamUrl) {
-                    setSources([{ url: fData.streamUrl, language: 'English', quality: 'Auto', source: fData.provider }]);
-                    setCurrentUrlLanguage('English');
-                    loadStream(fData.streamUrl);
+                if (data.success && data.streamUrl) {
+                    loadStream(data.streamUrl);
                 } else {
-                    throw new Error("No playable streams found.");
+                    throw new Error("Could not extract stream from Vidsrc.");
                 }
             } catch (err) {
                 setError(err.message || "Failed to load stream.");
@@ -92,7 +54,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             }
         };
 
-        if (tmdbId) fetchStreams();
+        if (tmdbId) fetchVidsrcStream();
 
         return () => {
             if (hlsRef.current) hlsRef.current.destroy();
@@ -104,7 +66,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         const video = videoRef.current;
         if (!video) return;
         
-        setCurrentUrl(url);
         setError(null);
         if (hlsRef.current) hlsRef.current.destroy();
 
@@ -116,18 +77,35 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
 
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
                 setLoading(false);
+                
+                // 1. Extract Qualities
                 const availableLevels = hls.levels.map((l, idx) => ({ id: idx, height: l.height })).sort((a, b) => b.height - a.height); 
                 setNativeQualities(availableLevels);
-                setCurrentNativeQuality(-1);
+                setCurrentNativeQuality(-1); // Auto
                 
+                // 2. Extract Multiple Audio Tracks Natively
                 if (hls.audioTracks && hls.audioTracks.length > 0) {
                     setNativeAudioTracks(hls.audioTracks);
-                    setCurrentNativeAudio(hls.audioTrack);
+                    
+                    // Force Hindi to play by default if available
+                    let defaultTrackId = hls.audioTrack;
+                    const hindiTrack = hls.audioTracks.find(t => 
+                        t.language?.toLowerCase() === 'hi' || 
+                        t.language?.toLowerCase() === 'hin' || 
+                        t.name?.toLowerCase().includes('hindi')
+                    );
+                    
+                    if (hindiTrack) {
+                        defaultTrackId = hindiTrack.id;
+                        hls.audioTrack = hindiTrack.id; // Tell HLS engine to switch audio instantly
+                    }
+                    setCurrentNativeAudio(defaultTrackId);
                 }
-                if (currentTime > 0) video.currentTime = currentTime;
-                video.play().catch(() => {});
+                
+                video.play().catch(() => console.log("Autoplay blocked"));
             });
 
+            // Keep UI Synced with Native Track Switches
             hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (e, data) => setNativeAudioTracks(data.audioTracks));
             hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (e, data) => setCurrentNativeAudio(data.id));
             
@@ -137,104 +115,29 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                     else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
                 }
             });
-        } else {
-            video.src = url;
-            video.addEventListener('loadedmetadata', () => {
-                setLoading(false);
-                if (currentTime > 0) video.currentTime = currentTime;
-                video.play().catch(() => {});
-            }, { once: true });
-            video.addEventListener('error', () => {
-                setError("Stream is currently offline or unsupported.");
-                setLoading(false);
-            }, { once: true });
         }
     };
 
-    const hasNativeAudio = nativeAudioTracks.length > 1;
-    const urlLanguages = useMemo(() => {
-        const langs = new Set();
-        sources.forEach(src => parseLanguages(src.language).forEach(l => langs.add(l)));
-        return Array.from(langs);
-    }, [sources]);
+    // --- Dynamic UI Formatters ---
+    const currentAudioLabel = nativeAudioTracks.find(t => t.id === currentNativeAudio)?.name || 
+                              nativeAudioTracks.find(t => t.id === currentNativeAudio)?.language || 
+                              'Default';
 
-    let displayAudioOptions = hasNativeAudio 
-        ? nativeAudioTracks.map(t => ({ id: t.id, label: t.name || t.language || `Track ${t.id}`, isNative: true })) 
-        : urlLanguages.map(l => ({ id: l, label: l, isNative: false }));
+    const currentQualityLabel = currentNativeQuality === -1 
+        ? 'Best' 
+        : `${nativeQualities.find(q => q.id === currentNativeQuality)?.height}p`;
 
-    const currentAudioLabel = hasNativeAudio 
-        ? (nativeAudioTracks.find(t => t.id === currentNativeAudio)?.name || 'Auto') 
-        : currentUrlLanguage;
-
-    const hasNativeQuality = nativeQualities.length > 1;
-    const urlQualities = [...new Set(sources.map(s => s.quality))];
-    
-    const qualityOptions = hasNativeQuality
-        ? [{ id: -1, label: 'Best (Auto)' }, ...nativeQualities.map(q => ({ id: q.id, label: `${q.height}p` }))]
-        : urlQualities.map(q => ({ id: q, label: q === 'Auto' ? 'Best (Auto)' : q }));
-        
-    const currentQualityLabel = hasNativeQuality
-        ? (currentNativeQuality === -1 ? 'Best' : `${nativeQualities.find(q => q.id === currentNativeQuality)?.height}p`)
-        : currentUrlQuality;
-
-    const selectAudio = (opt) => {
-        if (opt.isNative) {
-            setCurrentNativeAudio(opt.id);
-            if (hlsRef.current) hlsRef.current.audioTrack = opt.id; 
-        } else {
-            // Lock the UI to what the user requested
-            setCurrentUrlLanguage(opt.id);
-            
-            // 1. Gather all streams that claim to match the requested language
-            let validStreams = sources.filter(s => 
-                parseLanguages(s.language).map(l=>l.toLowerCase()).includes(opt.id.toLowerCase())
-            );
-            
-            // 2. Fallback to raw filename search if tags fail
-            if (validStreams.length === 0) {
-                validStreams = sources.filter(s => s.rawName?.toLowerCase().includes(opt.id.toLowerCase()));
-            }
-            
-            // 3. Absolute fallback
-            if (validStreams.length === 0) validStreams = sources;
-
-            const currentIndex = validStreams.findIndex(s => s.url === currentUrl);
-            let targetStream = validStreams[0];
-
-            if (currentIndex !== -1 && validStreams.length > 1) {
-                // Server Cycling: User clicked the language again because audio was wrong. Try the NEXT server.
-                targetStream = validStreams[(currentIndex + 1) % validStreams.length];
-            } else if (currentIndex !== -1 && validStreams.length === 1) {
-                // Mislabel Rescue: No other servers claim this language. Force swap to a completely different provider.
-                const otherServers = sources.filter(s => s.url !== currentUrl);
-                targetStream = otherServers.find(s => s.source !== validStreams[0].source) || otherServers[0];
-            }
-
-            if (targetStream && targetStream.url !== currentUrl) {
-                setLoading(true);
-                setCurrentUrlQuality(targetStream.quality || 'Auto');
-                loadStream(targetStream.url);
-            }
-        }
+    // --- Action Handlers ---
+    const selectAudio = (trackId) => {
+        setCurrentNativeAudio(trackId);
+        // INSTANT NATIVE SWITCH - No reloading video, no buffering!
+        if (hlsRef.current) hlsRef.current.audioTrack = trackId; 
         setActivePanel('none');
     };
 
-    const selectQuality = (id) => {
-        if (hasNativeQuality) {
-            setCurrentNativeQuality(id);
-            if (hlsRef.current) hlsRef.current.currentLevel = id;
-        } else {
-            let match = sources.find(s => s.quality === id && parseLanguages(s.language).includes(currentUrlLanguage));
-            if (!match) match = sources.find(s => s.quality === id);
-            
-            if (match && match.url !== currentUrl) {
-                setLoading(true);
-                const matchLangs = parseLanguages(match.language);
-                setCurrentUrlLanguage(matchLangs.includes(currentUrlLanguage) ? currentUrlLanguage : matchLangs[0] || 'Unknown');
-                setCurrentUrlQuality(match.quality);
-                loadStream(match.url);
-            }
-        }
+    const selectQuality = (levelId) => {
+        setCurrentNativeQuality(levelId);
+        if (hlsRef.current) hlsRef.current.currentLevel = levelId;
         setActivePanel('none');
     };
 
@@ -251,11 +154,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     const toggleFullscreen = () => {
         if (!document.fullscreenElement) playerContainerRef.current.requestFullscreen();
         else document.exitFullscreen();
-    };
-
-    const togglePiP = () => {
-        if (document.pictureInPictureElement) document.exitPictureInPicture();
-        else if (document.pictureInPictureEnabled) videoRef.current.requestPictureInPicture();
     };
 
     const handleMouseMove = () => {
@@ -345,7 +243,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 #play-pause-btn:hover { background: rgba(255,255,255,1) !important; transform: scale(1.05); }
                 #play-pause-btn svg { color: #000; width: 24px; height: 24px; filter: none; }
 
-                /* Panels */
                 .panel-base { position: absolute; top: 60px; right: 16px; width: 320px; background: var(--panel-bg); border-radius: 8px; overflow: hidden; z-index: 100; animation: slideDown 0.18s ease; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
                 @keyframes slideDown { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
                 
@@ -359,39 +256,21 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 .settings-row:hover { background: var(--hover-bg); }
                 .settings-row svg { width: 20px; height: 20px; color: var(--text-primary); flex-shrink: 0; }
                 .settings-row-label { flex: 1; font-size: 15px; font-weight: 500; }
-                .settings-row-value { font-size: 14px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px; }
+                .settings-row-value { font-size: 14px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px; text-transform: capitalize; }
                 .settings-row-value svg { width: 14px; height: 14px; color: var(--text-secondary); }
 
                 .radio-option { display: flex; align-items: flex-start; padding: 14px 20px; cursor: pointer; transition: background 0.12s; border-bottom: 1px solid var(--panel-border); gap: 14px; }
-                .radio-option:last-of-type { border-bottom: none; }
                 .radio-option:hover { background: var(--hover-bg); }
                 .radio-circle { width: 20px; height: 20px; border: 2px solid var(--text-secondary); border-radius: 50%; flex-shrink: 0; margin-top: 1px; display: flex; align-items: center; justify-content: center; transition: border-color 0.15s; }
                 .radio-circle.selected { border-color: var(--accent-blue); background: var(--accent-blue); }
                 .radio-circle.selected::after { content: ''; width: 8px; height: 8px; background: #fff; border-radius: 50%; }
                 .radio-label { font-size: 15px; font-weight: 500; text-transform: capitalize; }
-                .radio-sublabel { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
 
                 .quality-option { display: flex; align-items: flex-start; padding: 14px 20px; cursor: pointer; transition: background 0.12s; border-bottom: 1px solid var(--panel-border); gap: 14px; }
                 .quality-option.selected { background: rgba(255,255,255,0.95); border-radius: 6px; margin: 4px; }
                 .quality-option.selected .radio-label { color: #000; }
                 .quality-option.selected .radio-circle.selected { border-color: #000; background: #000; }
                 .quality-option:hover:not(.selected) { background: var(--hover-bg); }
-
-                .divider { height: 1px; background: var(--panel-border); margin: 0; }
-                .extra-setting { display: flex; align-items: center; padding: 14px 20px; gap: 14px; border-top: 1px solid var(--panel-border); cursor: pointer;}
-                .extra-setting svg { width: 20px; height: 20px; color: var(--text-secondary); flex-shrink: 0; }
-                .extra-setting-label { flex: 1; font-size: 14px; color: var(--text-primary); }
-                .extra-setting-value { font-size: 13px; color: var(--text-secondary); }
-
-                .toggle { width: 36px; height: 20px; background: var(--text-secondary); border-radius: 10px; position: relative; transition: background 0.2s; flex-shrink: 0; }
-                .toggle::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: #fff; border-radius: 50%; transition: transform 0.2s; }
-                .toggle.on { background: var(--accent-blue); }
-                .toggle.on::after { transform: translateX(16px); }
-
-                #volume-popup { min-width: 220px; padding: 16px 20px; }
-                #volume-popup label { font-size: 14px; color: var(--text-secondary); display: block; margin-bottom: 12px; }
-                #volume-slider { width: 100%; -webkit-appearance: none; height: 4px; border-radius: 2px; outline: none; cursor: pointer; }
-                #volume-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; background: #fff; border-radius: 50%; cursor: pointer; }
             `}</style>
 
             {loading && (
@@ -430,27 +309,12 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                     <span id="title">{title}</span>
                 </div>
                 <div id="topbar-right">
-                    <button className={`icon-btn ${activePanel === 'subtitles' ? 'active' : ''}`} onClick={(e) => {e.stopPropagation(); setActivePanel(activePanel==='subtitles' ? 'none' : 'subtitles')}} title="Subtitles">
+                    <button className={`icon-btn ${activePanel === 'audio' ? 'active' : ''}`} onClick={(e) => {e.stopPropagation(); setActivePanel(activePanel==='audio' ? 'none' : 'audio')}} title="Audio">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="2" y="5" width="20" height="15" rx="2"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="6" y1="16" x2="14" y2="16"/>
+                            <rect x="2" y="6" width="4" height="12" rx="1"/><rect x="8" y="3" width="4" height="18" rx="1"/><rect x="14" y="8" width="4" height="10" rx="1"/>
                         </svg>
                     </button>
-                    <button className={`icon-btn ${activePanel === 'volume' ? 'active' : ''}`} onClick={(e) => {e.stopPropagation(); setActivePanel(activePanel==='volume' ? 'none' : 'volume')}} title="Volume">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                            {volume === 0 || isMuted ? <><line x1="1" y1="1" x2="23" y2="23"/><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/></> : <><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></>}
-                        </svg>
-                    </button>
-                    <button className="icon-btn" onClick={togglePiP} title="Picture in Picture">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="2" y="4" width="20" height="16" rx="2"/><rect x="12" y="12" width="8" height="6" rx="1" fill="currentColor" stroke="none"/>
-                        </svg>
-                    </button>
-                    <button className="icon-btn" onClick={toggleFullscreen} title="Fullscreen">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                            {document.fullscreenElement ? <><polyline points="8 3 8 8 3 8"/><polyline points="16 3 16 8 21 8"/><polyline points="8 21 8 16 3 16"/><polyline points="16 21 16 16 21 16"/></> : <><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></>}
-                        </svg>
-                    </button>
-                    <button className={`icon-btn ${activePanel === 'settings' ? 'active' : ''}`} onClick={(e) => {e.stopPropagation(); setActivePanel(activePanel==='settings' ? 'none' : 'settings')}} title="More">
+                    <button className={`icon-btn ${activePanel === 'settings' ? 'active' : ''}`} onClick={(e) => {e.stopPropagation(); setActivePanel(activePanel==='settings' ? 'none' : 'settings')}} title="Settings">
                         <svg viewBox="0 0 24 24" fill="currentColor">
                             <circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/>
                         </svg>
@@ -492,22 +356,16 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 </div>
             </div>
 
+            {/* MAIN SETTINGS PANEL */}
             {activePanel === 'settings' && (
                 <div className="panel-base" onClick={(e) => e.stopPropagation()}>
                     <div className="panel-header">Settings</div>
-                    <div className="settings-row" onClick={() => setActivePanel('subtitles')}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="2" y="5" width="20" height="15" rx="2"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="6" y1="16" x2="14" y2="16"/>
-                        </svg>
-                        <span className="settings-row-label">Subtitles</span>
-                        <span className="settings-row-value">{currentSubtitles} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
-                    </div>
                     <div className="settings-row" onClick={() => setActivePanel('audio')}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                             <rect x="2" y="6" width="4" height="12" rx="1"/><rect x="8" y="3" width="4" height="18" rx="1"/><rect x="14" y="8" width="4" height="10" rx="1"/>
                         </svg>
-                        <span className="settings-row-label">Audio</span>
-                        <span className="settings-row-value" style={{textTransform: 'capitalize'}}>{currentAudioLabel} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
+                        <span className="settings-row-label">Audio Languages</span>
+                        <span className="settings-row-value">{currentAudioLabel} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
                     </div>
                     <div className="settings-row" onClick={() => setActivePanel('quality')}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -519,6 +377,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 </div>
             )}
 
+            {/* AUDIO SUB-PANEL */}
             {activePanel === 'audio' && (
                 <div className="panel-base" onClick={(e) => e.stopPropagation()}>
                     <div className="panel-header">
@@ -528,38 +387,20 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                         Audio
                     </div>
                     <div style={{maxHeight:'250px', overflowY:'auto'}}>
-                        {displayAudioOptions.map((opt, idx) => {
-                            const isActive = opt.isNative ? currentNativeAudio === opt.id : currentUrlLanguage === opt.id;
-                            return (
-                                <div key={idx} className="radio-option" onClick={() => selectAudio(opt)}>
-                                    <div className={`radio-circle ${isActive ? 'selected' : ''}`}></div>
-                                    <div>
-                                        <div className="radio-label">{opt.label}</div>
-                                        {isActive && <div className="radio-sublabel">AD available · Dialogue Boost available</div>}
-                                    </div>
+                        {nativeAudioTracks.length === 0 && <div style={{padding:'16px 20px', color:'#8b8f97', fontSize:'14px'}}>Only default audio available</div>}
+                        {nativeAudioTracks.map((opt) => (
+                            <div key={opt.id} className="radio-option" onClick={() => selectAudio(opt.id)}>
+                                <div className={`radio-circle ${currentNativeAudio === opt.id ? 'selected' : ''}`}></div>
+                                <div>
+                                    <div className="radio-label">{opt.name || opt.language || `Track ${opt.id}`}</div>
                                 </div>
-                            );
-                        })}
-                    </div>
-                    <div className="divider"></div>
-                    <div className="extra-setting">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="2" y="5" width="20" height="15" rx="2"/><line x1="6" y1="12" x2="10" y2="12"/><line x1="6" y1="16" x2="14" y2="16"/>
-                        </svg>
-                        <span className="extra-setting-label">Dialogue Boost</span>
-                        <span className="extra-setting-value">Unavailable</span>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{width:'14px',height:'14px',color:'var(--text-secondary)'}}><polyline points="9 18 15 12 9 6"/></svg>
-                    </div>
-                    <div className="extra-setting" style={{borderTop:'1px solid var(--panel-border)'}} onClick={()=>setAdToggle(!adToggle)}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M9 9a3 3 0 0 1 6 0c0 2-3 3-3 3"/><circle cx="12" cy="17" r="1" fill="currentColor"/>
-                        </svg>
-                        <span className="extra-setting-label">Audio Description</span>
-                        <div className={`toggle ${adToggle ? 'on' : ''}`}></div>
+                            </div>
+                        ))}
                     </div>
                 </div>
             )}
 
+            {/* QUALITY SUB-PANEL */}
             {activePanel === 'quality' && (
                 <div className="panel-base" onClick={(e) => e.stopPropagation()}>
                     <div className="panel-header">
@@ -569,53 +410,21 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                         Video Quality
                     </div>
                     <div style={{maxHeight:'350px', overflowY:'auto', paddingBottom:'8px'}}>
-                        {qualityOptions.map((opt, idx) => {
-                            const isActive = hasNativeQuality ? currentNativeQuality === opt.id : currentUrlQuality === opt.id;
-                            return (
-                                <div key={idx} className={`quality-option ${isActive ? 'selected' : ''}`} onClick={() => selectQuality(opt.id)}>
-                                    <div className={`radio-circle ${isActive ? 'selected' : ''}`}></div>
-                                    <div>
-                                        <div className="radio-label">{opt.label}</div>
-                                        <div className="radio-sublabel">Uses {opt.id===-1 ? 'variable' : (opt.id === '4K' ? '6.84' : '1.40')} GB per hour</div>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-            )}
-
-            {activePanel === 'subtitles' && (
-                <div className="panel-base" onClick={(e) => e.stopPropagation()}>
-                    <div className="panel-header">
-                        <button className="panel-back-btn" onClick={() => setActivePanel('settings')}>
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-                        </button>
-                        Subtitles
-                    </div>
-                    {['Off', 'English', 'Hindi'].map(sub => (
-                        <div key={sub} className="radio-option" onClick={() => { setCurrentSubtitles(sub); setActivePanel('none'); }}>
-                            <div className={`radio-circle ${currentSubtitles === sub ? 'selected' : ''}`}></div>
-                            <div><div className="radio-label">{sub}</div></div>
+                        <div className={`quality-option ${currentNativeQuality === -1 ? 'selected' : ''}`} onClick={() => selectQuality(-1)}>
+                            <div className={`radio-circle ${currentNativeQuality === -1 ? 'selected' : ''}`}></div>
+                            <div>
+                                <div className="radio-label">Best (Auto)</div>
+                            </div>
                         </div>
-                    ))}
-                </div>
-            )}
-
-            {activePanel === 'volume' && (
-                <div id="volume-popup" className="panel-base" onClick={(e) => e.stopPropagation()}>
-                    <label>Volume</label>
-                    <input 
-                        type="range" id="volume-slider" min="0" max="100" 
-                        value={isMuted ? 0 : volume * 100}
-                        style={{background: `linear-gradient(to right, #fff ${isMuted ? 0 : volume*100}%, rgba(255,255,255,0.3) ${isMuted ? 0 : volume*100}%)`}}
-                        onChange={(e) => {
-                            const val = parseFloat(e.target.value) / 100;
-                            setVolume(val);
-                            videoRef.current.volume = val;
-                            setIsMuted(val === 0);
-                        }}
-                    />
+                        {nativeQualities.map((opt) => (
+                            <div key={opt.id} className={`quality-option ${currentNativeQuality === opt.id ? 'selected' : ''}`} onClick={() => selectQuality(opt.id)}>
+                                <div className={`radio-circle ${currentNativeQuality === opt.id ? 'selected' : ''}`}></div>
+                                <div>
+                                    <div className="radio-label">{opt.height}p</div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
                 </div>
             )}
         </div>
