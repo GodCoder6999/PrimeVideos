@@ -59,9 +59,9 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 if (data.success && data.streams && data.streams.length > 0) {
                     setSources(data.streams);
                     
-                    // Priority Default: Find English stream first
+                    // Force English to load first if it exists
                     let defaultSource = data.streams.find(s => s.language && s.language.toLowerCase().includes('english'));
-                    if (!defaultSource) defaultSource = data.streams[0]; // Fallback to first available
+                    if (!defaultSource) defaultSource = data.streams[0]; 
 
                     setCurrentUrlLanguage(defaultSource.language);
                     setCurrentUrlQuality(defaultSource.quality);
@@ -109,18 +109,18 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             hls.on(Hls.Events.MANIFEST_PARSED, (e, data) => {
                 setLoading(false);
                 
-                // Read all available qualities dynamically without caps
+                // Read all available qualities dynamically
                 const availableLevels = hls.levels.map((l, idx) => ({ 
                     id: idx, 
                     height: l.height 
-                })).sort((a, b) => b.height - a.height); // Sort highest quality first
+                })).sort((a, b) => b.height - a.height); 
 
                 setNativeQualities(availableLevels);
-                setCurrentNativeQuality(-1); // -1 is Auto
+                setCurrentNativeQuality(-1); 
                 
                 if (hls.audioTracks && hls.audioTracks.length > 0) {
                     setNativeAudioTracks(hls.audioTracks);
-                    setCurrentNativeAudio(hls.audioTrack); // Use actual exact Track ID
+                    setCurrentNativeAudio(hls.audioTrack); 
                 }
                 
                 if (currentTime > 0) video.currentTime = currentTime;
@@ -160,7 +160,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     }, [sources]);
 
     let displayAudioOptions = hasNativeAudio 
-        ? nativeAudioTracks.map(t => ({ id: t.id, label: t.name || t.language || `Track ${t.id}`, isNative: true })) // Strict mapping to t.id
+        ? nativeAudioTracks.map((t, index) => ({ id: t.id, label: t.name || t.language || `Track ${index + 1}`, isNative: true })) 
         : urlLanguages.map(l => ({ id: l, label: l, isNative: false }));
 
     const currentAudioLabel = hasNativeAudio 
@@ -175,21 +175,18 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         : urlQualities.map(q => ({ id: q, label: q === 'Auto' ? 'Best' : q }));
         
     const currentQualityLabel = hasNativeQuality
-        ? (currentNativeQuality === -1 ? 'Auto' : `${nativeQualities.find(q => q.id === currentNativeQuality)?.height || 'Unknown '}p`)
+        ? (currentNativeQuality === -1 ? 'Auto' : `${nativeQualities.find(q => q.id === currentNativeQuality)?.height || 'Unknown'}p`)
         : currentUrlQuality;
 
     const selectAudio = (opt) => {
         if (opt.isNative) {
             setCurrentNativeAudio(opt.id);
-            if (hlsRef.current) hlsRef.current.audioTrack = opt.id; // Corrected: Exact target track
+            if (hlsRef.current) hlsRef.current.audioTrack = opt.id; 
         } else {
             setCurrentUrlLanguage(opt.id);
             
-            // Priority 1: Force purely single-language streams if available
             let match = sources.find(s => s.language.trim().toLowerCase() === opt.id.toLowerCase() && s.quality === currentUrlQuality);
             if (!match) match = sources.find(s => s.language.trim().toLowerCase() === opt.id.toLowerCase());
-            
-            // Priority 2: Fallback to dual-audio stream
             if (!match) match = sources.find(s => parseLanguages(s.language).includes(opt.id) && s.quality === currentUrlQuality);
             if (!match) match = sources.find(s => parseLanguages(s.language).includes(opt.id));
             
