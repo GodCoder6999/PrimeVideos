@@ -163,6 +163,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
 
             hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (e, data) => setCurrentNativeAudio(data.id));
 
+            // Retry counters are intentionally scoped per HLS instance so they reset on each loadStream() call
             let networkRetries = 0;
             let mediaErrorRecovered = false;
             hls.on(Hls.Events.ERROR, (e, data) => {
