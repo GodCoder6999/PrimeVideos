@@ -15,6 +15,12 @@ const parseLanguages = (langStr) => {
     return langStr.split(/(?:\+|\||,|and|&|\/)/i).map(l => l.trim()).filter(Boolean);
 };
 
+const isEnglishTrack = (t) => {
+    const lang = t.language?.toLowerCase() ?? '';
+    const name = t.name?.toLowerCase() ?? '';
+    return lang === 'en' || lang === 'eng' || lang.startsWith('en-') || name.includes('english');
+};
+
 const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onClose, title = "Prime Video" }) => {
     const videoRef = useRef(null);
     const playerContainerRef = useRef(null);
@@ -134,11 +140,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                     setNativeAudioTracks(hls.audioTracks);
                     
                     let defaultTrackId = hls.audioTrack;
-                    const engTrack = hls.audioTracks.find(t => 
-                        t.language?.toLowerCase() === 'en' || 
-                        t.language?.toLowerCase() === 'eng' || 
-                        t.name?.toLowerCase().includes('english')
-                    );
+                    const engTrack = hls.audioTracks.find(isEnglishTrack);
                     if (engTrack) {
                         defaultTrackId = engTrack.id;
                         hls.audioTrack = engTrack.id; 
@@ -154,11 +156,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 const tracks = data.audioTracks;
                 setNativeAudioTracks(tracks);
                 if (tracks.length > 0) {
-                    const engTrack = tracks.find(t =>
-                        t.language?.toLowerCase() === 'en' ||
-                        t.language?.toLowerCase() === 'eng' ||
-                        t.name?.toLowerCase().includes('english')
-                    );
+                    const engTrack = tracks.find(isEnglishTrack);
                     if (engTrack && hls.audioTrack !== engTrack.id) {
                         hls.audioTrack = engTrack.id;
                         setCurrentNativeAudio(engTrack.id);
@@ -230,6 +228,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                     videoRef.current.pause();
                     videoRef.current.currentTime = Math.max(0, savedTime - 0.1);
                     if (wasPlaying) {
+                        // Small delay lets HLS.js register the track change before resuming playback
                         setTimeout(() => videoRef.current?.play().catch(() => {}), 80);
                     }
                 }
@@ -240,7 +239,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             setCurrentUrlLanguage(opt.id);
             
             if (sources.length === 0) {
-                showToast(`Audio language switching is not available for this stream.`);
+                showToast(`No alternative audio sources available for this stream.`);
                 setActivePanel('none');
                 return;
             }
