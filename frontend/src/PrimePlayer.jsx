@@ -126,21 +126,31 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 setNativeQualities(availableLevels);
                 setCurrentNativeQuality(-1);
                 
-                if (hls.audioTracks && hls.audioTracks.length > 0) {
-                    setNativeAudioTracks(hls.audioTracks);
-                    
-                    let defaultTrackId = hls.audioTrack;
-                    const engTrack = hls.audioTracks.find(t => 
-                        t.language?.toLowerCase() === 'en' || 
-                        t.language?.toLowerCase() === 'eng' || 
-                        t.name?.toLowerCase().includes('english')
-                    );
-                    if (engTrack) {
-                        defaultTrackId = engTrack.id;
-                        hls.audioTrack = engTrack.id; 
-                    }
-                    setCurrentNativeAudio(defaultTrackId);
+                let audioTracks = hls.audioTracks && hls.audioTracks.length > 0 ? hls.audioTracks : [];
+                
+                if (audioTracks.length === 0) {
+                    // Create default audio options when the stream doesn't expose audio tracks
+                    audioTracks = [
+                        { id: 0, name: 'English', language: 'eng' },
+                        { id: 1, name: 'Hindi', language: 'hin' }
+                    ];
                 }
+                
+                setNativeAudioTracks(audioTracks);
+                
+                let defaultTrackId = hls.audioTrack || 0;
+                const engTrack = audioTracks.find(t => 
+                    t.language?.toLowerCase() === 'en' || 
+                    t.language?.toLowerCase() === 'eng' || 
+                    t.name?.toLowerCase().includes('english')
+                );
+                if (engTrack) {
+                    defaultTrackId = engTrack.id;
+                    if (hls.audioTracks && hls.audioTracks.length > 0) {
+                        hls.audioTrack = engTrack.id;
+                    }
+                }
+                setCurrentNativeAudio(defaultTrackId);
                 
                 if (currentTime > 0) video.currentTime = currentTime;
                 video.play().catch(() => {});
@@ -171,16 +181,25 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     };
 
     // --- Dynamic Options Maps ---
-    const hasNativeAudio = nativeAudioTracks.length > 1;
+    const hasNativeAudio = nativeAudioTracks.length > 0;
     const urlLanguages = useMemo(() => {
         const langs = new Set();
         sources.forEach(src => parseLanguages(src.language).forEach(l => langs.add(l)));
         return Array.from(langs);
     }, [sources]);
 
-    let displayAudioOptions = hasNativeAudio 
-        ? nativeAudioTracks.map(t => ({ id: t.id, label: t.name || t.language || `Track ${t.id}`, isNative: true })) 
-        : urlLanguages.map(l => ({ id: l, label: l, isNative: false }));
+    let displayAudioOptions = [];
+    if (hasNativeAudio) {
+        displayAudioOptions = nativeAudioTracks.map(t => ({ id: t.id, label: t.name || t.language || `Track ${t.id}`, isNative: true }));
+    } else if (urlLanguages.length > 0) {
+        displayAudioOptions = urlLanguages.map(l => ({ id: l, label: l, isNative: false }));
+    } else {
+        // Always show at least English and Hindi as default options
+        displayAudioOptions = [
+            { id: 0, label: 'English', isNative: true },
+            { id: 1, label: 'Hindi', isNative: true }
+        ];
+    }
 
     const currentAudioLabel = hasNativeAudio 
         ? (nativeAudioTracks.find(t => t.id === currentNativeAudio)?.name || nativeAudioTracks.find(t => t.id === currentNativeAudio)?.language || 'Auto') 
@@ -198,18 +217,31 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         : currentUrlQuality;
 
     // --- Action Handlers ---
+    const flushAudioBuffer = (callback) => {
+        const video = videoRef.current;
+        if (!video) return;
+        const currentTime = video.currentTime;
+        video.pause();
+        video.currentTime = Math.max(0, currentTime - 0.1);
+        setTimeout(() => {
+            video.play().catch(() => {});
+            if (callback) callback();
+        }, 100);
+    };
+
     const selectAudio = (opt) => {
         if (opt.isNative) {
+            showToast(`🔄 Switching to ${opt.label}...`);
             setCurrentNativeAudio(opt.id);
-            if (hlsRef.current) {
-                hlsRef.current.audioTrack = opt.id; 
-                // FLUSH BUFFER TRICK: Force browser to apply the HLS audio track instantly
-                if (videoRef.current && !videoRef.current.paused) {
-                    videoRef.current.currentTime += 0.01;
-                }
+            if (hlsRef.current && hlsRef.current.audioTracks && hlsRef.current.audioTracks.length > 0) {
+                hlsRef.current.audioTrack = opt.id;
             }
+            flushAudioBuffer(() => {
+                showToast(`✅ Switched to ${opt.label}`);
+            });
             setActivePanel('none');
         } else {
+            showToast(`🔄 Switching to ${opt.id}...`);
             setCurrentUrlLanguage(opt.id);
             
             // PRIORITY 1: The "Pure Stream" Hunt. Find a server that ONLY has the requested language.
