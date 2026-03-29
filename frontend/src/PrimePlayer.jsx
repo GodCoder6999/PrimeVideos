@@ -72,7 +72,9 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     const playbackTimeRef      = useRef(0);
 
     const [loading, setLoading]               = useState(true);
+    const [loadingStatus, setLoadingStatus]   = useState('Finding stream…');
     const [error, setError]                   = useState(null);
+    const [iframeUrl, setIframeUrl]           = useState(null);
     const [toastMessage, setToastMessage]     = useState(null);
     const [sources, setSources]               = useState([]);
 
@@ -248,7 +250,12 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
 
         // Tier 2 helper — tries multi-stream sources in order, auto-advancing
         // on failure until one plays or all are exhausted.
+        // Tier 3 fallback: if every source fails, show an embed iframe.
         const tryMultiStream = async () => {
+            if (cancelled) return;
+
+            setLoadingStatus('Searching streaming providers…');
+
             let mData;
             try {
                 const mRes = await fetch(
@@ -262,12 +269,11 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             if (cancelled) return;
 
             if (!mData?.success || !mData.streams?.length) {
-                setError('No streams found for this title. Please try again later.');
-                setLoading(false);
+                // Tier 3: iframe embed fallback
+                showIframeFallback();
                 return;
             }
 
-            // Build ordered candidate list: prefer English-only, then by quality.
             const streams = [...mData.streams];
             setSources(streams);
 
@@ -276,30 +282,48 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             const tryNext = () => {
                 if (cancelled) return;
                 if (idx >= streams.length) {
-                    setError('All available streams failed to load. Please try again later.');
-                    setLoading(false);
+                    // All MP4 sources exhausted — try iframe
+                    showIframeFallback();
                     return;
                 }
-                const src = streams[idx++];
+                const src  = streams[idx++];
                 const lang = parseLanguages(src.language)[0] || 'Unknown';
+                setLoadingStatus(`Trying ${src.source} (${src.quality})…`);
                 setCurrentUrlLanguage(lang);
                 setCurrentUrlQuality(src.quality || 'Auto');
-                loadStream(src.url, tryNext); // onFail = tryNext (next candidate)
+                loadStream(src.url, tryNext);
             };
 
             tryNext();
         };
 
+        // Tier 3: show a working embed iframe when all direct streams fail
+        const showIframeFallback = () => {
+            if (cancelled) return;
+            const s = Number(season) || 1;
+            const e = Number(episode) || 1;
+            // vidsrc.me is very reliable as an iframe embed
+            const embedUrl = mediaType === 'tv'
+                ? `https://vidsrc.me/embed/tv?tmdb=${tmdbId}&season=${s}&episode=${e}`
+                : `https://vidsrc.me/embed/movie?tmdb=${tmdbId}`;
+            setIframeUrl(embedUrl);
+            setLoading(false);
+            setError(null);
+        };
+
         const fetchStreams = async () => {
             setLoading(true);
+            setLoadingStatus('Finding stream…');
+            setIframeUrl(null);
             setSources([]);
             setCurrentUrl('');
             setCurrentUrlLanguage('');
             setCurrentUrlQuality('Auto');
             playbackTimeRef.current = 0;
 
-            // ── Tier 1: get-stream ───────────────────────────────────────────
+            // ── Tier 1: get-stream (server-side HLS extraction) ─────────────
             try {
+                setLoadingStatus('Trying fast stream sources…');
                 const fRes  = await fetch(
                     `/api/get-stream?tmdbId=${tmdbId}&mediaType=${mediaType}&season=${season}&episode=${episode}`
                 );
@@ -308,22 +332,20 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 if (!cancelled && fData.success && fData.streamUrl) {
                     const url = fData.streamUrl;
 
-                    // CRITICAL FIX: reject token-style URLs that browsers cannot
-                    // play — they have no recognised video extension.
                     if (!isPlayableUrl(url)) {
-                        console.warn('[PrimePlayer] get-stream returned non-playable URL, skipping to multi-stream');
-                        await tryMultiStream();
+                        // Token/redirect URL — not directly playable, skip to Tier 2
+                        console.warn('[PrimePlayer] get-stream returned non-playable URL, falling to multi-stream');
+                    } else {
+                        setCurrentUrlLanguage('Loading…');
+                        loadStream(url, () => {
+                            // Tier 1 stream failed at video level — fall to Tier 2
+                            if (!cancelled) tryMultiStream();
+                        });
                         return;
                     }
-
-                    setCurrentUrlLanguage('Loading…');
-                    // Pass tryMultiStream as onFail so a video-level error
-                    // automatically falls through to Tier 2.
-                    loadStream(url, tryMultiStream);
-                    return;
                 }
             } catch (_) {
-                // get-stream network error — fall through.
+                // get-stream network error — fall through
             }
 
             if (!cancelled) await tryMultiStream();
@@ -666,23 +688,43 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
 
             {/* Loading */}
             {loading && (
-                <div style={{ position: 'absolute', inset: 0, zIndex: 5, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.7)' }}>
+                <div style={{ position: 'absolute', inset: 0, zIndex: 5, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.85)' }}>
                     <div className="spinner" />
-                    <p style={{ color: '#fff', marginTop: 16, fontSize: 13, fontWeight: 600, letterSpacing: '0.06em', opacity: 0.7 }}>LOADING STREAM…</p>
+                    <p style={{ color: '#fff', marginTop: 16, fontSize: 14, fontWeight: 600, letterSpacing: '0.04em' }}>{loadingStatus}</p>
+                    <p style={{ color: 'rgba(255,255,255,0.4)', marginTop: 6, fontSize: 11 }}>Trying multiple sources automatically</p>
                 </div>
             )}
 
             {/* Error */}
-            {error && (
-                <div style={{ position: 'absolute', zIndex: 5, left: '50%', top: '50%', transform: 'translate(-50%,-50%)', background: '#1a1d21', padding: 28, borderRadius: 12, textAlign: 'center', border: '1px solid #2e3239', maxWidth: 380 }}>
-                    <p style={{ fontWeight: 700, fontSize: 18, marginBottom: 8 }}>Playback Error</p>
+            {error && !iframeUrl && (
+                <div style={{ position: 'absolute', zIndex: 5, left: '50%', top: '50%', transform: 'translate(-50%,-50%)', background: '#1a1d21', padding: 28, borderRadius: 12, textAlign: 'center', border: '1px solid #2e3239', maxWidth: 400 }}>
+                    <p style={{ fontWeight: 700, fontSize: 18, marginBottom: 8 }}>Stream Unavailable</p>
                     <p style={{ color: '#8b8f97', fontSize: 14, marginBottom: 20, lineHeight: 1.5 }}>{error}</p>
-                    <button onClick={onClose} style={{ background: '#1a98ff', color: '#fff', border: 'none', padding: '10px 28px', borderRadius: 6, cursor: 'pointer', fontWeight: 700 }}>Close Player</button>
+                    <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                        <button onClick={() => window.location.reload()} style={{ background: '#1a98ff', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: 6, cursor: 'pointer', fontWeight: 700 }}>Retry</button>
+                        <button onClick={onClose} style={{ background: '#2e3239', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: 6, cursor: 'pointer', fontWeight: 700 }}>Close</button>
+                    </div>
                 </div>
             )}
 
-            {/* Video */}
-            <div id="video-area" onClick={togglePlay}>
+            {/* Iframe fallback (Tier 3) — shown when all direct streams fail */}
+            {iframeUrl && (
+                <div style={{ position: 'absolute', inset: 0, zIndex: 2 }}>
+                    <iframe
+                        src={iframeUrl}
+                        style={{ width: '100%', height: '100%', border: 'none' }}
+                        allowFullScreen
+                        allow="autoplay; encrypted-media; fullscreen"
+                        title="Stream Player"
+                    />
+                    <div style={{ position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)', background: 'rgba(26,152,255,0.9)', color: '#fff', padding: '4px 14px', borderRadius: 20, fontSize: 11, fontWeight: 700, pointerEvents: 'none', letterSpacing: '0.04em' }}>
+                        EMBED PLAYER
+                    </div>
+                </div>
+            )}
+
+            {/* Video — hidden when iframe is active */}
+            <div id="video-area" onClick={iframeUrl ? undefined : togglePlay} style={{ display: iframeUrl ? 'none' : 'block' }}>
                 <video
                     ref={videoRef}
                     onPlay={() => setIsPlaying(true)}
