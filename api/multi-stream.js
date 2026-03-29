@@ -24,7 +24,7 @@ function detectLanguage(streamObj, sourceName) {
 
     const hasHindi = /\b(hin|hindi|hi)\b/.test(raw);
     const hasEnglish = /\b(eng|english|en)\b/.test(raw);
-    const hasDual = /\b(dual[\s-]?audio|dual|multi[\s-]?audio|multi)\b/.test(raw);
+    const hasDual = /\b(dual[\s-]audio|dual audio|multi[\s-]audio|multi audio|dual|multi)\b/.test(raw);
 
     if (hasDual || (hasHindi && hasEnglish)) return 'Hindi + English';
     if (hasHindi) return 'Hindi';
@@ -39,7 +39,7 @@ function detectLanguage(streamObj, sourceName) {
 function isMultiAudioLanguage(language) {
     if (!language) return false;
     return /[+|,&\/]/.test(language) ||
-        /\b(dual[\s-]?audio|dual|multi[\s-]?audio|multi)\b/i.test(language);
+        /\b(dual[\s-]audio|dual audio|multi[\s-]audio|multi audio)\b/i.test(language);
 }
 
 function detectQuality(streamObj) {

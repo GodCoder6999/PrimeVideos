@@ -15,6 +15,18 @@ const parseLanguages = (langStr) => {
     return langStr.split(/(?:\+|\||,|and|&|\/)/i).map(l => l.trim()).filter(Boolean);
 };
 
+const LANG_TO_CODE = {
+    english: 'en', hindi: 'hi', spanish: 'es', french: 'fr',
+    german: 'de', japanese: 'ja', korean: 'ko', tamil: 'ta',
+    telugu: 'te', portuguese: 'pt', italian: 'it', arabic: 'ar',
+    chinese: 'zh', russian: 'ru', turkish: 'tr', dutch: 'nl',
+};
+
+const langToCode = (name) => {
+    const key = name.toLowerCase();
+    return LANG_TO_CODE[key] || key.slice(0, 3);
+};
+
 const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onClose, title = "Prime Video" }) => {
     const videoRef = useRef(null);
     const playerContainerRef = useRef(null);
@@ -133,11 +145,11 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                     audioTracks = langs.map((lang, idx) => ({
                         id: idx,
                         name: lang,
-                        language: lang.toLowerCase().slice(0, 3),
+                        language: langToCode(lang),
                         isSynthetic: true
                     }));
                 } else {
-                    audioTracks = [{ id: 0, name: 'Default Audio', language: 'und' }];
+                    audioTracks = [{ id: 0, name: 'Original Audio', language: 'und' }];
                 }
                 
                 setNativeAudioTracks(audioTracks);
@@ -194,7 +206,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 setLoading(false);
                 // Create default audio options for MP4/non-HLS
                 setNativeAudioTracks([
-                    { id: 0, name: 'Default Audio', language: 'und' }
+                    { id: 0, name: 'Original Audio', language: 'und' }
                 ]);
                 setCurrentNativeAudio(0);
                 if (currentTime > 0) video.currentTime = currentTime;
@@ -323,7 +335,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 // No separate URL available — try HLS native track switching as fallback
                 const hlsTrack = hlsRef.current.audioTracks.find(t =>
                     t.name?.toLowerCase().includes(opt.id.toLowerCase()) ||
-                    t.language?.toLowerCase().startsWith(opt.id.toLowerCase().slice(0, 3))
+                    t.language?.toLowerCase().startsWith(langToCode(opt.id))
                 );
                 if (hlsTrack) {
                     hlsRef.current.audioTrack = hlsTrack.id;
