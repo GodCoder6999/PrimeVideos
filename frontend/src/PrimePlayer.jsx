@@ -129,16 +129,17 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 let audioTracks = hls.audioTracks && hls.audioTracks.length > 0 ? hls.audioTracks : [];
                 
                 if (audioTracks.length === 0) {
-                    // Create default audio options when the stream doesn't expose audio tracks
+                    // Create default audio options when the stream doesn't expose audio tracks.
+                    // Use string IDs prefixed with 'fallback-' to avoid collision with real HLS track IDs.
                     audioTracks = [
-                        { id: 0, name: 'English', language: 'eng' },
-                        { id: 1, name: 'Hindi', language: 'hin' }
+                        { id: 'fallback-eng', name: 'English', language: 'eng', isFallback: true },
+                        { id: 'fallback-hin', name: 'Hindi', language: 'hin', isFallback: true }
                     ];
                 }
                 
                 setNativeAudioTracks(audioTracks);
                 
-                let defaultTrackId = hls.audioTrack || 0;
+                let defaultTrackId = hls.audioTrack || 'fallback-eng';
                 const engTrack = audioTracks.find(t => 
                     t.language?.toLowerCase() === 'en' || 
                     t.language?.toLowerCase() === 'eng' || 
@@ -146,7 +147,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 );
                 if (engTrack) {
                     defaultTrackId = engTrack.id;
-                    if (hls.audioTracks && hls.audioTracks.length > 0) {
+                    if (!engTrack.isFallback) {
                         hls.audioTrack = engTrack.id;
                     }
                 }
@@ -190,14 +191,14 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
 
     let displayAudioOptions = [];
     if (hasNativeAudio) {
-        displayAudioOptions = nativeAudioTracks.map(t => ({ id: t.id, label: t.name || t.language || `Track ${t.id}`, isNative: true }));
+        displayAudioOptions = nativeAudioTracks.map(t => ({ id: t.id, label: t.name || t.language || `Track ${t.id}`, isNative: !t.isFallback }));
     } else if (urlLanguages.length > 0) {
         displayAudioOptions = urlLanguages.map(l => ({ id: l, label: l, isNative: false }));
     } else {
         // Always show at least English and Hindi as default options
         displayAudioOptions = [
-            { id: 0, label: 'English', isNative: true },
-            { id: 1, label: 'Hindi', isNative: true }
+            { id: 'English', label: 'English', isNative: false },
+            { id: 'Hindi', label: 'Hindi', isNative: false }
         ];
     }
 
@@ -217,6 +218,9 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         : currentUrlQuality;
 
     // --- Action Handlers ---
+    // Brief seek-back pause forces the browser/HLS.js to reload the buffer with the new audio track.
+    const AUDIO_BUFFER_FLUSH_DELAY_MS = 100;
+
     const flushAudioBuffer = (callback) => {
         const video = videoRef.current;
         if (!video) return;
@@ -226,7 +230,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         setTimeout(() => {
             video.play().catch(() => {});
             if (callback) callback();
-        }, 100);
+        }, AUDIO_BUFFER_FLUSH_DELAY_MS);
     };
 
     const selectAudio = (opt) => {
