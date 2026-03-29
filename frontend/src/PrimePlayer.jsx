@@ -162,21 +162,35 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             });
 
             hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (e, data) => setCurrentNativeAudio(data.id));
-            
+
+            let networkRetries = 0;
+            let mediaErrorRecovered = false;
             hls.on(Hls.Events.ERROR, (e, data) => {
-                console.error('HLS Error:', data);
+                console.error('HLS Error:', data.type, data.details, data.fatal);
                 if (data.fatal) {
                     switch(data.type) {
                         case Hls.ErrorTypes.NETWORK_ERROR:
-                            console.log('Network error, retrying...');
-                            hls.startLoad();
+                            if (networkRetries < 3) {
+                                networkRetries++;
+                                console.log(`Network error, retry ${networkRetries}/3...`);
+                                hls.startLoad();
+                            } else {
+                                setError('Stream failed to load after multiple retries. The source may be offline.');
+                                setLoading(false);
+                            }
                             break;
                         case Hls.ErrorTypes.MEDIA_ERROR:
-                            console.log('Media error, recovering...');
-                            hls.recoverMediaError();
+                            if (!mediaErrorRecovered) {
+                                mediaErrorRecovered = true;
+                                console.log('Media error, attempting recovery...');
+                                hls.recoverMediaError();
+                            } else {
+                                setError('Stream playback failed. Please try another quality or language.');
+                                setLoading(false);
+                            }
                             break;
                         default:
-                            console.error('Fatal error:', data);
+                            console.error('Fatal HLS error:', data.details);
                             setError('Stream failed to load. The source may be offline or unavailable.');
                             setLoading(false);
                             break;
@@ -267,15 +281,18 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 try {
                     hlsRef.current.audioTrack = opt.id;
                     
-                    // Proper buffer flush: pause, seek back, play
+                    // Proper buffer flush: pause, seek back slightly, then resume if was playing
                     const video = videoRef.current;
-                    if (video && !video.paused) {
+                    if (video) {
+                        const wasPaused = video.paused;
                         const currentTimeVal = video.currentTime;
                         video.pause();
                         video.currentTime = Math.max(0, currentTimeVal - 0.05);
                         
                         setTimeout(() => {
-                            video.play().catch(err => console.log('Play failed:', err));
+                            if (!wasPaused) {
+                                video.play().catch(err => console.log('Play failed:', err));
+                            }
                             showToast(`✅ Switched to ${opt.label}`);
                         }, 100);
                     } else {

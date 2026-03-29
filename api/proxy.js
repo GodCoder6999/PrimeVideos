@@ -99,7 +99,10 @@ module.exports = async function handler(req, res) {
         }
 
     } catch (error) {
-        console.error('Proxy Error on Target:', targetUrl, '| Detail:', error.message);
-        res.status(500).send('Failed to proxy content');
+        const upstreamStatus = error.response?.status;
+        const upstreamMessage = error.response?.statusText || error.message || 'Unknown error';
+        console.error(`Proxy Error [${upstreamStatus || 'network'}] on Target: ${targetUrl} | Detail: ${upstreamMessage}`);
+        const statusCode = upstreamStatus && upstreamStatus >= 400 ? upstreamStatus : 500;
+        res.status(statusCode).send(`Failed to proxy content: ${upstreamMessage}`);
     }
 };
