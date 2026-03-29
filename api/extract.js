@@ -9,11 +9,16 @@ const providers = makeProviders({
 export default async function handler(req, res) {
   // Add basic CORS for your frontend
   res.setHeader('Access-Control-Allow-Origin', '*');
-  
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  res.setHeader('Content-Type', 'application/json');
+  if (req.method === 'OPTIONS') { res.statusCode = 200; return res.end(); }
+
   const { tmdbId, title, releaseYear, type = 'movie', season, episode } = req.query;
 
   if (!tmdbId || !title || !releaseYear) {
-    return res.status(400).json({ error: 'Missing required media parameters' });
+    res.statusCode = 400;
+    return res.end(JSON.stringify({ error: 'Missing required media parameters' }));
   }
 
   try {
@@ -33,21 +38,24 @@ export default async function handler(req, res) {
     const output = await providers.runAll({ media });
 
     if (!output || !output.stream) {
-      return res.status(404).json({ error: 'No stream found' });
+      res.statusCode = 404;
+      return res.end(JSON.stringify({ error: 'No stream found' }));
     }
 
     // Find the master HLS playlist
     const hlsPlaylist = output.stream.playlist 
       || (output.stream.type === 'hls' ? output.stream.url : null);
 
-    return res.status(200).json({
+    res.statusCode = 200;
+    return res.end(JSON.stringify({
       success: true,
       streamUrl: hlsPlaylist,
       headers: output.stream.headers // Important: Pass required upstream headers
-    });
+    }));
 
   } catch (error) {
     console.error('Extraction Error:', error);
-    return res.status(500).json({ error: 'Failed to extract stream' });
+    res.statusCode = 500;
+    return res.end(JSON.stringify({ error: 'Failed to extract stream' }));
   }
 }
