@@ -44,6 +44,24 @@ const isEnglishTrack = (track) => {
     return name.includes('english') || lang === 'en' || lang === 'eng' || lang === 'en-us' || lang === 'en-gb';
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// URL validation — only URLs with recognised streaming extensions are sent to
+// the video element.  Token-only URLs (like vidsrc BUZZ/TOKEN paths) have no
+// extension and cannot be played by a browser directly.
+// ─────────────────────────────────────────────────────────────────────────────
+const PLAYABLE_EXTENSIONS = /\.(m3u8|mp4|mkv|webm|avi|mov|ts|m4v|ogv)(\?|$)/i;
+
+function isPlayableUrl(url) {
+    if (!url || typeof url !== 'string') return false;
+    try {
+        // Decode in case the URL is already percent-encoded once.
+        const decoded = decodeURIComponent(url);
+        return PLAYABLE_EXTENSIONS.test(decoded);
+    } catch (_) {
+        return PLAYABLE_EXTENSIONS.test(url);
+    }
+}
+
 const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onClose, title = "Prime Video" }) => {
     const videoRef             = useRef(null);
     const playerContainerRef   = useRef(null);
@@ -87,33 +105,22 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     };
 
     // ─────────────────────────────────────────────────────────────────────────
-    // loadStream — the core function that initialises HLS.js or plain <video>.
-    //
-    // FIX SUMMARY:
-    //   • Uses playbackTimeRef (not currentTime state) to get a live timestamp.
-    //   • Calls setCurrentUrl so the rest of the component knows what is playing.
-    //   • Resets nativeAudioTracks / nativeQualities before each new load.
-    //   • Broader English-track detection (normalizeTrackLabel / isEnglishTrack).
-    //   • Updates currentUrlLanguage when an English track is auto-selected.
-    //   • xhrSetup is kept so proxied HLS segment requests don't get CORS-blocked.
+    // loadStream
+    //   rawUrl   — the unproxied source URL
+    //   onFail   — optional callback invoked when the stream cannot be played,
+    //              allowing the fetch waterfall to try the next source silently.
     // ─────────────────────────────────────────────────────────────────────────
-    const loadStream = useCallback((rawUrl) => {
+    const loadStream = useCallback((rawUrl, onFail = null) => {
         const video = videoRef.current;
         if (!video) return;
 
-        // Capture live playback position before any state changes.
         const savedTime = playbackTimeRef.current;
 
         setError(null);
         setLoading(true);
-
-        // ── FIX 3: Reset native track state so the audio/quality panels don't
-        //           show stale tracks from the previous stream.
         setNativeAudioTracks([]);
         setNativeQualities([]);
         setCurrentNativeQuality(-1);
-
-        // ── FIX 2 (cont.): Record the URL being loaded.
         setCurrentUrl(rawUrl);
 
         if (hlsRef.current) {
@@ -125,9 +132,21 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             ? rawUrl
             : `/api/proxy?url=${encodeURIComponent(rawUrl)}`;
 
+        const handleFail = (reason) => {
+            if (onFail) {
+                // Silent retry — caller handles the next source.
+                onFail(reason);
+            } else {
+                // Terminal failure — show a clean user-facing message.
+                setError(reason || 'This stream is unavailable. Please try again later.');
+                setLoading(false);
+            }
+        };
+
         if (Hls.isSupported() && rawUrl.includes('.m3u8')) {
             const hls = new Hls({
                 maxMaxBufferLength: 60,
+                manifestLoadingTimeOut: 10000,
                 xhrSetup: (xhr, url) => {
                     if (!url.includes('/api/proxy')) {
                         xhr.open('GET', `/api/proxy?url=${encodeURIComponent(url)}`, true);
@@ -142,28 +161,19 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
                 setLoading(false);
 
-                // ── Quality levels ──────────────────────────────────────────
                 const levels = hls.levels
                     .map((l, idx) => ({ id: idx, height: l.height || 0 }))
                     .filter(l => l.height > 0)
                     .sort((a, b) => b.height - a.height);
                 setNativeQualities(levels);
-                setCurrentNativeQuality(-1); // Auto
+                setCurrentNativeQuality(-1);
 
-                // ── Audio tracks ────────────────────────────────────────────
                 if (hls.audioTracks && hls.audioTracks.length > 0) {
                     setNativeAudioTracks([...hls.audioTracks]);
-
-                    // ── FIX 4 + 5: Prefer English, use broad matching, and
-                    //               update the UI language label to match.
-                    const engTrack = hls.audioTracks.find(isEnglishTrack);
+                    const engTrack    = hls.audioTracks.find(isEnglishTrack);
                     const targetTrack = engTrack ?? hls.audioTracks[0];
-
-                    hls.audioTrack = targetTrack.id;
+                    hls.audioTrack    = targetTrack.id;
                     setCurrentNativeAudio(targetTrack.id);
-
-                    // ── FIX 6: Keep currentUrlLanguage in sync with the HLS
-                    //           track that is actually playing.
                     setCurrentUrlLanguage(normalizeTrackLabel(targetTrack));
                 }
 
@@ -178,7 +188,6 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (e, data) => {
                 if (data?.id !== undefined) {
                     setCurrentNativeAudio(data.id);
-                    // Keep the language label in sync after a switch.
                     const switched = hls.audioTracks?.find(t => t.id === data.id);
                     if (switched) setCurrentUrlLanguage(normalizeTrackLabel(switched));
                 }
@@ -187,17 +196,19 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             hls.on(Hls.Events.ERROR, (e, data) => {
                 if (data.fatal) {
                     if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                        // One auto-retry for transient network hiccups.
                         hls.startLoad();
                     } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
                         hls.recoverMediaError();
                     } else {
-                        setError('Fatal stream error. Please try another source.');
-                        setLoading(false);
+                        hls.destroy();
+                        handleFail('Stream unavailable — trying next source…');
                     }
                 }
             });
+
         } else {
-            // Plain MP4 / MKV
+            // Plain MP4 / MKV / other direct video file.
             video.src = proxiedUrl;
 
             const onMeta = () => {
@@ -209,21 +220,75 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
 
             const onErr = () => {
                 video.removeEventListener('loadedmetadata', onMeta);
-                const ext = rawUrl.split('.').pop().split('?')[0].toUpperCase();
-                setError(`Playback Error: browser cannot play this ${ext} file.`);
-                setLoading(false);
+                handleFail('Stream unavailable — trying next source…');
             };
 
             video.addEventListener('loadedmetadata', onMeta, { once: true });
-            video.addEventListener('error', onErr, { once: true });
+            video.addEventListener('error', onErr,         { once: true });
         }
-    }, []); // stable reference — uses refs, not state
+    }, []);
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Initial stream fetch
+    // Initial stream fetch — 3-tier waterfall with automatic fallback
+    //
+    // Tier 1: get-stream  (vidsrc / embed.su HLS)
+    //   • Validates the returned URL has a playable extension before using it.
+    //   • Token-only URLs (BUZZ/TOKEN, vidsrc iframe keys) are rejected here
+    //     and the waterfall drops straight to Tier 2.
+    //   • If loadStream fires but the video errors, onFail() triggers Tier 2.
+    //
+    // Tier 2: multi-stream  (Stremio-addon scrapers, MP4 sources)
+    //   • Tries the best English source first.
+    //   • If that errors, tries each remaining source in quality order.
+    //
+    // Tier 3: final error shown to user only if every source failed.
     // ─────────────────────────────────────────────────────────────────────────
     useEffect(() => {
         let cancelled = false;
+
+        // Tier 2 helper — tries multi-stream sources in order, auto-advancing
+        // on failure until one plays or all are exhausted.
+        const tryMultiStream = async () => {
+            let mData;
+            try {
+                const mRes = await fetch(
+                    `/api/multi-stream?tmdbId=${tmdbId}&type=${mediaType}&season=${season}&episode=${episode}`
+                );
+                mData = await mRes.json();
+            } catch (_) {
+                mData = null;
+            }
+
+            if (cancelled) return;
+
+            if (!mData?.success || !mData.streams?.length) {
+                setError('No streams found for this title. Please try again later.');
+                setLoading(false);
+                return;
+            }
+
+            // Build ordered candidate list: prefer English-only, then by quality.
+            const streams = [...mData.streams];
+            setSources(streams);
+
+            let idx = 0;
+
+            const tryNext = () => {
+                if (cancelled) return;
+                if (idx >= streams.length) {
+                    setError('All available streams failed to load. Please try again later.');
+                    setLoading(false);
+                    return;
+                }
+                const src = streams[idx++];
+                const lang = parseLanguages(src.language)[0] || 'Unknown';
+                setCurrentUrlLanguage(lang);
+                setCurrentUrlQuality(src.quality || 'Auto');
+                loadStream(src.url, tryNext); // onFail = tryNext (next candidate)
+            };
+
+            tryNext();
+        };
 
         const fetchStreams = async () => {
             setLoading(true);
@@ -233,45 +298,35 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             setCurrentUrlQuality('Auto');
             playbackTimeRef.current = 0;
 
+            // ── Tier 1: get-stream ───────────────────────────────────────────
             try {
-                // Priority 1 — native HLS (vidsrc, embed.su, etc.)
-                const fRes  = await fetch(`/api/get-stream?tmdbId=${tmdbId}&mediaType=${mediaType}&season=${season}&episode=${episode}`);
+                const fRes  = await fetch(
+                    `/api/get-stream?tmdbId=${tmdbId}&mediaType=${mediaType}&season=${season}&episode=${episode}`
+                );
                 const fData = await fRes.json();
 
                 if (!cancelled && fData.success && fData.streamUrl) {
-                    // Single HLS stream — audio tracks come from the manifest.
+                    const url = fData.streamUrl;
+
+                    // CRITICAL FIX: reject token-style URLs that browsers cannot
+                    // play — they have no recognised video extension.
+                    if (!isPlayableUrl(url)) {
+                        console.warn('[PrimePlayer] get-stream returned non-playable URL, skipping to multi-stream');
+                        await tryMultiStream();
+                        return;
+                    }
+
                     setCurrentUrlLanguage('Loading…');
-                    loadStream(fData.streamUrl);
+                    // Pass tryMultiStream as onFail so a video-level error
+                    // automatically falls through to Tier 2.
+                    loadStream(url, tryMultiStream);
                     return;
                 }
-
-                // Priority 2 — multi-source MP4 fallback
-                const mRes  = await fetch(`/api/multi-stream?tmdbId=${tmdbId}&type=${mediaType}&season=${season}&episode=${episode}`);
-                const mData = await mRes.json();
-
-                if (!cancelled && mData.success && mData.streams?.length > 0) {
-                    setSources(mData.streams);
-
-                    // Prefer a pure English stream; fall back to first available.
-                    const engStream = mData.streams.find(s =>
-                        s.language?.toLowerCase() === 'english'
-                    );
-                    const defaultSource = engStream ?? mData.streams[0];
-
-                    const firstLang = parseLanguages(defaultSource.language)[0] || 'Unknown';
-                    setCurrentUrlLanguage(firstLang);
-                    setCurrentUrlQuality(defaultSource.quality || 'Auto');
-                    loadStream(defaultSource.url);
-                    return;
-                }
-
-                if (!cancelled) throw new Error('No playable streams found across any provider.');
-            } catch (err) {
-                if (!cancelled) {
-                    setError(err.message || 'Failed to load stream.');
-                    setLoading(false);
-                }
+            } catch (_) {
+                // get-stream network error — fall through.
             }
+
+            if (!cancelled) await tryMultiStream();
         };
 
         if (tmdbId) fetchStreams();
