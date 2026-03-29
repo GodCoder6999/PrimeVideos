@@ -20,6 +20,10 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     const playerContainerRef = useRef(null);
     const hlsRef = useRef(null);
     const controlsTimeoutRef = useRef(null);
+    // Refs to avoid stale closures inside video element error handlers
+    const sourcesRef = useRef([]);
+    const currentRawUrlRef = useRef(null);
+    const failedUrlsRef = useRef(new Set());
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -70,6 +74,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
 
                 if (mData.success && mData.streams && mData.streams.length > 0) {
                     setSources(mData.streams);
+                    sourcesRef.current = mData.streams;
                     let defaultSource = mData.streams.find(s => s.language?.toLowerCase().includes('english')) || mData.streams[0]; 
                     
                     const initialLangs = parseLanguages(defaultSource.language);
@@ -95,6 +100,10 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         return () => {
             if (hlsRef.current) hlsRef.current.destroy();
             clearTimeout(controlsTimeoutRef.current);
+            // Reset fallback tracking for the new media item
+            sourcesRef.current = [];
+            currentRawUrlRef.current = null;
+            failedUrlsRef.current = new Set();
         };
     }, [tmdbId, mediaType, season, episode]);
 
@@ -106,6 +115,8 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         setLoading(true);
         if (hlsRef.current) hlsRef.current.destroy();
 
+        // Track the URL being loaded so the error handler can skip it when falling back
+        currentRawUrlRef.current = rawUrl;
         const proxiedUrl = rawUrl.includes('/api/proxy') ? rawUrl : `/api/proxy?url=${encodeURIComponent(rawUrl)}`;
 
         if (Hls.isSupported() && rawUrl.includes('.m3u8')) {
@@ -153,6 +164,21 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 if (data.fatal) {
                     if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
                     else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+                    else {
+                        // Unrecoverable error — try the next available source
+                        const failedUrl = currentRawUrlRef.current;
+                        failedUrlsRef.current.add(failedUrl);
+                        const nextSource = sourcesRef.current.find(s => !failedUrlsRef.current.has(s.url));
+                        if (nextSource) {
+                            showToast("Stream failed, trying next source…");
+                            setCurrentUrlLanguage(parseLanguages(nextSource.language)[0] || 'Unknown');
+                            setCurrentUrlQuality(nextSource.quality || 'Auto');
+                            loadStream(nextSource.url);
+                        } else {
+                            setError("Playback Error: Stream is currently offline or unsupported. Please try again later.");
+                            setLoading(false);
+                        }
+                    }
                 }
             });
         } else {
@@ -164,8 +190,19 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             }, { once: true });
             
             video.addEventListener('error', () => {
-                setError("Stream is currently offline or unsupported.");
-                setLoading(false);
+                // Try the next available source before giving up
+                const failedUrl = currentRawUrlRef.current;
+                failedUrlsRef.current.add(failedUrl);
+                const nextSource = sourcesRef.current.find(s => !failedUrlsRef.current.has(s.url));
+                if (nextSource) {
+                    showToast("Stream failed, trying next source…");
+                    setCurrentUrlLanguage(parseLanguages(nextSource.language)[0] || 'Unknown');
+                    setCurrentUrlQuality(nextSource.quality || 'Auto');
+                    loadStream(nextSource.url);
+                } else {
+                    setError("Playback Error: Stream is currently offline or unsupported. Please try again later.");
+                    setLoading(false);
+                }
             }, { once: true });
         }
     };
