@@ -24,7 +24,7 @@ function detectLanguage(streamObj, sourceName) {
 
     const hasHindi = /\b(hin|hindi|hi)\b/.test(raw);
     const hasEnglish = /\b(eng|english|en)\b/.test(raw);
-    const hasDual = /\b(dual audio|dual|multi audio|multi)\b/.test(raw);
+    const hasDual = /\b(dual[\s-]audio|dual audio|multi[\s-]audio|multi audio|dual|multi)\b/.test(raw);
 
     if (hasDual || (hasHindi && hasEnglish)) return 'Hindi + English';
     if (hasHindi) return 'Hindi';
@@ -34,6 +34,12 @@ function detectLanguage(streamObj, sourceName) {
     const src = sourceName.toLowerCase();
     if (src.includes('nuvio') || src.includes('moviesmod')) return 'Hindi + English'; 
     return 'English'; // Superflix, Chillx, JaMovies default to English
+}
+
+function isMultiAudioLanguage(language) {
+    if (!language) return false;
+    return /[+|,&\/]/.test(language) ||
+        /\b(dual[\s-]audio|dual audio|multi[\s-]audio|multi audio)\b/i.test(language);
 }
 
 function detectQuality(streamObj) {
@@ -87,10 +93,12 @@ module.exports = async function handler(req, res) {
 
         for (const s of data.streams) {
             if (!s.url || s.url.startsWith('magnet:')) continue;
+            const language = detectLanguage(s, ep.name);
             rawStreams.push({
                 url: px(s.url),
                 quality: detectQuality(s),
-                language: detectLanguage(s, ep.name),
+                language,
+                isMultiAudio: isMultiAudioLanguage(language),
                 source: ep.name,
                 type: s.url.includes('.m3u8') ? 'hls' : 'mp4'
             });
@@ -107,6 +115,10 @@ module.exports = async function handler(req, res) {
     }
 
     const deduped = Array.from(buckets.values()).sort((a, b) => {
+        // Multi-audio streams get highest priority
+        if (a.isMultiAudio && !b.isMultiAudio) return -1;
+        if (b.isMultiAudio && !a.isMultiAudio) return 1;
+        // Then prefer English over other single-language streams
         if (a.language === 'English' && b.language !== 'English') return -1;
         if (b.language === 'English' && a.language !== 'English') return 1;
         return (QUALITY_RANK[b.quality] || 0) - (QUALITY_RANK[a.quality] || 0);
