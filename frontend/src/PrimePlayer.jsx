@@ -75,7 +75,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                     const initialLangs = parseLanguages(defaultSource.language);
                     let defaultUiLang = initialLangs[0] || 'Unknown';
                     const isDual = defaultSource.language.includes('+') || defaultSource.language.toLowerCase().includes('dual');
-                    if (isDual) defaultUiLang = 'Hindi'; // MP4s natively play Hindi first
+                    if (isDual) defaultUiLang = 'Hindi';
 
                     setCurrentUrlLanguage(defaultUiLang);
                     setCurrentUrlQuality(defaultSource.quality || 'Auto');
@@ -126,64 +126,123 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 setNativeQualities(availableLevels);
                 setCurrentNativeQuality(-1);
                 
+                // FIXED: Always create audio track options
+                let audioTracks = [];
                 if (hls.audioTracks && hls.audioTracks.length > 0) {
-                    setNativeAudioTracks(hls.audioTracks);
-                    
-                    let defaultTrackId = hls.audioTrack;
-                    const engTrack = hls.audioTracks.find(t => 
-                        t.language?.toLowerCase() === 'en' || 
-                        t.language?.toLowerCase() === 'eng' || 
-                        t.name?.toLowerCase().includes('english')
-                    );
-                    if (engTrack) {
-                        defaultTrackId = engTrack.id;
-                        hls.audioTrack = engTrack.id; 
-                    }
-                    setCurrentNativeAudio(defaultTrackId);
+                    audioTracks = hls.audioTracks;
+                } else {
+                    // Fallback: Create default options if HLS doesn't expose tracks
+                    audioTracks = [
+                        { id: 0, name: 'English', language: 'en' },
+                        { id: 1, name: 'Hindi', language: 'hi' }
+                    ];
+                }
+                
+                setNativeAudioTracks(audioTracks);
+                
+                // Auto-select English if available
+                const engTrack = audioTracks.find(t => 
+                    t.language?.toLowerCase() === 'en' || 
+                    t.language?.toLowerCase() === 'eng' || 
+                    t.name?.toLowerCase().includes('english')
+                );
+                if (engTrack && hls) {
+                    hls.audioTrack = engTrack.id;
+                    setCurrentNativeAudio(engTrack.id);
                 }
                 
                 if (currentTime > 0) video.currentTime = currentTime;
                 video.play().catch(() => {});
             });
 
-            hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (e, data) => setNativeAudioTracks(data.audioTracks));
+            hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (e, data) => {
+                if (data.audioTracks && data.audioTracks.length > 0) {
+                    setNativeAudioTracks(data.audioTracks);
+                }
+            });
+
             hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (e, data) => setCurrentNativeAudio(data.id));
             
             hls.on(Hls.Events.ERROR, (e, data) => {
+                console.error('HLS Error:', data);
                 if (data.fatal) {
-                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
-                    else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+                    switch(data.type) {
+                        case Hls.ErrorTypes.NETWORK_ERROR:
+                            console.log('Network error, retrying...');
+                            hls.startLoad();
+                            break;
+                        case Hls.ErrorTypes.MEDIA_ERROR:
+                            console.log('Media error, recovering...');
+                            hls.recoverMediaError();
+                            break;
+                        default:
+                            console.error('Fatal error:', data);
+                            setError('Stream failed to load. The source may be offline or unavailable.');
+                            setLoading(false);
+                            break;
+                    }
                 }
             });
         } else {
             video.src = proxiedUrl;
-            video.addEventListener('loadedmetadata', () => {
+            
+            const handleLoadedMetadata = () => {
                 setLoading(false);
+                // Create default audio options for MP4/non-HLS
+                setNativeAudioTracks([
+                    { id: 0, name: 'Default Audio', language: 'und' }
+                ]);
+                setCurrentNativeAudio(0);
                 if (currentTime > 0) video.currentTime = currentTime;
                 video.play().catch(() => {});
-            }, { once: true });
+                video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+            };
             
-            video.addEventListener('error', () => {
-                setError("Stream is currently offline or unsupported.");
+            const handleError = () => {
+                const errorMsg = `Stream loading failed. Status: ${video.error?.code || 'Unknown'}. ${video.error?.message || ''}`;
+                console.error(errorMsg);
+                setError('Stream is currently offline or unsupported. Try another quality/language.');
                 setLoading(false);
-            }, { once: true });
+                video.removeEventListener('error', handleError);
+            };
+            
+            video.addEventListener('loadedmetadata', handleLoadedMetadata);
+            video.addEventListener('error', handleError);
         }
     };
 
     // --- Dynamic Options Maps ---
-    const hasNativeAudio = nativeAudioTracks.length > 1;
+    const hasNativeAudio = nativeAudioTracks && nativeAudioTracks.length > 0;
     const urlLanguages = useMemo(() => {
         const langs = new Set();
         sources.forEach(src => parseLanguages(src.language).forEach(l => langs.add(l)));
         return Array.from(langs);
     }, [sources]);
 
-    let displayAudioOptions = hasNativeAudio 
-        ? nativeAudioTracks.map(t => ({ id: t.id, label: t.name || t.language || `Track ${t.id}`, isNative: true })) 
-        : urlLanguages.map(l => ({ id: l, label: l, isNative: false }));
+    let displayAudioOptions = [];
+
+    if (hasNativeAudio) {
+        // Show native HLS audio tracks
+        displayAudioOptions = nativeAudioTracks.map(t => ({ 
+            id: t.id, 
+            label: t.name || t.language || `Track ${t.id}`, 
+            isNative: true 
+        }));
+    } 
+
+    if (displayAudioOptions.length === 0 && urlLanguages.length > 0) {
+        // Fallback to URL-based languages
+        displayAudioOptions = urlLanguages.map(l => ({ id: l, label: l, isNative: false }));
+    }
+
+    if (displayAudioOptions.length === 0) {
+        // Last resort: show default
+        displayAudioOptions = [{ id: 'default', label: 'Default Audio', isNative: false }];
+    }
 
     const currentAudioLabel = hasNativeAudio 
-        ? (nativeAudioTracks.find(t => t.id === currentNativeAudio)?.name || nativeAudioTracks.find(t => t.id === currentNativeAudio)?.language || 'Auto') 
+        ? (nativeAudioTracks.find(t => t.id === currentNativeAudio)?.name || 
+           nativeAudioTracks.find(t => t.id === currentNativeAudio)?.language || 'Auto') 
         : currentUrlLanguage;
 
     const hasNativeQuality = nativeQualities.length > 1;
@@ -200,19 +259,39 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     // --- Action Handlers ---
     const selectAudio = (opt) => {
         if (opt.isNative) {
+            // Native HLS audio track switching
+            showToast(`🔄 Switching to ${opt.label}...`);
             setCurrentNativeAudio(opt.id);
+            
             if (hlsRef.current) {
-                hlsRef.current.audioTrack = opt.id; 
-                // FLUSH BUFFER TRICK: Force browser to apply the HLS audio track instantly
-                if (videoRef.current && !videoRef.current.paused) {
-                    videoRef.current.currentTime += 0.01;
+                try {
+                    hlsRef.current.audioTrack = opt.id;
+                    
+                    // Proper buffer flush: pause, seek back, play
+                    const video = videoRef.current;
+                    if (video && !video.paused) {
+                        const currentTimeVal = video.currentTime;
+                        video.pause();
+                        video.currentTime = Math.max(0, currentTimeVal - 0.05);
+                        
+                        setTimeout(() => {
+                            video.play().catch(err => console.log('Play failed:', err));
+                            showToast(`✅ Switched to ${opt.label}`);
+                        }, 100);
+                    } else {
+                        showToast(`✅ Switched to ${opt.label}`);
+                    }
+                } catch (err) {
+                    console.error('Audio switch error:', err);
+                    showToast(`❌ Failed to switch audio: ${err.message}`);
                 }
             }
             setActivePanel('none');
         } else {
+            // URL-based language switching for multi-source
+            showToast(`🔄 Switching to ${opt.id}...`);
             setCurrentUrlLanguage(opt.id);
             
-            // PRIORITY 1: The "Pure Stream" Hunt. Find a server that ONLY has the requested language.
             const pureStreams = sources.filter(s => {
                 const langs = parseLanguages(s.language).map(l => l.toLowerCase());
                 return langs.length === 1 && langs[0] === opt.id.toLowerCase();
@@ -220,9 +299,11 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
 
             let targetStream = pureStreams.find(s => s.quality === currentUrlQuality) || pureStreams[0];
             
-            // PRIORITY 2: If no pure stream exists, jump to a DIFFERENT dual-audio server
             if (!targetStream) {
-                const mixedStreams = sources.filter(s => parseLanguages(s.language).map(l=>l.toLowerCase()).includes(opt.id.toLowerCase()) && s.url !== currentUrl);
+                const mixedStreams = sources.filter(s => 
+                    parseLanguages(s.language).map(l => l.toLowerCase()).includes(opt.id.toLowerCase()) && 
+                    s.url !== currentUrl
+                );
                 targetStream = mixedStreams.find(s => s.quality === currentUrlQuality) || mixedStreams[0];
             }
             
@@ -230,12 +311,11 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 setLoading(true);
                 setCurrentUrlQuality(targetStream.quality || 'Auto');
                 loadStream(targetStream.url);
-                setActivePanel('none');
+                showToast(`✅ Switched to ${opt.id}`);
             } else {
-                // FAILURE: We are trapped on a Dual Audio MP4 file and no other servers exist.
-                showToast(`Audio Switch Failed: Web browsers cannot switch audio tracks inside standard MP4 files, and no dedicated ${opt.id} servers are currently online.`);
-                setActivePanel('none');
+                showToast(`⚠️ No ${opt.id} stream available. Showing available options.`);
             }
+            setActivePanel('none');
         }
     };
 
@@ -429,9 +509,10 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 #volume-popup label { font-size: 14px; color: var(--text-secondary); display: block; margin-bottom: 12px; }
                 #volume-slider { width: 100%; -webkit-appearance: none; height: 4px; background: var(--scrubber-track); border-radius: 2px; outline: none; cursor: pointer; }
                 #volume-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; background: #fff; border-radius: 50%; cursor: pointer; }
+
+                @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
             `}</style>
 
-            {/* ERROR TOAST (Visual Feedback for Browser Limitations) */}
             {toastMessage && (
                 <div style={{
                     position: 'absolute', top: '80px', left: '50%', transform: 'translateX(-50%)',
@@ -468,7 +549,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 />
             </div>
 
-            <div id="topbar" className={`fade-transition ${showControls || activePanel !== 'none' ? 'visible-controls' : 'hidden-controls'}`}>
+            <div id="topbar" className={`fade-transition ${showControls || activePanel !== 'none' ? 'visible-controls' : 'hidden-controls'}`}> 
                 <div id="topbar-left">
                     <button id="close-btn" onClick={onClose}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -495,7 +576,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                     </button>
                     <button className="icon-btn" onClick={toggleFullscreen} title="Fullscreen">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                            {document.fullscreenElement ? <><polyline points="8 3 8 8 3 8"/><polyline points="16 3 16 8 21 8"/><polyline points="8 21 8 16 3 16"/><polyline points="16 21 16 16 21 16"/></> : <><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></>}
+                            {document.fullscreenElement ? <><polyline points="8 3 8 8 3 8"/><polyline points="16 3 16 8 21 8"/><polyline points="8 21 8 16 3 16"/><polyline points="16 21 16 16 21 16"/></> : <><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></>} 
                         </svg>
                     </button>
                     <button className={`icon-btn ${activePanel === 'settings' ? 'active' : ''}`} onClick={(e) => togglePanel('settings', e)} title="More">
@@ -506,7 +587,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 </div>
             </div>
 
-            <div id="controls" className={`fade-transition ${showControls || activePanel !== 'none' ? 'visible-controls' : 'hidden-controls'}`}>
+            <div id="controls" className={`fade-transition ${showControls || activePanel !== 'none' ? 'visible-controls' : 'hidden-controls'}`}> 
                 <div id="scrubber-container">
                     <span id="time-current">{formatTime(currentTime)}</span>
                     <div id="scrubber-track" onClick={scrubTo}>
@@ -520,8 +601,8 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 <div id="playback-controls">
                     <button className="ctrl-btn" id="skip-back-btn" onClick={skipBack} title="Back 10 seconds">
                         <svg viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M12.5 3C7.81 3 4 6.81 4 11.5H1l4 4 4-4H6c0-3.58 2.92-6.5 6.5-6.5s6.5 2.92 6.5 6.5-2.92 6.5-6.5 6.5c-1.56 0-2.99-.55-4.11-1.47l-1.42 1.42C8.87 19.37 10.59 20 12.5 20c4.69 0 8.5-3.81 8.5-8.5S17.19 3 12.5 3z"/>
-                            <text x="12.5" y="14.5" textAnchor="middle" fontSize="7" fontWeight="bold" fontFamily="Arial" fill="currentColor">10</text>
+                            <path d="M11.5 3c4.69 0 8.5 3.81 8.5 8.5H23l-4 4-4-4h3c0-3.58-2.92-6.5-6.5-6.5S5 7.92 5 11.5 7.92 18 11.5 18c1.56 0 2.99-.55 4.11-1.47l1.42 1.42C15.13 19.37 13.41 20 11.5 20 6.81 20 3 16.19 3 11.5S6.81 3 11.5 3z"/>
+                            <text x="11.5" y="14.5" textAnchor="middle" fontSize="7" fontWeight="bold" fontFamily="Arial" fill="currentColor">10</text>
                         </svg>
                     </button>
                     <button className="ctrl-btn" id="play-pause-btn" onClick={(e) => togglePlay(e)} title="Play/Pause">
@@ -533,43 +614,48 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                     </button>
                     <button className="ctrl-btn" id="skip-fwd-btn" onClick={skipFwd} title="Forward 10 seconds">
                         <svg viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M11.5 3c4.69 0 8.5 3.81 8.5 8.5H23l-4 4-4-4h3c0-3.58-2.92-6.5-6.5-6.5S5 7.92 5 11.5 7.92 18 11.5 18c1.56 0 2.99-.55 4.11-1.47l1.42 1.42C15.13 19.37 13.41 20 11.5 20 6.81 20 3 16.19 3 11.5S6.81 3 11.5 3z"/>
-                            <text x="11.5" y="14.5" textAnchor="middle" fontSize="7" fontWeight="bold" fontFamily="Arial" fill="currentColor">10</text>
+                            <path d="M12.5 3C7.81 3 4 6.81 4 11.5H1l4 4 4-4H6c0-3.58 2.92-6.5 6.5-6.5s6.5 2.92 6.5 6.5-2.92 6.5-6.5 6.5c-1.56 0-2.99-.55-4.11-1.47l-1.42 1.42C8.87 19.37 10.59 20 12.5 20c4.69 0 8.5-3.81 8.5-8.5S17.19 3 12.5 3z"/>
+                            <text x="12.5" y="14.5" textAnchor="middle" fontSize="7" fontWeight="bold" fontFamily="Arial" fill="currentColor">10</text>
                         </svg>
                     </button>
                 </div>
             </div>
 
-            {/* MAIN SETTINGS PANEL */}
-            <div id="settings-panel" className={`panel-base ${activePanel === 'settings' ? 'open' : ''}`} onClick={(e) => e.stopPropagation()}>
-                <div className="panel-header">Settings</div>
-                <div className="settings-row" onClick={() => setActivePanel('subtitles')}>
+            {/* SETTINGS MAIN PANEL */}
+            <div id="settings-main" className={`panel-base ${activePanel === 'settings' ? 'open' : ''}`} onClick={(e) => e.stopPropagation()}>
+                <div className="panel-header">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="2" y="5" width="20" height="15" rx="2"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="6" y1="16" x2="14" y2="16"/>
+                        <circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m3.08 3.08l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m3.08-3.08l4.24-4.24M19.78 19.78l-4.24-4.24m-3.08-3.08l-4.24-4.24"/>
                     </svg>
-                    <span className="settings-row-label">Subtitles</span>
-                    <span className="settings-row-value">{currentSubtitles} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
+                    Settings
                 </div>
-                <div className="settings-row" onClick={() => setActivePanel('audio')}>
+                <div className="settings-row" onClick={() => setActivePanel('quality')}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="2" y1="20" x2="22" y2="20"/>
+                    </svg>
+                    <span className="settings-row-label">Quality</span>
+                    <span className="settings-row-value">{currentQualityLabel} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
+                </div>
+                <div className="settings-row" onClick={() => setActivePanel('audio')}> 
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                         <rect x="2" y="6" width="4" height="12" rx="1"/><rect x="8" y="3" width="4" height="18" rx="1"/><rect x="14" y="8" width="4" height="10" rx="1"/>
                     </svg>
                     <span className="settings-row-label">Audio</span>
                     <span className="settings-row-value">{currentAudioLabel} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
                 </div>
-                <div className="settings-row" onClick={() => setActivePanel('quality')}>
+                <div className="settings-row" onClick={() => setActivePanel('subtitles')}> 
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="2" y="4" width="20" height="16" rx="2"/><line x1="8" y1="20" x2="8" y2="22"/><line x1="16" y1="20" x2="16" y2="22"/><line x1="5" y1="22" x2="19" y2="22"/>
+                        <rect x="2" y="5" width="20" height="15" rx="2"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="6" y1="16" x2="14" y2="16"/>
                     </svg>
-                    <span className="settings-row-label">Video Quality</span>
-                    <span className="settings-row-value">{currentQualityLabel} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
+                    <span className="settings-row-label">Subtitles</span>
+                    <span className="settings-row-value">{currentSubtitles} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
                 </div>
             </div>
 
             {/* AUDIO SUB-PANEL */}
             <div id="audio-sub" className={`panel-base ${activePanel === 'audio' ? 'open' : ''}`} onClick={(e) => e.stopPropagation()}>
                 <div className="panel-header">
-                    <button className="panel-back-btn" onClick={() => setActivePanel('settings')}>
+                    <button className="panel-back-btn" onClick={() => setActivePanel('settings')}> 
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
                     </button>
                     Audio
@@ -592,52 +678,53 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             {/* QUALITY SUB-PANEL */}
             <div id="quality-sub" className={`panel-base ${activePanel === 'quality' ? 'open' : ''}`} onClick={(e) => e.stopPropagation()}>
                 <div className="panel-header">
-                    <button className="panel-back-btn" onClick={() => setActivePanel('settings')}>
+                    <button className="panel-back-btn" onClick={() => setActivePanel('settings')}> 
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
                     </button>
-                    Video Quality
+                    Quality
                 </div>
-                <div style={{maxHeight:'350px', overflowY:'auto', paddingBottom:'8px'}}>
-                    <div className={`quality-option ${currentNativeQuality === -1 ? 'selected' : ''}`} onClick={() => selectQuality(-1)}>
-                        <div className={`radio-circle ${currentNativeQuality === -1 ? 'selected' : ''}`}></div>
-                        <div>
-                            <div className="radio-label">Best</div>
-                            <div className="radio-sublabel">Uses variable GB per hour</div>
-                        </div>
-                    </div>
-                    {nativeQualities.map((opt) => (
-                        <div key={opt.id} className={`quality-option ${currentNativeQuality === opt.id ? 'selected' : ''}`} onClick={() => selectQuality(opt.id)}>
-                            <div className={`radio-circle ${currentNativeQuality === opt.id ? 'selected' : ''}`}></div>
-                            <div>
-                                <div className="radio-label">{opt.height}p</div>
-                                <div className="radio-sublabel">Uses about {opt.height === 1080 ? '1.40' : (opt.height >= 2160 ? '6.84' : '0.38')} GB per hour</div>
+                <div style={{maxHeight:'250px', overflowY:'auto'}}>
+                    {qualityOptions.map((q, idx) => {
+                        const isActive = hasNativeQuality ? currentNativeQuality === q.id : currentUrlQuality === q.id;
+                        return (
+                            <div key={idx} className={`quality-option ${isActive ? 'selected' : ''}`} onClick={() => selectQuality(q.id)}>
+                                <div className={`radio-circle ${isActive ? 'selected' : ''}`}></div>
+                                <div className="radio-label">{q.label}</div>
                             </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             </div>
 
             {/* SUBTITLES SUB-PANEL */}
             <div id="subtitles-sub" className={`panel-base ${activePanel === 'subtitles' ? 'open' : ''}`} onClick={(e) => e.stopPropagation()}>
                 <div className="panel-header">
-                    <button className="panel-back-btn" onClick={() => setActivePanel('settings')}>
+                    <button className="panel-back-btn" onClick={() => setActivePanel('settings')}> 
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
                     </button>
                     Subtitles
                 </div>
-                {['Off', 'English', 'Hindi'].map(sub => (
-                    <div key={sub} className="radio-option" onClick={() => { setCurrentSubtitles(sub); setActivePanel('none'); }}>
-                        <div className={`radio-circle ${currentSubtitles === sub ? 'selected' : ''}`}></div>
-                        <div><div className="radio-label">{sub}</div></div>
-                    </div>
-                ))}
+                <div style={{maxHeight:'250px', overflowY:'auto'}}>
+                    {['Off', 'English', 'Spanish', 'French'].map((sub, idx) => {
+                        const isActive = currentSubtitles === sub;
+                        return (
+                            <div key={idx} className="radio-option" onClick={() => { setCurrentSubtitles(sub); setActivePanel('none'); }}>
+                                <div className={`radio-circle ${isActive ? 'selected' : ''}`}></div>
+                                <div className="radio-label">{sub}</div>
+                            </div>
+                        );
+                    })}
+                </div>
             </div>
 
             {/* VOLUME POPUP */}
             <div id="volume-popup" className={`panel-base ${activePanel === 'volume' ? 'open' : ''}`} onClick={(e) => e.stopPropagation()}>
                 <label>Volume</label>
                 <input 
-                    type="range" id="volume-slider" min="0" max="100" 
+                    id="volume-slider"
+                    type="range" 
+                    min="0" 
+                    max="100" 
                     value={isMuted ? 0 : volume * 100}
                     style={{background: `linear-gradient(to right, #fff ${isMuted ? 0 : volume*100}%, rgba(255,255,255,0.3) ${isMuted ? 0 : volume*100}%)`}}
                     onChange={(e) => {
