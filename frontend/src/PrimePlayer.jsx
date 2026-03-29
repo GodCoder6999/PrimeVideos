@@ -55,31 +55,26 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         const fetchStreams = async () => {
             setLoading(true);
             try {
-                // Priority 1: Native HLS Streams (Vidsrc/Embed.su)
-                let fRes = await fetch(`/api/get-stream?tmdbId=${tmdbId}&mediaType=${mediaType}&season=${season}&episode=${episode}`);
-                const fData = await fRes.json();
-                
-                if (fData.success && fData.streamUrl) {
-                    loadStream(fData.streamUrl);
-                    return;
-                }
-
-                // Priority 2: Fallback Multi-Stream
+                // Priority 1: Multi-Stream (fetches dual/multi-audio sources first)
                 let mRes = await fetch(`/api/multi-stream?tmdbId=${tmdbId}&type=${mediaType}&season=${season}&episode=${episode}`);
                 const mData = await mRes.json();
 
                 if (mData.success && mData.streams && mData.streams.length > 0) {
                     setSources(mData.streams);
-                    let defaultSource = mData.streams.find(s => s.language?.toLowerCase().includes('english')) || mData.streams[0]; 
-                    
-                    const initialLangs = parseLanguages(defaultSource.language);
-                    let defaultUiLang = initialLangs[0] || 'Unknown';
-                    const isDual = defaultSource.language.includes('+') || defaultSource.language.toLowerCase().includes('dual');
-                    if (isDual) defaultUiLang = 'Hindi';
-
-                    setCurrentUrlLanguage(defaultUiLang);
+                    // API already sorts multi-audio first; pick the top result as default
+                    const defaultSource = mData.streams[0];
+                    setCurrentUrlLanguage(defaultSource.language);
                     setCurrentUrlQuality(defaultSource.quality || 'Auto');
-                    loadStream(defaultSource.url);
+                    loadStream(defaultSource.url, defaultSource);
+                    return;
+                }
+
+                // Priority 2: Fallback to single-source streams (Vidsrc/Embed.su)
+                let fRes = await fetch(`/api/get-stream?tmdbId=${tmdbId}&mediaType=${mediaType}&season=${season}&episode=${episode}`);
+                const fData = await fRes.json();
+
+                if (fData.success && fData.streamUrl) {
+                    loadStream(fData.streamUrl);
                     return;
                 }
 
@@ -98,7 +93,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         };
     }, [tmdbId, mediaType, season, episode]);
 
-    const loadStream = (rawUrl) => {
+    const loadStream = (rawUrl, sourceMeta = null) => {
         const video = videoRef.current;
         if (!video) return;
         
@@ -126,29 +121,38 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 setNativeQualities(availableLevels);
                 setCurrentNativeQuality(-1);
                 
-                // FIXED: Always create audio track options
                 let audioTracks = [];
                 if (hls.audioTracks && hls.audioTracks.length > 0) {
+                    // Real HLS multi-audio tracks detected - use them directly
                     audioTracks = hls.audioTracks;
+                } else if (sourceMeta?.isMultiAudio) {
+                    // Multi-audio stream but manifest didn't expose separate tracks.
+                    // Create synthetic entries from the language field so the UI can
+                    // still offer URL-based language switching to the user.
+                    const langs = parseLanguages(sourceMeta.language);
+                    audioTracks = langs.map((lang, idx) => ({
+                        id: idx,
+                        name: lang,
+                        language: lang.toLowerCase().slice(0, 3),
+                        isSynthetic: true
+                    }));
                 } else {
-                    // Fallback: Create default options if HLS doesn't expose tracks
-                    audioTracks = [
-                        { id: 0, name: 'English', language: 'en' },
-                        { id: 1, name: 'Hindi', language: 'hi' }
-                    ];
+                    audioTracks = [{ id: 0, name: 'Default Audio', language: 'und' }];
                 }
                 
                 setNativeAudioTracks(audioTracks);
                 
-                // Auto-select English if available
-                const engTrack = audioTracks.find(t => 
-                    t.language?.toLowerCase() === 'en' || 
-                    t.language?.toLowerCase() === 'eng' || 
-                    t.name?.toLowerCase().includes('english')
-                );
-                if (engTrack && hls) {
-                    hls.audioTrack = engTrack.id;
-                    setCurrentNativeAudio(engTrack.id);
+                // Auto-select English if available among real HLS tracks
+                if (hls.audioTracks && hls.audioTracks.length > 0) {
+                    const engTrack = audioTracks.find(t => 
+                        t.language?.toLowerCase() === 'en' || 
+                        t.language?.toLowerCase() === 'eng' || 
+                        t.name?.toLowerCase().includes('english')
+                    );
+                    if (engTrack) {
+                        hls.audioTrack = engTrack.id;
+                        setCurrentNativeAudio(engTrack.id);
+                    }
                 }
                 
                 if (currentTime > 0) video.currentTime = currentTime;
@@ -212,7 +216,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     };
 
     // --- Dynamic Options Maps ---
-    const hasNativeAudio = nativeAudioTracks && nativeAudioTracks.length > 0;
+    const hasRealNativeAudio = nativeAudioTracks && nativeAudioTracks.length > 0 && !nativeAudioTracks[0]?.isSynthetic;
     const urlLanguages = useMemo(() => {
         const langs = new Set();
         sources.forEach(src => parseLanguages(src.language).forEach(l => langs.add(l)));
@@ -221,14 +225,17 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
 
     let displayAudioOptions = [];
 
-    if (hasNativeAudio) {
-        // Show native HLS audio tracks
+    if (hasRealNativeAudio) {
+        // Show real HLS audio tracks (native switching)
         displayAudioOptions = nativeAudioTracks.map(t => ({ 
             id: t.id, 
             label: t.name || t.language || `Track ${t.id}`, 
             isNative: true 
         }));
-    } 
+    } else if (nativeAudioTracks && nativeAudioTracks.length > 0 && nativeAudioTracks[0]?.isSynthetic) {
+        // Synthetic tracks from multi-audio language detection → URL-based switching
+        displayAudioOptions = nativeAudioTracks.map(t => ({ id: t.name, label: t.name, isNative: false }));
+    }
 
     if (displayAudioOptions.length === 0 && urlLanguages.length > 0) {
         // Fallback to URL-based languages
@@ -240,7 +247,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         displayAudioOptions = [{ id: 'default', label: 'Default Audio', isNative: false }];
     }
 
-    const currentAudioLabel = hasNativeAudio 
+    const currentAudioLabel = hasRealNativeAudio 
         ? (nativeAudioTracks.find(t => t.id === currentNativeAudio)?.name || 
            nativeAudioTracks.find(t => t.id === currentNativeAudio)?.language || 'Auto') 
         : currentUrlLanguage;
@@ -310,10 +317,23 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             if (targetStream && targetStream.url !== currentUrl) {
                 setLoading(true);
                 setCurrentUrlQuality(targetStream.quality || 'Auto');
-                loadStream(targetStream.url);
+                loadStream(targetStream.url, targetStream);
                 showToast(`✅ Switched to ${opt.id}`);
+            } else if (hlsRef.current && hlsRef.current.audioTracks && hlsRef.current.audioTracks.length > 0) {
+                // No separate URL available — try HLS native track switching as fallback
+                const hlsTrack = hlsRef.current.audioTracks.find(t =>
+                    t.name?.toLowerCase().includes(opt.id.toLowerCase()) ||
+                    t.language?.toLowerCase().startsWith(opt.id.toLowerCase().slice(0, 3))
+                );
+                if (hlsTrack) {
+                    hlsRef.current.audioTrack = hlsTrack.id;
+                    setCurrentNativeAudio(hlsTrack.id);
+                    showToast(`✅ Switched to ${opt.id}`);
+                } else {
+                    showToast(`⚠️ No ${opt.id} stream available.`);
+                }
             } else {
-                showToast(`⚠️ No ${opt.id} stream available. Showing available options.`);
+                showToast(`⚠️ No ${opt.id} stream available.`);
             }
             setActivePanel('none');
         }
@@ -330,7 +350,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 setLoading(true);
                 setCurrentUrlLanguage(parseLanguages(match.language)[0] || 'Unknown');
                 setCurrentUrlQuality(match.quality);
-                loadStream(match.url);
+                loadStream(match.url, match);
             }
         }
         setActivePanel('none');
