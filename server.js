@@ -1,7 +1,15 @@
 import express from 'express';
 import axios from 'axios';
 import cors from 'cors';
-import { URL } from 'url';
+import { URL, fileURLToPath } from 'url';
+import path from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Import CommonJS API handlers via dynamic import (interop: module.exports → .default)
+const { default: proxyHandler } = await import('./api/proxy.js');
+const { default: multiStreamHandler } = await import('./api/multi-stream.js');
 
 const app = express();
 app.use(cors({ origin: '*' }));
@@ -99,5 +107,17 @@ app.get('/api/proxy-stream', async (req, res) => {
         res.status(500).send("Proxy Error");
     }
 });
+
+// --- PROXY (normalised name — same handler as proxy-stream) ---
+app.get('/api/proxy', proxyHandler);
+app.options('/api/proxy', (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Range');
+    res.status(200).end();
+});
+
+// --- MULTI-STREAM AGGREGATOR ---
+app.get('/api/multi-stream', multiStreamHandler);
 
 app.listen(3000, () => console.log('🚀 100% Resilient Server Live'));
