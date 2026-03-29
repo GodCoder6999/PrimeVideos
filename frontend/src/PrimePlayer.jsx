@@ -15,6 +15,12 @@ const parseLanguages = (langStr) => {
     return langStr.split(/(?:\+|\||,|and|&|\/)/i).map(l => l.trim()).filter(Boolean);
 };
 
+const fetchWithTimeout = (url, timeoutMs = 20000) => {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeoutMs);
+    return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(id));
+};
+
 const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onClose, title = "Prime Video" }) => {
     const videoRef = useRef(null);
     const playerContainerRef = useRef(null);
@@ -56,19 +62,29 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             setLoading(true);
             try {
                 // Priority 1: Native HLS Streams (Vidsrc/Embed.su)
-                let fRes = await fetch(`/api/get-stream?tmdbId=${tmdbId}&mediaType=${mediaType}&season=${season}&episode=${episode}`);
-                const fData = await fRes.json();
+                let fData = null;
+                try {
+                    let fRes = await fetchWithTimeout(`/api/get-stream?tmdbId=${tmdbId}&mediaType=${mediaType}&season=${season}&episode=${episode}`);
+                    fData = await fRes.json();
+                } catch (e) {
+                    console.warn('[PrimePlayer] get-stream failed:', e.message);
+                }
                 
-                if (fData.success && fData.streamUrl) {
+                if (fData?.success && fData.streamUrl) {
                     loadStream(fData.streamUrl);
                     return;
                 }
 
                 // Priority 2: Fallback Multi-Stream
-                let mRes = await fetch(`/api/multi-stream?tmdbId=${tmdbId}&type=${mediaType}&season=${season}&episode=${episode}`);
-                const mData = await mRes.json();
+                let mData = null;
+                try {
+                    let mRes = await fetchWithTimeout(`/api/multi-stream?tmdbId=${tmdbId}&type=${mediaType}&season=${season}&episode=${episode}`);
+                    mData = await mRes.json();
+                } catch (e) {
+                    console.warn('[PrimePlayer] multi-stream failed:', e.message);
+                }
 
-                if (mData.success && mData.streams && mData.streams.length > 0) {
+                if (mData?.success && mData.streams && mData.streams.length > 0) {
                     setSources(mData.streams);
                     let defaultSource = mData.streams.find(s => s.language?.toLowerCase().includes('english')) || mData.streams[0]; 
                     
@@ -83,7 +99,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                     return;
                 }
 
-                throw new Error("No playable streams found across any provider.");
+                throw new Error("No playable streams found. The content may not be available from any provider right now.");
             } catch (err) {
                 setError(err.message || "Failed to load stream.");
                 setLoading(false);
@@ -101,6 +117,13 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     const loadStream = (rawUrl) => {
         const video = videoRef.current;
         if (!video) return;
+
+        // Validate URL before attempting playback
+        if (!rawUrl || typeof rawUrl !== 'string' || rawUrl.trim() === '') {
+            setError("Invalid stream URL received from server.");
+            setLoading(false);
+            return;
+        }
         
         setError(null);
         setLoading(true);
@@ -111,6 +134,10 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         if (Hls.isSupported() && rawUrl.includes('.m3u8')) {
             const hls = new Hls({ 
                 maxMaxBufferLength: 60,
+                manifestLoadingTimeOut: 20000,
+                manifestLoadingMaxRetry: 3,
+                levelLoadingTimeOut: 20000,
+                fragLoadingTimeOut: 20000,
                 xhrSetup: (xhr, url) => {
                     if (!url.includes('/api/proxy')) xhr.open('GET', `/api/proxy?url=${encodeURIComponent(url)}`, true);
                 }
@@ -151,8 +178,14 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             
             hls.on(Hls.Events.ERROR, (e, data) => {
                 if (data.fatal) {
-                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
-                    else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                        hls.startLoad();
+                    } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                        hls.recoverMediaError();
+                    } else {
+                        setError("Stream failed to load. The source may be unavailable.");
+                        setLoading(false);
+                    }
                 }
             });
         } else {
@@ -164,7 +197,14 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             }, { once: true });
             
             video.addEventListener('error', () => {
-                setError("Stream is currently offline or unsupported.");
+                const code = video.error?.code;
+                const messages = {
+                    1: "Playback aborted by the browser.",
+                    2: "Network error while loading stream.",
+                    3: "Stream decoding failed — format may be unsupported.",
+                    4: "Stream format is not supported by this browser.",
+                };
+                setError(messages[code] || "Stream is currently offline or unavailable.");
                 setLoading(false);
             }, { once: true });
         }

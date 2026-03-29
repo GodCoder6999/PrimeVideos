@@ -48,10 +48,10 @@ module.exports = async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Range');
 
-    if (req.method === 'OPTIONS') { res.status(200).end(); return; }
+    if (req.method === 'OPTIONS') { res.statusCode = 200; res.end(); return; }
 
     const targetUrl = req.query.url;
-    if (!targetUrl) return res.status(400).send('Target URL is required');
+    if (!targetUrl) { res.statusCode = 400; return res.end('Target URL is required'); }
 
     try {
         // Standard Desktop Chrome Headers (Crucial for EmbedSU and VidSrc)
@@ -82,7 +82,7 @@ module.exports = async function handler(req, res) {
             }
         });
 
-        res.status(response.status);
+        res.statusCode = response.status;
 
         if (isM3u8) {
             const proto = (req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
@@ -93,13 +93,14 @@ module.exports = async function handler(req, res) {
             res.setHeader('Cache-Control', 'no-cache');
 
             const rewrittenManifest = rewriteManifest(response.data, targetUrl, proxyBase);
-            return res.send(rewrittenManifest);
+            return res.end(rewrittenManifest);
         } else {
             return response.data.pipe(res);
         }
 
     } catch (error) {
         console.error('Proxy Error on Target:', targetUrl, '| Detail:', error.message);
-        res.status(500).send('Failed to proxy content');
+        res.statusCode = 500;
+        res.end('Failed to proxy content');
     }
 };

@@ -198,8 +198,8 @@ module.exports = async function handler(req, res) {
       if (list.length) addExtractors(list);
     });
 
-    // Safety timeout: resolve null after 9s regardless
-    setTimeout(() => resolve(null), 9000);
+    // Safety timeout: resolve null after 15s regardless
+    setTimeout(() => resolve(null), 15000);
   });
 
   const imdbId = await imdbPromise;

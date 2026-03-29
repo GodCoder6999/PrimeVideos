@@ -7,13 +7,18 @@ const PROXIES = [
 
 async function fetchSafely(targetUrl) {
     for (const proxyGen of PROXIES) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
         try {
             const res = await fetch(proxyGen(targetUrl), {
                 headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-                signal: AbortSignal.timeout(8000), // Fast timeout so we don't hold up the player
+                signal: controller.signal,
             });
+            clearTimeout(timeoutId);
             if (res.ok) return JSON.parse(await res.text());
-        } catch (e) {}
+        } catch (e) {
+            clearTimeout(timeoutId);
+        }
     }
     return null;
 }
@@ -62,8 +67,16 @@ const QUALITY_RANK = { '4K': 5, '1080p': 4, '720p': 3, '480p': 2, 'Auto': 1 };
 
 module.exports = async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    res.setHeader('Content-Type', 'application/json');
+    if (req.method === 'OPTIONS') { res.statusCode = 200; return res.end(); }
+
     const { tmdbId, type = 'movie', season = '1', episode = '1' } = req.query;
-    if (!tmdbId) return res.status(400).json({ success: false, error: 'tmdbId required' });
+    if (!tmdbId) {
+        res.statusCode = 400;
+        return res.end(JSON.stringify({ success: false, error: 'tmdbId required' }));
+    }
 
     const proto  = (req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
     const host   = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
@@ -74,7 +87,10 @@ module.exports = async function handler(req, res) {
         const tmdbData = await fetchSafely(`https://api.themoviedb.org/3/${type}/${tmdbId}/external_ids?api_key=${TMDB_KEY}`);
         imdbId = tmdbData?.imdb_id;
     } catch (e) {}
-    if (!imdbId) return res.json({ success: false, error: 'No IMDB ID found for this title.' });
+    if (!imdbId) {
+        res.statusCode = 200;
+        return res.end(JSON.stringify({ success: false, error: 'No IMDB ID found for this title.' }));
+    }
 
     const endpoints = buildEndpoints(imdbId, season, episode);
     const rawStreams = [];
@@ -113,8 +129,10 @@ module.exports = async function handler(req, res) {
     });
 
     if (deduped.length > 0) {
-        return res.json({ success: true, streams: deduped });
+        res.statusCode = 200;
+        return res.end(JSON.stringify({ success: true, streams: deduped }));
     }
 
-    return res.json({ success: false, error: 'No playable streams found.' });
+    res.statusCode = 200;
+    return res.end(JSON.stringify({ success: false, error: 'No playable streams found.' }));
 };
