@@ -20,6 +20,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
     const playerContainerRef = useRef(null);
     const hlsRef = useRef(null);
     const controlsTimeoutRef = useRef(null);
+    const sourcesRef = useRef([]);
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -70,6 +71,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
 
                 if (mData.success && mData.streams && mData.streams.length > 0) {
                     setSources(mData.streams);
+                    sourcesRef.current = mData.streams;
                     let defaultSource = mData.streams.find(s => s.language?.toLowerCase().includes('english')) || mData.streams[0]; 
                     
                     const initialLangs = parseLanguages(defaultSource.language);
@@ -104,11 +106,22 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
         
         setError(null);
         setLoading(true);
+        setCurrentUrl(rawUrl);
         if (hlsRef.current) hlsRef.current.destroy();
 
         const proxiedUrl = rawUrl.includes('/api/proxy') ? rawUrl : `/api/proxy?url=${encodeURIComponent(rawUrl)}`;
 
-        if (Hls.isSupported() && rawUrl.includes('.m3u8')) {
+        // Decode proxy-wrapped URLs to check the original for HLS detection
+        let originalUrl = rawUrl;
+        if (rawUrl.includes('/api/proxy?url=')) {
+            try {
+                const params = new URLSearchParams(rawUrl.split('?').slice(1).join('?'));
+                originalUrl = decodeURIComponent(params.get('url') || rawUrl);
+            } catch (_) {}
+        }
+        const isHls = Hls.isSupported() && originalUrl.includes('.m3u8');
+
+        if (isHls) {
             const hls = new Hls({ 
                 maxMaxBufferLength: 60,
                 xhrSetup: (xhr, url) => {
@@ -177,8 +190,15 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                             break;
                         default:
                             console.error('Fatal error:', data);
-                            setError('Stream failed to load. The source may be offline or unavailable.');
-                            setLoading(false);
+                            // Try next source from multi-stream fallback list
+                            const nextSrc = sourcesRef.current.find(s => s.url !== rawUrl);
+                            if (nextSrc) {
+                                console.log('HLS fatal: trying fallback source', nextSrc.source);
+                                loadStream(nextSrc.url);
+                            } else {
+                                setError('Stream failed to load. The source may be offline or unavailable.');
+                                setLoading(false);
+                            }
                             break;
                     }
                 }
@@ -201,9 +221,16 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
             const handleError = () => {
                 const errorMsg = `Stream loading failed. Status: ${video.error?.code || 'Unknown'}. ${video.error?.message || ''}`;
                 console.error(errorMsg);
-                setError('Stream is currently offline or unsupported. Try another quality/language.');
-                setLoading(false);
                 video.removeEventListener('error', handleError);
+                // Try next source from multi-stream fallback list
+                const nextSrc = sourcesRef.current.find(s => s.url !== rawUrl);
+                if (nextSrc) {
+                    console.log('MP4 error: trying fallback source', nextSrc.source);
+                    loadStream(nextSrc.url);
+                } else {
+                    setError('Stream is currently offline or unsupported. Try another quality/language.');
+                    setLoading(false);
+                }
             };
             
             video.addEventListener('loadedmetadata', handleLoadedMetadata);
@@ -392,8 +419,8 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
                 :root {
                     --bg: #000;
-                    --panel-bg: #1a1d21;
-                    --panel-border: #2e3239;
+                    --panel-bg: rgba(26, 29, 33, 0.75);
+                    --panel-border: rgba(255, 255, 255, 0.08);
                     --text-primary: #fff;
                     --text-secondary: #8b8f97;
                     --accent-blue: #1a98ff;
@@ -464,7 +491,7 @@ const PrimePlayer = ({ tmdbId, mediaType = 'movie', season = 1, episode = 1, onC
                 #play-pause-btn svg { color: #000; width: 24px; height: 24px; }
 
                 /* PANELS */
-                .panel-base { position: absolute; top: 60px; right: 16px; width: 320px; background: var(--panel-bg); border-radius: 8px; overflow: hidden; z-index: 100; display: none; animation: slideDown 0.18s ease; }
+                .panel-base { position: absolute; top: 60px; right: 16px; width: 320px; background: var(--panel-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--panel-border); border-radius: 8px; overflow: hidden; z-index: 100; display: none; animation: slideDown 0.18s ease; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
                 .panel-base.open { display: block; }
                 @keyframes slideDown { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
                 
