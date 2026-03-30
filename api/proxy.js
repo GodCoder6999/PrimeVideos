@@ -64,16 +64,21 @@ module.exports = async function handler(req, res) {
             headers['Range'] = req.headers.range;
         }
 
-        const isM3u8 = targetUrl.includes('.m3u8');
+        const isM3u8Url = targetUrl.toLowerCase().includes('.m3u8');
 
         const response = await axios({
             method: 'get',
             url: targetUrl,
             headers: headers,
-            responseType: isM3u8 ? 'text' : 'stream',
+            responseType: isM3u8Url ? 'text' : 'stream',
             validateStatus: status => status >= 200 && status < 400,
             timeout: 20000 
         });
+
+        const contentType = (response.headers['content-type'] || '').toLowerCase();
+        const isM3u8 = isM3u8Url ||
+            contentType.includes('mpegurl') ||
+            (typeof response.data === 'string' && response.data.trimStart().startsWith('#EXTM3U'));
 
         const headersToForward = ['content-type', 'content-length', 'accept-ranges', 'content-range'];
         headersToForward.forEach(header => {
